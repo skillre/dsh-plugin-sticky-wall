@@ -1,0 +1,23 @@
+{
+  "indexUrl": "https://skillre.github.io/dsh-plugin-market/index.json",
+  "package": "@skillre/dsh-plugin-sticky-wall",
+  "checks": [
+    "live-index-fetched",
+    "live-index-lists-plugin",
+    "install-spec-derived",
+    "live-icon-reachable",
+    "market-spec-installed",
+    "dependency-and-selection",
+    "dump-config",
+    "bounded-startup",
+    "route-live"
+  ],
+  "cleanup": {
+    "processesStopped": true,
+    "rootRemoved": true,
+    "verified": true
+  },
+  "spec": "git+https://github.com/skillre/dsh-plugin-sticky-wall.git#ab5cb5babaa18f73d5ad3aa8d555d3a9b321385c",
+  "version": "0.1.0",
+  "notes": 1
+}

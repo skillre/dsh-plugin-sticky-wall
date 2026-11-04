@@ -56,15 +56,26 @@
 
 开发与测试完成后，**由用户本人**在 DSH Desktop Client 或 Web UI 的 **Plugins / 插件管理**界面选择来源并确认安装、启用，开发者或 agent 不在用户 profile 中代装。
 
-- 已发布时：在安装对话框输入 npm 包规格 `@skillre/dsh-plugin-sticky-wall@<version>`。
+- **已加入插件市场**：在 **Plugins → Discover → Index sources** 添加 `https://skillre.github.io/dsh-plugin-market/index.json`（需先启用实验包 *Custom plugin markets*），然后在 Discover 里直接安装本插件。
+- 已发布到 npm 时：在安装对话框输入 npm 包规格 `@skillre/dsh-plugin-sticky-wall@<version>`。
 - 未发布时：可提供已构建产物的 `.tgz` 绝对路径，前提是先核实该管理器接受此来源且包可安装。
-- GitHub 仓库 URL 只有在目标管理器支持、且仓库具备安全自包含的 `prepare` 构建并经验证后才可作为来源。
+- 本仓库是**自包含**的 Git 源：`lib/` 构建产物已提交，且不声明 `scripts.prepare`，因此安装不触发构建脚本。对应的固定 spec 形如 `git+https://github.com/skillre/dsh-plugin-sticky-wall.git#<commit>`，已实测可安装。
 
 ## 更新与回滚
 
 - 更新：在同一插件管理界面选择新版本安装；Host 行配置保持不变，便签数据不受影响。
 - 回滚：安装回已知可用的旧版本。数据域带 `version` 字段，向后兼容只发生在同版本；跨版本降级前先备份 `$DSH_HOME/storages` 下的该域目录。
 - 卸载：见 [UNINSTALL.md](UNINSTALL.md)。卸载插件**不会**自动删除便签数据。
+
+## 插件市场
+
+本插件已发布到由本舰队生成的插件市场索引：
+
+- 索引：`https://skillre.github.io/dsh-plugin-market/index.json`
+- 条目：`@skillre/dsh-plugin-sticky-wall@0.1.0`，来源为 commit-pinned Git（`ab5cb5b`）
+- 图标：`https://skillre.github.io/dsh-plugin-market/icons/sticky-wall.svg`
+
+安装路径已实测：从线上索引取 spec → 装进隔离 profile → `--dump-config` → 有界启动 → 路由可用（证据见 `docs/evidence/market-install-0.1.0.json`）。
 
 ## 已知限制
 

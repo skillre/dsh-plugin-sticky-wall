@@ -56,15 +56,26 @@ Override by row id in the profile's `cordis.patch.yml` (a patch replaces the who
 
 After development and test cleanup, **the user** chooses the source and confirms install/enable in the DSH Desktop Client or Web UI **Plugins** manager; no developer or agent preinstalls it into the user's profile.
 
-- Published: enter the npm spec `@skillre/dsh-plugin-sticky-wall@<version>` in the install dialog.
+- **In the plugin market**: add `https://skillre.github.io/dsh-plugin-market/index.json` under **Plugins → Discover → Index sources** (enable the experimental *Custom plugin markets* bundle first), then install the plugin from Discover.
+- Published to npm: enter the npm spec `@skillre/dsh-plugin-sticky-wall@<version>` in the install dialog.
 - Not published: an absolute path to a built `.tgz` may be offered only after verifying that this manager accepts the source and the artifact is installable.
-- A GitHub repository URL is a candidate only when the manager supports it and the repository ships a safe, self-contained, verified `prepare` build.
+- This repository is a **self-contained** Git source: the built `lib/` output is committed and no `scripts.prepare` is declared, so an install runs no build script. The pinned spec looks like `git+https://github.com/skillre/dsh-plugin-sticky-wall.git#<commit>` and has been verified installable.
 
 ## Update and rollback
 
 - Update: install the newer version in the same manager. The Host row config and note data are preserved.
 - Rollback: install the last known-good version. The domain carries a `version` field and compatibility only holds within the same version; back up the domain directory under `$DSH_HOME/storages` before downgrading.
 - Uninstall: see [UNINSTALL.md](UNINSTALL.md). Uninstalling the plugin does **not** delete note data automatically.
+
+## Plugin market
+
+The plugin is published to the market index this fleet generates:
+
+- Index: `https://skillre.github.io/dsh-plugin-market/index.json`
+- Entry: `@skillre/dsh-plugin-sticky-wall@0.1.0`, commit-pinned Git source (`ab5cb5b`)
+- Icon: `https://skillre.github.io/dsh-plugin-market/icons/sticky-wall.svg`
+
+The install path was verified end to end: derive the spec from the live index, install into an isolated profile, `--dump-config`, bounded startup, live route (evidence in `docs/evidence/market-install-0.1.0.json`).
 
 ## Known limitations
 

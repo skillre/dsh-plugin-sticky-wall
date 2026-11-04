@@ -84,7 +84,8 @@
     "release:prepare": "node scripts/prepare-release.mjs",
     "prepack": "npm run build",
     "build:client": "node scripts/build-client.mjs",
-    "test:integration": "node scripts/verify-isolated.mjs"
+    "test:integration": "node scripts/verify-isolated.mjs",
+    "test:market": "node scripts/verify-market-install.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.5"
