@@ -72,7 +72,7 @@
 本插件已发布到由本舰队生成的插件市场索引：
 
 - 索引：`https://skillre.github.io/dsh-plugin-market/index.json`
-- 条目：`@skillre/dsh-plugin-sticky-wall@0.1.0`，来源为 commit-pinned Git（`ab5cb5b`）
+- 条目：`@skillre/dsh-plugin-sticky-wall@0.1.0`，来源为 commit-pinned Git（`c037397`）
 - 图标：`https://skillre.github.io/dsh-plugin-market/icons/sticky-wall.svg`
 
 安装路径已实测：从线上索引取 spec → 装进隔离 profile → `--dump-config` → 有界启动 → 路由可用（证据见 `docs/evidence/market-install-0.1.0.json`）。
