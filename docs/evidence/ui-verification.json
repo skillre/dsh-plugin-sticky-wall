@@ -1,0 +1,89 @@
+{
+  "capturedAt": "2026-11-04T06:33:09.415Z",
+  "viewport": "1440x900@2x",
+  "locale": "zh",
+  "screenshots": [
+    "docs/evidence/sticky-wall-zh.png",
+    "docs/evidence/sticky-wall-note-created.png",
+    "docs/evidence/sticky-wall-composer.png",
+    "docs/evidence/sticky-wall-archived.png",
+    "docs/evidence/sticky-wall-dark.png"
+  ],
+  "results": [
+    {
+      "check": "shell-overlays-dismissed",
+      "ok": true,
+      "detail": "0 overlay control(s) used"
+    },
+    {
+      "check": "sidebar-entry-present",
+      "ok": true,
+      "detail": "aria-label 便签墙"
+    },
+    {
+      "check": "sidebar-entry-selects-panel",
+      "ok": true,
+      "detail": "aria-current=便签墙"
+    },
+    {
+      "check": "wall-page-mounted",
+      "ok": true,
+      "detail": "title=便签墙"
+    },
+    {
+      "check": "welcome-note-seeded",
+      "ok": true,
+      "detail": "1 note card(s)"
+    },
+    {
+      "check": "zh-copy",
+      "ok": true,
+      "detail": "随手记下一闪而过的灵感，和临时的活儿。"
+    },
+    {
+      "check": "composer-opens",
+      "ok": true,
+      "detail": "6 swatches"
+    },
+    {
+      "check": "composer-save-creates-note",
+      "ok": true,
+      "detail": "notes=2 colors=yellow,blue error=none"
+    },
+    {
+      "check": "pin-action-sorts-note-first",
+      "ok": true,
+      "detail": "first=★\n✎\n▤\n✕\nUI 验证\n\n验证便签：来自真实 Web U"
+    },
+    {
+      "check": "search-filters-wall",
+      "ok": true,
+      "detail": "count label=1 张便签"
+    },
+    {
+      "check": "archive-hides-note",
+      "ok": true,
+      "detail": "visible notes=1"
+    },
+    {
+      "check": "show-archived-toggle",
+      "ok": true,
+      "detail": "archived cards=3"
+    },
+    {
+      "check": "note-persists-across-ui-reload",
+      "ok": true,
+      "detail": "cards=4 archived=3"
+    },
+    {
+      "check": "dark-theme-styles-note",
+      "ok": true,
+      "detail": "bg=rgb(33, 55, 75) ink=rgb(216, 233, 251)"
+    },
+    {
+      "check": "no-uncaught-errors",
+      "ok": true,
+      "detail": "0 recorded"
+    }
+  ]
+}

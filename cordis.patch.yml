@@ -1,0 +1,10 @@
+# One Host row for this bundle: it owns the durable note table (storage domain)
+# and the exact Connection route the sidebar panel renders from, and the Client
+# half of the same package registers the sidebar entry and the wall page.
+#
+# The user's profile may override this row's configuration (see README); every
+# key is optional and schema-validated at mount time.
+- insert:
+    - id: skillre-sticky-wall
+      name: '@skillre/dsh-plugin-sticky-wall'
+      config: {}
