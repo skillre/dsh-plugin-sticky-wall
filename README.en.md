@@ -72,7 +72,7 @@ After development and test cleanup, **the user** chooses the source and confirms
 The plugin is published to the market index this fleet generates:
 
 - Index: `https://skillre.github.io/dsh-plugin-market/index.json`
-- Entry: `@skillre/dsh-plugin-sticky-wall@0.1.0`, commit-pinned Git source (`c037397`)
+- Entry: `@skillre/dsh-plugin-sticky-wall@0.1.0`, commit-pinned Git source (`eb700ba`)
 - Icon: `https://skillre.github.io/dsh-plugin-market/icons/sticky-wall.svg`
 
 The install path was verified end to end: derive the spec from the live index, install into an isolated profile, `--dump-config`, bounded startup, live route (evidence in `docs/evidence/market-install-0.1.0.json`).
