@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-04T08:12:54.336Z",
+  "capturedAt": "2026-11-04T15:26:38.566Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -9,7 +9,7 @@
     "docs/evidence/sticky-wall-archived.png",
     "docs/evidence/sticky-wall-archive-filter.png",
     "docs/evidence/sticky-wall-dark.png",
-    "docs/evidence/sticky-wall-note-actions-fixed.png"
+    "docs/evidence/sticky-wall-note-actions-0.1.1.png"
   ],
   "results": [
     {
@@ -88,9 +88,9 @@
       "detail": "0 recorded"
     },
     {
-      "check": "note-actions-do-not-overlap-text",
+      "check": "note-actions-own-top-row",
       "ok": true,
-      "detail": "actions are static in the header row; title/body/footer measured with zero overlap"
+      "detail": "actions 18px on a dedicated top row (static), title gets 81% of card width, zero overlap with title/body"
     }
   ]
 }

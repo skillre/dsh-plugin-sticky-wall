@@ -212,14 +212,13 @@ function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
       aria-label={note.title || note.body.slice(0, 40)} tabIndex={0}
       onDoubleClick={() => onEdit(note)}>
       {/*
-        The actions live in the card's own header row rather than as an absolute
-        overlay: an overlay covered the title on long notes and could not be
-        reached without a pointer. The row always occupies its height, so
-        revealing the buttons on hover never reflows the text.
+        Two stacked rows: the actions own the top-right row, the title owns the
+        full-width row below it. Sharing one line made a long title wrap early
+        because the buttons ate the right side of the row, and an absolute
+        overlay covered the text outright. Each row is always rendered, so
+        nothing reflows on hover.
       */}
-      <div className="skw-note-head">
-        {note.title !== '' && <span className="skw-note-title">{note.title}</span>}
-        <span className="skw-spacer" />
+      <div className="skw-note-bar">
         <div className="skw-note-tools">
           <button className="skw-icon-btn" type="button" title={note.pinned ? t('unpin') : t('pin')}
             data-on={note.pinned} aria-label={note.pinned ? t('unpin') : t('pin')}
@@ -233,6 +232,7 @@ function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
           <button className="skw-icon-btn" type="button" title={t('delete')} aria-label={t('delete')} onClick={() => onRemove(note)}>✕</button>
         </div>
       </div>
+      {note.title !== '' && <div className="skw-note-head"><span className="skw-note-title">{note.title}</span></div>}
       <p className="skw-note-body is-clamped">{note.body}</p>
       {note.tags.length > 0 && <div className="skw-note-tags">{note.tags.map((tag) => <span key={tag} className="skw-tag">#{tag}</span>)}</div>}
       <div className="skw-note-foot">

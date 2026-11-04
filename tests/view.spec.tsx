@@ -159,36 +159,39 @@ describe('wall page', () => {
 })
 
 describe('note card layout', () => {
-  it('keeps the actions inside the header row instead of overlaying the text', async () => {
-    // Regression: the actions used to be an absolute overlay pinned to the
-    // card's top-right corner, which covered a long title and hid the body.
+  it('puts the actions on their own row so the title keeps the full width', async () => {
+    // Regression 1: an absolute overlay covered a long title.
+    // Regression 2: sharing one line made a long title wrap early, because the
+    // buttons consumed the right half of the row.
     const api = makeApi({
       list: async () => [makeNote({ title: '一个很长很长很长很长很长很长的便签标题', body: '正文' })],
     })
     render(<WallPage api={api} locale={locale} t={t} />)
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
     const card = document.querySelector('.skw-note')!
-    const head = card.querySelector('.skw-note-head')!
+    const bar = card.querySelector('.skw-note-bar')!
     const tools = card.querySelector('.skw-note-tools')!
-    // The actions belong to the header row, and are not absolutely positioned.
-    expect(head.contains(tools)).toBe(true)
-    expect(getComputedStyle(tools).position).not.toBe('absolute')
-    // The title and the actions are siblings in the same row, not stacked.
+    const head = card.querySelector('.skw-note-head')!
     const title = head.querySelector('.skw-note-title')!
+    // The actions sit in the top bar, never in the title row.
+    expect(bar.contains(tools)).toBe(true)
+    expect(head.contains(tools)).toBe(false)
     expect(head.contains(title)).toBe(true)
-    expect(title.parentElement).toBe(head)
-    // The header reserves height even while the actions are hidden on hover.
-    expect(getComputedStyle(head).minHeight).not.toBe('')
+    // Not absolutely positioned, so it cannot sit on top of the text.
+    expect(getComputedStyle(tools).position).not.toBe('absolute')
+    // The bar reserves height even while the buttons are hidden on hover.
+    expect(getComputedStyle(bar).minHeight).not.toBe('')
   })
 
-  it('leaves the body and footer outside the header row', async () => {
+  it('keeps the title row, body and footer out of the action bar', async () => {
     const api = makeApi()
     render(<WallPage api={api} locale={locale} t={t} />)
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
     const card = document.querySelector('.skw-note')!
-    const head = card.querySelector('.skw-note-head')!
-    expect(head.contains(card.querySelector('.skw-note-body'))).toBe(false)
-    expect(head.contains(card.querySelector('.skw-note-foot'))).toBe(false)
+    const bar = card.querySelector('.skw-note-bar')!
+    expect(bar.contains(card.querySelector('.skw-note-head'))).toBe(false)
+    expect(bar.contains(card.querySelector('.skw-note-body'))).toBe(false)
+    expect(bar.contains(card.querySelector('.skw-note-foot'))).toBe(false)
   })
 })
 
