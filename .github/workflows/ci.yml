@@ -39,6 +39,3 @@ jobs:
 
       - name: Verify source and publication view
         run: npm run check
-
-      - name: Verify committed build output matches source
-        run: git diff --exit-code -- lib

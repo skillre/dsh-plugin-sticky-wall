@@ -78,14 +78,15 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "npm run build:client && vitest run",
     "pack:check": "npm run build && publint && npm pack --dry-run --json --ignore-scripts",
-    "check": "npm run typecheck && npm test && npm run pack:check",
+    "check": "npm run typecheck && npm test && npm run check:lib && npm run pack:check",
     "changeset": "changeset",
     "version": "changeset version",
     "release:prepare": "node scripts/prepare-release.mjs",
     "prepack": "npm run build",
     "build:client": "node scripts/build-client.mjs",
     "test:integration": "node scripts/verify-isolated.mjs",
-    "test:market": "node scripts/verify-market-install.mjs"
+    "test:market": "node scripts/verify-market-install.mjs",
+    "check:lib": "npm run build && node scripts/verify-lib-committed.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.5"
