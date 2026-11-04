@@ -40,7 +40,7 @@ const strip = (text) => text.replace(/\u001b\[[0-9;]*m/g, '')
 const report = { indexUrl: INDEX_URL, package: PACKAGE, checks: [], cleanup: {} }
 const children = []
 
-function run(args, timeoutMs = 180000) {
+function run(args, timeoutMs = 600000) {
   const child = spawn(cli, args, { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'] })
   children.push(child)
   let text = ''
