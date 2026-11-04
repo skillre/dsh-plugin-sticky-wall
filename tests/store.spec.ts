@@ -140,6 +140,15 @@ describe('sticky-wall store', () => {
     await expect(store.remove(['nope'])).rejects.toMatchObject({ code: 'not-found' })
   })
 
+  it('rejects a batch with an unknown id without archiving any of it', async () => {
+    const store = await makeStore()
+    const first = await store.create({ body: 'first' })
+    await store.create({ body: 'second' })
+    // `first` is valid, `nope` is not: nothing may be written.
+    await expect(store.setArchived([first.id, 'nope'], true)).rejects.toMatchObject({ code: 'not-found' })
+    expect(store.list(true).every((note) => note.archived === false)).toBe(true)
+  })
+
   it('archives, restores and clears archived notes', async () => {
     const store = await makeStore()
     const keep = await store.create({ body: 'keep' })

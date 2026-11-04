@@ -253,16 +253,26 @@ export class StickyWallStore {
     return this.notes.update(id, () => next)
   }
 
-  /** Flip the archived flag on a batch; returns the notes that actually moved. */
+  /**
+   * Flip the archived flag on a batch; returns the notes that actually moved.
+   *
+   * Every id is resolved BEFORE the first write: a missing id rejects the whole
+   * request, so a bad batch cannot leave half the selection archived while the
+   * Client still believes the mutation failed.
+   */
   async setArchived(ids: string[], archived: boolean): Promise<Note[]> {
     this.assertOpen()
-    const changed: Note[] = []
-    for (const id of assertIds(ids)) {
+    const selected = assertIds(ids)
+    const targets: Note[] = []
+    for (const id of selected) {
       const current = this.notes.get(id) as Note | undefined
       if (current === undefined) throw new WallError('not-found', `No note with id ${JSON.stringify(id)}.`, { id })
-      if (current.archived === archived) continue
+      if (current.archived !== archived) targets.push(current)
+    }
+    const changed: Note[] = []
+    for (const current of targets) {
       const next: Note = { ...current, archived, updatedAt: this.now().toISOString() }
-      changed.push(await this.notes.update(id, () => next))
+      changed.push(await this.notes.update(current.id, () => next))
     }
     return changed
   }
