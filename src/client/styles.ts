@@ -46,20 +46,28 @@ export const WALL_CSS = `
 .skw-empty p { margin: 0 0 12px; }
 .skw-empty-icon { font-size: 28px; line-height: 1; display: block; margin-bottom: 10px; opacity: .7; }
 
-.skw-note { position: relative; display: flex; flex-direction: column; gap: 6px; min-height: 118px; padding: 12px 12px 10px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l1); box-shadow: 0 1px 2px var(--dsw-alias-bg-mask-2); cursor: default; transition: box-shadow .15s ease, transform .15s ease; }
+.skw-note { position: relative; display: flex; flex-direction: column; gap: 6px; min-height: 118px; padding: 10px 12px 10px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l1); box-shadow: 0 1px 2px var(--dsw-alias-bg-mask-2); cursor: default; transition: box-shadow .15s ease, transform .15s ease; }
 .skw-note:hover { box-shadow: 0 4px 14px var(--dsw-alias-bg-mask-2); transform: translateY(-1px); }
 .skw-note[data-archived="true"] { opacity: .72; }
 .skw-note[data-pinned="true"] { box-shadow: 0 2px 10px var(--dsw-alias-bg-mask-2); }
-.skw-note-head { display: flex; align-items: flex-start; gap: 6px; }
-.skw-note-title { font-size: 12.5px; line-height: 18px; font-weight: 600; overflow-wrap: anywhere; }
+/* Header row: title and actions share one in-flow line, so nothing overlaps.
+   It reserves its height even when the title is empty or the buttons are
+   hidden, which keeps hover from reflowing the body text. */
+.skw-note-head { display: flex; align-items: flex-start; gap: 6px; min-height: 24px; }
+.skw-note-head .skw-spacer { flex: 1; }
+.skw-note-title { font-size: 12.5px; line-height: 18px; font-weight: 600; overflow-wrap: anywhere; padding-top: 3px; }
 .skw-note-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 19px; flex: 1; }
 .skw-note-body.is-clamped { display: -webkit-box; -webkit-line-clamp: 9; -webkit-box-orient: vertical; overflow: hidden; }
 .skw-note-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .skw-tag { padding: 0 6px; height: 18px; line-height: 18px; border-radius: 9px; font-size: 11px; background: var(--dsw-alias-bg-mask-2); color: inherit; opacity: .85; }
 .skw-note-foot { display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 16px; opacity: .82; }
 .skw-note-foot .skw-spacer { flex: 1; }
-.skw-note-tools { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease; }
+/* In-flow, never absolute: the buttons can no longer sit on top of the text.
+   They fade in on hover/focus for calm cards, and stay visible where hover is
+   not a thing (touch/coarse pointers) so the actions remain reachable. */
+.skw-note-tools { display: flex; flex: none; gap: 2px; opacity: 0; transition: opacity .12s ease; }
 .skw-note:hover .skw-note-tools, .skw-note:focus-within .skw-note-tools { opacity: 1; }
+@media (hover: none) { .skw-note-tools { opacity: 1; } }
 .skw-icon-btn { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: var(--dsw-alias-bg-mask-2); color: inherit; cursor: pointer; }
 .skw-icon-btn:hover { background: var(--dsw-alias-bg-mask-3); }
 .skw-icon-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }

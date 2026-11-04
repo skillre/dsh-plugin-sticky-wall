@@ -8,7 +8,8 @@
     "docs/evidence/sticky-wall-composer.png",
     "docs/evidence/sticky-wall-archived.png",
     "docs/evidence/sticky-wall-archive-filter.png",
-    "docs/evidence/sticky-wall-dark.png"
+    "docs/evidence/sticky-wall-dark.png",
+    "docs/evidence/sticky-wall-note-actions-fixed.png"
   ],
   "results": [
     {
@@ -85,6 +86,11 @@
       "check": "no-uncaught-errors",
       "ok": true,
       "detail": "0 recorded"
+    },
+    {
+      "check": "note-actions-do-not-overlap-text",
+      "ok": true,
+      "detail": "actions are static in the header row; title/body/footer measured with zero overlap"
     }
   ]
 }

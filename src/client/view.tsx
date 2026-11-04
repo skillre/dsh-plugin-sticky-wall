@@ -211,19 +211,28 @@ function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
     <article className="skw-note" data-color={note.color} data-pinned={note.pinned} data-archived={note.archived}
       aria-label={note.title || note.body.slice(0, 40)} tabIndex={0}
       onDoubleClick={() => onEdit(note)}>
-      <div className="skw-note-tools">
-        <button className="skw-icon-btn" type="button" title={note.pinned ? t('unpin') : t('pin')}
-          data-on={note.pinned} aria-label={note.pinned ? t('unpin') : t('pin')}
-          onClick={() => onPatch(note, { pinned: !note.pinned })}>
-          <span className="skw-pin" aria-hidden="true">{note.pinned ? '★' : '☆'}</span>
-        </button>
-        <button className="skw-icon-btn" type="button" title={t('edit')} aria-label={t('edit')} onClick={() => onEdit(note)}>✎</button>
-        <button className="skw-icon-btn" type="button" title={note.archived ? t('restore') : t('archive')}
-          aria-label={note.archived ? t('restore') : t('archive')}
-          onClick={() => onPatch(note, { archived: !note.archived })}>{note.archived ? '↩' : '▤'}</button>
-        <button className="skw-icon-btn" type="button" title={t('delete')} aria-label={t('delete')} onClick={() => onRemove(note)}>✕</button>
+      {/*
+        The actions live in the card's own header row rather than as an absolute
+        overlay: an overlay covered the title on long notes and could not be
+        reached without a pointer. The row always occupies its height, so
+        revealing the buttons on hover never reflows the text.
+      */}
+      <div className="skw-note-head">
+        {note.title !== '' && <span className="skw-note-title">{note.title}</span>}
+        <span className="skw-spacer" />
+        <div className="skw-note-tools">
+          <button className="skw-icon-btn" type="button" title={note.pinned ? t('unpin') : t('pin')}
+            data-on={note.pinned} aria-label={note.pinned ? t('unpin') : t('pin')}
+            onClick={() => onPatch(note, { pinned: !note.pinned })}>
+            <span className="skw-pin" aria-hidden="true">{note.pinned ? '★' : '☆'}</span>
+          </button>
+          <button className="skw-icon-btn" type="button" title={t('edit')} aria-label={t('edit')} onClick={() => onEdit(note)}>✎</button>
+          <button className="skw-icon-btn" type="button" title={note.archived ? t('restore') : t('archive')}
+            aria-label={note.archived ? t('restore') : t('archive')}
+            onClick={() => onPatch(note, { archived: !note.archived })}>{note.archived ? '↩' : '▤'}</button>
+          <button className="skw-icon-btn" type="button" title={t('delete')} aria-label={t('delete')} onClick={() => onRemove(note)}>✕</button>
+        </div>
       </div>
-      {note.title !== '' && <div className="skw-note-head"><span className="skw-note-title">{note.title}</span></div>}
       <p className="skw-note-body is-clamped">{note.body}</p>
       {note.tags.length > 0 && <div className="skw-note-tags">{note.tags.map((tag) => <span key={tag} className="skw-tag">#{tag}</span>)}</div>}
       <div className="skw-note-foot">

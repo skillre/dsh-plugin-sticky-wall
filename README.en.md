@@ -17,6 +17,7 @@ Non-goals: task management (no scheduling, assignment or reminders), collaborati
 - **Sidebar entry** — a "Notes" glyph in `sidebar.panellist`; clicking it swaps the centre column to the wall.
 - **Quick capture** — "New" opens a note sheet with an optional title, required body, tags and six pastel colors.
 - **Pin and archive** — pinned notes always sort first; archived notes hide by default, the "Archive" filter fetches them on its own, and "Clear archive" is a permanent delete.
+- **Note actions** — hovering or keyboard-focusing a note reveals pin, edit, archive and delete beside its title; on touch devices they stay visible.
 - **Search and sort** — live filtering over body, title and tags; order by pinned, created or updated.
 - **Light and dark** — the frame uses only DSH theme tokens; note pastels are the plugin's own palette with dark variants.
 - **Bilingual** — follows the DSH GUI language live, without a reload.

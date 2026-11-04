@@ -5,6 +5,9 @@ release-artifact/
 .pnpm-store/
 .npm/
 .fleet/
+
+# Local UI-verification scratch (owned profile harness)
+.preview-*
 .env
 .env.*
 !.env.example

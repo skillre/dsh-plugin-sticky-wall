@@ -158,6 +158,40 @@ describe('wall page', () => {
   })
 })
 
+describe('note card layout', () => {
+  it('keeps the actions inside the header row instead of overlaying the text', async () => {
+    // Regression: the actions used to be an absolute overlay pinned to the
+    // card's top-right corner, which covered a long title and hid the body.
+    const api = makeApi({
+      list: async () => [makeNote({ title: '一个很长很长很长很长很长很长的便签标题', body: '正文' })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const card = document.querySelector('.skw-note')!
+    const head = card.querySelector('.skw-note-head')!
+    const tools = card.querySelector('.skw-note-tools')!
+    // The actions belong to the header row, and are not absolutely positioned.
+    expect(head.contains(tools)).toBe(true)
+    expect(getComputedStyle(tools).position).not.toBe('absolute')
+    // The title and the actions are siblings in the same row, not stacked.
+    const title = head.querySelector('.skw-note-title')!
+    expect(head.contains(title)).toBe(true)
+    expect(title.parentElement).toBe(head)
+    // The header reserves height even while the actions are hidden on hover.
+    expect(getComputedStyle(head).minHeight).not.toBe('')
+  })
+
+  it('leaves the body and footer outside the header row', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const card = document.querySelector('.skw-note')!
+    const head = card.querySelector('.skw-note-head')!
+    expect(head.contains(card.querySelector('.skw-note-body'))).toBe(false)
+    expect(head.contains(card.querySelector('.skw-note-foot'))).toBe(false)
+  })
+})
+
 describe('confirm dialog', () => {
   it('is a labelled modal that Escape dismisses', () => {
     const onCancel = vi.fn()
