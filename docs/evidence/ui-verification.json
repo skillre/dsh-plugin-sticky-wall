@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-04T06:33:09.415Z",
+  "capturedAt": "2026-11-04T08:12:54.336Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -7,6 +7,7 @@
     "docs/evidence/sticky-wall-note-created.png",
     "docs/evidence/sticky-wall-composer.png",
     "docs/evidence/sticky-wall-archived.png",
+    "docs/evidence/sticky-wall-archive-filter.png",
     "docs/evidence/sticky-wall-dark.png"
   ],
   "results": [
@@ -68,12 +69,12 @@
     {
       "check": "show-archived-toggle",
       "ok": true,
-      "detail": "archived cards=3"
+      "detail": "archived cards=1"
     },
     {
       "check": "note-persists-across-ui-reload",
       "ok": true,
-      "detail": "cards=4 archived=3"
+      "detail": "cards=2 archived=1"
     },
     {
       "check": "dark-theme-styles-note",

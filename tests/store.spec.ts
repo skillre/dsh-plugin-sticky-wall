@@ -149,6 +149,51 @@ describe('sticky-wall store', () => {
     expect(store.list(true).every((note) => note.archived === false)).toBe(true)
   })
 
+  it('refuses to restore past the cap from every write path', async () => {
+    const store = await makeStore({ maxNotes: 2 })
+    const keep = await store.create({ body: 'keep' })
+    const archived = await store.create({ body: 'archived' })
+    await store.setArchived([archived.id], true)
+    // Two live notes fill the cap exactly; a restore must not squeeze in.
+    await store.create({ body: 'filler' })
+    await expect(store.setArchived([archived.id], false)).rejects.toMatchObject({ code: 'wall-full' })
+    await expect(store.update(archived.id, { archived: false })).rejects.toMatchObject({ code: 'wall-full' })
+    expect(store.list(true).filter((note) => !note.archived)).toHaveLength(2)
+    expect(store.list(true).find((note) => note.id === archived.id)?.archived).toBe(true)
+    expect(store.list().some((note) => note.id === keep.id)).toBe(true)
+  })
+
+  it('serializes concurrent creates at the cap boundary', async () => {
+    const store = await makeStore({ maxNotes: 2 })
+    await store.create({ body: 'first' })
+    const results = await Promise.allSettled([store.create({ body: 'a' }), store.create({ body: 'b' })])
+    const fulfilled = results.filter((result) => result.status === 'fulfilled')
+    expect(fulfilled).toHaveLength(1)
+    expect(store.list()).toHaveLength(2)
+  })
+
+  it('rejects a delete batch naming a missing id without deleting any of it', async () => {
+    const store = await makeStore()
+    const first = await store.create({ body: 'first' })
+    const second = await store.create({ body: 'second' })
+    await expect(store.remove([first.id, 'nope'])).rejects.toMatchObject({ code: 'not-found' })
+    expect(store.list().map((note) => note.id).sort()).toEqual([first.id, second.id].sort())
+  })
+
+  it('returns an empty result when clearing a wall with nothing archived', async () => {
+    const store = await makeStore()
+    await store.create({ body: 'live' })
+    await expect(store.clearArchived()).resolves.toEqual([])
+  })
+
+  it('accepts exactly the bulk limit and rejects one more', async () => {
+    const store = await makeStore()
+    const created: string[] = []
+    for (let index = 0; index < LIMITS.bulk; index += 1) created.push((await store.create({ body: `note ${index}` })).id)
+    await expect(store.remove(created)).resolves.toHaveLength(LIMITS.bulk)
+    await expect(store.remove([...created, 'one-more'])).rejects.toMatchObject({ code: 'too-many-ids' })
+  })
+
   it('archives, restores and clears archived notes', async () => {
     const store = await makeStore()
     const keep = await store.create({ body: 'keep' })

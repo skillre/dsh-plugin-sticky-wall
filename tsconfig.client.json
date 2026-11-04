@@ -6,9 +6,21 @@
     "moduleResolution": "Bundler",
     "verbatimModuleSyntax": false,
     "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": []
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node",
+      "vitest/globals"
+    ]
   },
-  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "src/types.ts"],
+  "include": [
+    "src/client/**/*.ts",
+    "src/client/**/*.tsx",
+    "src/types.ts",
+    "tests/view.spec.tsx"
+  ],
   "exclude": []
 }

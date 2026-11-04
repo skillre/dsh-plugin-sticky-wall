@@ -16,7 +16,7 @@ Non-goals: task management (no scheduling, assignment or reminders), collaborati
 
 - **Sidebar entry** — a "Notes" glyph in `sidebar.panellist`; clicking it swaps the centre column to the wall.
 - **Quick capture** — "New" opens a note sheet with an optional title, required body, tags and six pastel colors.
-- **Pin and archive** — pinned notes always sort first; archived notes hide by default and can be restored or deleted.
+- **Pin and archive** — pinned notes always sort first; archived notes hide by default, the "Archive" filter fetches them on its own, and "Clear archive" is a permanent delete.
 - **Search and sort** — live filtering over body, title and tags; order by pinned, created or updated.
 - **Light and dark** — the frame uses only DSH theme tokens; note pastels are the plugin's own palette with dark variants.
 - **Bilingual** — follows the DSH GUI language live, without a reload.
@@ -48,7 +48,7 @@ Override by row id in the profile's `cordis.patch.yml` (a patch replaces the who
 
 | Key | Default | Meaning |
 |---|---|---|
-| `maxNotes` | `400` | Cap on live (non-archived) notes, 1–5000. Creating past the cap returns `sticky-wall/wall-full`; archive or delete first. |
+| `maxNotes` | `400` | Cap on live (non-archived) notes, 1–5000. Creating, unarchiving and batch-restoring all respect it; going over returns `sticky-wall/wall-full`, so archive or delete first. |
 | `enableAgentTool` | `true` | Whether to register the model-facing `sticky_wall` tool. |
 | `seedWelcomeNote` | `true` | Whether a brand-new empty wall gets one welcome note explaining the shortcuts. |
 
@@ -69,7 +69,9 @@ After development and test cleanup, **the user** chooses the source and confirms
 ## Known limitations
 
 - The wall is a scratchpad: body up to 4000 characters, title 120, up to 8 tags — hard limits.
-- Archived notes do not count against `maxNotes`, but "Clear archive" is a permanent, irreversible delete.
+- Archived notes do not occupy a `maxNotes` slot, but restoring them does; a restore at the cap is rejected instead of silently overshooting.
+- "Clear archive" is a permanent, irreversible delete.
+- Batch archive/delete is all-or-nothing: one unknown id in the request rejects the whole batch.
 - With several windows open, each fetches its own snapshot; the Host is the single source of truth, but no live push across windows.
 - Verified only against DSH `0.2.1-rc.5`; no other DSH line is claimed.
 

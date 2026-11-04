@@ -40,7 +40,9 @@ export interface WallActions {
   setArchived(ids: string[], archived: boolean): Promise<Note[]>
   remove(ids: string[]): Promise<string[]>
   clearArchived(): Promise<string[]>
-}const envelopeSchema = z.object({
+}
+
+const envelopeSchema = z.object({
   type: z.literal('client-request'),
   rpcId: z.string(),
   method: z.string(),
@@ -143,12 +145,12 @@ export function createExecuteRoute(ready: () => Promise<WallActions>): FetchRout
       if (contentType !== 'application/json') return new Response('content type must be application/json', { status: 415 })
       let body: unknown
       try {
-        request.signal.throwIfAborted()
         body = await request.json()
       } catch {
-        if (request.signal.aborted) return failure('invalid-request', 'cancelled', 'The request was cancelled before dispatch.')
+        if (request.signal.aborted) return failure(correlation(body), 'cancelled', 'The request was cancelled before dispatch.')
         return new Response('body is not JSON', { status: 400 })
       }
+      if (request.signal.aborted) return failure(correlation(body), 'cancelled', 'The request was cancelled before dispatch.')
       const envelope = envelopeSchema.safeParse(body)
       if (!envelope.success) return failure(correlation(body), 'bad-request', 'Invalid client-request message.')
       const message = envelope.data
@@ -162,10 +164,11 @@ export function createExecuteRoute(ready: () => Promise<WallActions>): FetchRout
         request.signal.throwIfAborted()
         return success(message.rpcId, await dispatch(await ready(), parsed.data as WallRequest))
       } catch (error) {
-        const code = error instanceof WallError ? error.code : request.signal.aborted ? 'cancelled' : 'internal'
-        const message = error instanceof Error ? error.message : String(error)
-        const details = error instanceof WallError ? error.details : {}
-        return failure(correlation(body), code, message.slice(0, 2000), details)
+        // A WallError is authored for the user; anything else is a Host fault
+        // whose text must not become UI copy (and must not leak backend detail).
+        if (error instanceof WallError) return failure(correlation(body), error.code, error.message.slice(0, 2000), error.details)
+        if (request.signal.aborted) return failure(correlation(body), 'cancelled', 'The request was cancelled.')
+        return failure(correlation(body), 'internal', 'The note wall hit an internal error; check the Host log.')
       }
     },
   }

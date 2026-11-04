@@ -142,6 +142,16 @@ function compareNotes(sort: 'pinned' | 'created' | 'updated') {
 export class StickyWallStore {
   private readonly notes: DomainTable
   private closed = false
+  /**
+   * Store-level mutation chain.
+   *
+   * The storage domain serializes its own writes, but a read-then-write pair
+   * (the `maxNotes` check followed by the `put`) is two steps: two concurrent
+   * creates at the boundary would both read the pre-write count and both
+   * succeed. Every mutation therefore runs on this chain, so each check and its
+   * write are one indivisible step.
+   */
+  private chain: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly domain: DomainHandle,
@@ -173,10 +183,39 @@ export class StickyWallStore {
     if (this.closed) throw new WallError('closed', 'The note wall is shutting down.')
   }
 
+  /** Queue one mutation so its checks and writes cannot interleave with another. */
+  private mutate<T>(job: () => Promise<T>): Promise<T> {
+    const result = this.chain.then(job)
+    this.chain = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
   private liveCount(): number {
     let count = 0
     for (const [, note] of this.notes.entries()) if (!(note as Note).archived) count += 1
     return count
+  }
+
+  /**
+   * Reject a write that would take the live (non-archived) note count past
+   * `maxNotes`.
+   *
+   * Every path that can make a note live goes through this — `create`, an
+   * `update` that unarchives, and a batch restore — because the documented cap
+   * is an invariant of the wall, not a hint on the create form.
+   */
+  private assertRoom(incomingLive: number): void {
+    if (incomingLive <= 0) return
+    const projected = this.liveCount() + incomingLive
+    if (projected > this.maxNotes) {
+      throw new WallError('wall-full', `The wall already holds ${this.maxNotes} notes; archive or delete one first.`, {
+        limit: this.maxNotes,
+        projected,
+      })
+    }
   }
 
   /** Write the one-time welcome note on a brand-new wall. */
@@ -212,11 +251,13 @@ export class StickyWallStore {
   /** Create one note from a Client or agent submission. */
   async create(input: NoteInput, id?: string): Promise<Note> {
     this.assertOpen()
+    return this.mutate(() => this.createNow(input, id))
+  }
+
+  private async createNow(input: NoteInput, id?: string): Promise<Note> {
     const body = normalizeBody(input?.body)
     const title = normalizeTitle(input?.title)
-    if (this.liveCount() >= this.maxNotes) {
-      throw new WallError('wall-full', `The wall already holds ${this.maxNotes} notes; archive or delete one first.`, { limit: this.maxNotes })
-    }
+    this.assertRoom(1)
     const stamp = this.now().toISOString()
     const note: Note = {
       id: id ?? globalThis.crypto.randomUUID(),
@@ -237,6 +278,10 @@ export class StickyWallStore {
   /** Apply one patch; `updatedAt` moves only when a field actually changed. */
   async update(id: string, patch: NotePatch): Promise<Note> {
     this.assertOpen()
+    return this.mutate(() => this.updateNow(id, patch))
+  }
+
+  private async updateNow(id: string, patch: NotePatch): Promise<Note> {
     const current = this.notes.get(id) as Note | undefined
     if (current === undefined) throw new WallError('not-found', `No note with id ${JSON.stringify(id)}.`, { id })
     const next: Note = { ...current }
@@ -246,6 +291,8 @@ export class StickyWallStore {
     if (patch?.color !== undefined) next.color = normalizeColor(patch.color)
     if (patch?.pinned !== undefined) next.pinned = patch.pinned === true
     if (patch?.archived !== undefined) next.archived = patch.archived === true
+    // Restoring an archived note makes it live again, so it must fit the cap.
+    if (current.archived && !next.archived) this.assertRoom(1)
     const changed = (['body', 'title', 'color', 'pinned', 'archived'] as const).some((key) => next[key] !== current[key]) ||
       JSON.stringify(next.tags) !== JSON.stringify(current.tags)
     if (!changed) return current
@@ -262,6 +309,10 @@ export class StickyWallStore {
    */
   async setArchived(ids: string[], archived: boolean): Promise<Note[]> {
     this.assertOpen()
+    return this.mutate(() => this.setArchivedNow(ids, archived))
+  }
+
+  private async setArchivedNow(ids: string[], archived: boolean): Promise<Note[]> {
     const selected = assertIds(ids)
     const targets: Note[] = []
     for (const id of selected) {
@@ -269,6 +320,9 @@ export class StickyWallStore {
       if (current === undefined) throw new WallError('not-found', `No note with id ${JSON.stringify(id)}.`, { id })
       if (current.archived !== archived) targets.push(current)
     }
+    // A restore batch makes every target live; check the whole batch up front so
+    // a partial restore can never exceed the cap.
+    if (!archived) this.assertRoom(targets.length)
     const changed: Note[] = []
     for (const current of targets) {
       const next: Note = { ...current, archived, updatedAt: this.now().toISOString() }
@@ -277,22 +331,45 @@ export class StickyWallStore {
     return changed
   }
 
-  /** Delete a batch; returns the ids that existed and were removed. */
+  /**
+   * Delete a batch; returns the ids that were removed.
+   *
+   * The whole selection is resolved before the first delete, so a request
+   * naming an absent note changes nothing: a caller is never told the batch
+   * failed while part of it was already applied. Batch semantics match
+   * {@link setArchived}.
+   */
   async remove(ids: string[]): Promise<string[]> {
     this.assertOpen()
+    return this.mutate(() => this.removeNow(ids))
+  }
+
+  private async removeNow(ids: string[]): Promise<string[]> {
+    const selected = assertIds(ids)
+    for (const id of selected) {
+      if ((this.notes.get(id) as Note | undefined) === undefined) throw new WallError('not-found', `No note with id ${JSON.stringify(id)}.`, { id })
+    }
     const removed: string[] = []
-    for (const id of assertIds(ids)) {
-      if ((this.notes.get(id) as Note | undefined) === undefined) continue
+    for (const id of selected) {
       await this.notes.delete(id)
       removed.push(id)
     }
-    if (removed.length === 0) throw new WallError('not-found', 'None of the selected notes exist any more.')
     return removed
   }
 
-  /** Permanently remove every archived note. */
+  /**
+   * Permanently remove every archived note.
+   *
+   * The archived set is read once and deleted in order; a delete failure stops
+   * the sweep and surfaces, leaving the remaining archived notes intact rather
+   * than reporting a clean sweep that did not happen.
+   */
   async clearArchived(): Promise<string[]> {
     this.assertOpen()
+    return this.mutate(() => this.clearArchivedNow())
+  }
+
+  private async clearArchivedNow(): Promise<string[]> {
     const archived = this.list(true).filter((note) => note.archived).map((note) => note.id)
     const removed: string[] = []
     for (const id of archived) {

@@ -79,7 +79,7 @@ describe('client bundle', () => {
   it('registers the sidebar entry and the keyed main page on apply', () => {
     const plugin = loadBundle().factory(() => REACT_STUB)
     const registrations: Array<{ slot: string; options: Record<string, unknown> }> = []
-    const dictionaries: string[] = []
+    const dictionaries: Array<{ namespace: string; locales: string[] }> = []
     const effects: string[] = []
     const ctx = {
       effect: (callback: () => unknown, label?: string) => {
@@ -90,7 +90,10 @@ describe('client bundle', () => {
       locale: {
         getSnapshot: () => ({ active: 'zh', locales: [{ id: 'zh' }, { id: 'en' }], revision: 0 }),
         subscribe: () => () => {},
-        register: (namespace: string) => { dictionaries.push(namespace); return () => {} },
+        register: (namespace: string, locales: Record<string, unknown>) => {
+          dictionaries.push({ namespace, locales: Object.keys(locales) })
+          return () => {}
+        },
         bind: () => (key: string) => key,
       },
       connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
@@ -103,7 +106,9 @@ describe('client bundle', () => {
       },
     }
     ;(plugin.apply as (context: unknown) => void)(ctx)
-    expect(dictionaries).toEqual(['skillreStickyWall', 'skillreStickyWall'])
+    // ONE registration carrying both shipped locales: two calls for the same
+    // namespace would risk the second replacing the first.
+    expect(dictionaries).toEqual([{ namespace: 'skillreStickyWall', locales: ['zh', 'en'] }])
     expect(registrations.map((entry) => entry.slot)).toEqual(['sidebar.panellist', 'main'])
     expect(registrations[0]?.options).toMatchObject({ id: 'skillre-sticky-wall', order: 30 })
     expect(registrations[1]?.options).toMatchObject({ key: 'skillre-sticky-wall' })

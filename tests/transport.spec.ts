@@ -29,10 +29,13 @@ const store = {
     store.notes.set(id, next)
     return next
   },
-  async setArchived(ids: string[]) {
-    return ids.map((id) => ({ ...store.notes.get(id)!, archived: true }))
+  async setArchived(ids: string[], archived: boolean) {
+    return ids.map((id) => ({ ...store.notes.get(id)!, archived }))
   },
   async remove(ids: string[]) {
+    for (const id of ids) {
+      if (!store.notes.has(id)) throw Object.assign(new Error('missing'), { code: 'not-found' })
+    }
     for (const id of ids) store.notes.delete(id)
     return ids
   },
@@ -143,11 +146,52 @@ describe('sticky-wall transport', () => {
     expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/not-found', message: 'missing', details: { id: 'x' } } })
   })
 
+  it('accepts a charset-qualified JSON content type', async () => {
+    const route = createExecuteRoute(actions)
+    const response = await route.fetch(new Request(`http://127.0.0.1${EXECUTE_PATH}`, {
+      method: 'POST', headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'rpc-ct', method: ENDPOINT, payload: { action: 'list' } }),
+    }))
+    const document = await body(response)
+    expect(document.result).toMatchObject({ ok: true })
+  })
+
+  it('correlates a cancelled request instead of answering with a placeholder id', async () => {
+    const route = createExecuteRoute(actions)
+    const controller = new AbortController()
+    controller.abort()
+    const response = await route.fetch(new Request(`http://127.0.0.1${EXECUTE_PATH}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'rpc-cancel', method: ENDPOINT, payload: { action: 'list' } }),
+      signal: controller.signal,
+    }))
+    const document = await body(response)
+    expect(document.rpcId).toBe('rpc-cancel')
+    expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/cancelled' } })
+  })
+
+  it('never leaks raw Host error text for a non-WallError throw', async () => {
+    const route = createExecuteRoute(async () => { throw new TypeError('kaboom: internal backend detail') })
+    const response = await route.fetch(request({ action: 'list' }, 'rpc-leak'))
+    const document = await body(response)
+    expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/internal' } })
+    expect(JSON.stringify(document)).not.toContain('kaboom')
+  })
+
+  it('reports an unarchive dispatch with the archived flag it was given', async () => {
+    const route = createExecuteRoute(actions)
+    const response = await route.fetch(request({ action: 'archive', ids: ['n1'], archived: false }))
+    const document = await body(response)
+    const result = document.result as { ok: boolean; value: { changed: Note[] } }
+    expect(result.value.changed[0]?.archived).toBe(false)
+  })
+
   it('reports a storage-open failure on the first request instead of at registration', async () => {
     const route = createExecuteRoute(async () => { throw new Error('domain failed to open') })
     expect(() => createExecuteRoute(async () => { throw new Error('x') })).not.toThrow()
     const response = await route.fetch(request({ action: 'list' }))
     const document = await body(response)
-    expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/internal', message: 'domain failed to open' } })
+    expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/internal' } })
+    expect(JSON.stringify(document)).not.toContain('domain failed to open')
   })
 })

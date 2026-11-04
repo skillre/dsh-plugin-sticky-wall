@@ -56,7 +56,7 @@ export const WALL_CSS = `
 .skw-note-body.is-clamped { display: -webkit-box; -webkit-line-clamp: 9; -webkit-box-orient: vertical; overflow: hidden; }
 .skw-note-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .skw-tag { padding: 0 6px; height: 18px; line-height: 18px; border-radius: 9px; font-size: 11px; background: var(--dsw-alias-bg-mask-2); color: inherit; opacity: .85; }
-.skw-note-foot { display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 16px; opacity: .62; }
+.skw-note-foot { display: flex; align-items: center; gap: 4px; font-size: 11px; line-height: 16px; opacity: .82; }
 .skw-note-foot .skw-spacer { flex: 1; }
 .skw-note-tools { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity .12s ease; }
 .skw-note:hover .skw-note-tools, .skw-note:focus-within .skw-note-tools { opacity: 1; }

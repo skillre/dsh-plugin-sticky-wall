@@ -28,32 +28,36 @@ export const inject = ['slots', 'locale', 'connection']
 const SIDEBAR_SLOT = 'sidebar.panellist'
 const MAIN_SLOT = 'main'
 
-/** Register the plugin's dictionaries for both shipped locales. */
-function registerDictionaries(ctx: ClientContext): Disposer[] {
-  const disposers: Disposer[] = []
-  for (const [locale, dict] of [['zh', zh], ['en', en]] as const) {
-    try {
-      disposers.push(ctx.locale.register(NAMESPACE, { [locale]: { ...dict } }))
-    } catch {
-      // A stale bundle generation can still hold (namespace, locale); losing
-      // one dictionary degrades that language to readable key text, while
-      // letting the throw escape would blank the whole page.
-    }
+/**
+ * Register the plugin's dictionaries for both shipped locales.
+ *
+ * ONE call with both locales: the locale service's `register(ns, { zh, en })`
+ * shape is the verified contract, and a second call for the same namespace
+ * risks replacing the first. A failure here is contained — a stale bundle
+ * generation can still hold the namespace, and losing the dictionary only
+ * degrades copy to readable key text instead of blanking the page.
+ */
+function registerDictionaries(ctx: ClientContext): Disposer | undefined {
+  try {
+    return ctx.locale.register(NAMESPACE, { zh: { ...zh }, en: { ...en } })
+  } catch {
+    return undefined
   }
-  return disposers
 }
 
 export function apply(ctx: ClientContext): void {
   const lifetime = new AbortController()
-  const disposers = registerDictionaries(ctx)
   const t = ctx.locale.bind(NAMESPACE) as Translate
   const api: ClientApi = createApi(ctx.connection, lifetime.signal)
 
-  ctx.effect(() => () => {
-    lifetime.abort()
-    for (const dispose of disposers.splice(0).reverse()) {
+  // The dictionary belongs to the same Fiber effect as the lifetime, so a
+  // failure while binding can never strand a registration.
+  ctx.effect(() => {
+    const disposeDictionary = registerDictionaries(ctx)
+    return () => {
+      lifetime.abort()
       try {
-        dispose()
+        disposeDictionary?.()
       } catch {
         // The Fiber may already have collected the dictionary.
       }

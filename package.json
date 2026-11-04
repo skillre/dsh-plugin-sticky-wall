@@ -23,7 +23,8 @@
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json",
     "./client": {
-      "default": "./lib/client.js"
+      "default": "./lib/client.js",
+      "browser": "./lib/client.js"
     }
   },
   "files": [
@@ -86,17 +87,19 @@
     "test:integration": "node scripts/verify-isolated.mjs"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5",
-    "react": "^18.2.0"
+    "@deepseek-ai/cordis": "~4.0.5"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.2",
     "@deepseek-ai/cordis": "4.0.5",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "~18.3.31",
     "esbuild": "^0.25.0",
+    "jsdom": "^25.0.1",
     "publint": "^0.3.24",
     "react": "18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "5.9.3",
     "vitest": "^4.1.8"
   },

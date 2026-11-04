@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Note, NoteColor, NotePatch } from '../types.js'
+import { LIMITS, type Note, type NoteColor, type NotePatch } from '../types.js'
 import type { ClientApi } from './api.js'
 import { ActionError } from './api.js'
 import type { ClientLocaleLike } from './contracts.js'
@@ -97,14 +97,18 @@ function Composer({
     <div className="skw-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel() }}>
       <div className="skw-sheet" role="dialog" aria-modal="true" aria-label={draft.id ? t('edit') : t('new')}
         onKeyDown={(event) => {
+          if (event.repeat) return
           if (event.key === 'Escape' && !busy) onCancel()
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !busy) onSave()
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !busy) {
+            event.preventDefault()
+            onSave()
+          }
         }}>
         <div className="skw-sheet-head">{draft.id ? t('edit') : t('new')}</div>
         <div className="skw-sheet-body">
-          <input className="skw-input" value={draft.title} placeholder={t('titlePlaceholder')} maxLength={120}
+          <input className="skw-input" value={draft.title} placeholder={t('titlePlaceholder')} maxLength={LIMITS.title}
             onChange={(event) => onChange({ title: event.target.value })} aria-label={t('titlePlaceholder')} />
-          <textarea ref={bodyRef} className="skw-textarea" value={draft.body} placeholder={t('bodyPlaceholder')} maxLength={4000}
+          <textarea ref={bodyRef} className="skw-textarea" value={draft.body} placeholder={t('bodyPlaceholder')} maxLength={LIMITS.body}
             onChange={(event) => onChange({ body: event.target.value })} aria-label={t('bodyPlaceholder')} />
           <input className="skw-input" value={draft.tags} placeholder={t('tagsPlaceholder')}
             onChange={(event) => onChange({ tags: event.target.value })} aria-label={t('tagsPlaceholder')} />
@@ -122,6 +126,72 @@ function Composer({
           <span className="skw-spacer" />
           <button className="skw-btn" type="button" onClick={onCancel} disabled={busy}>{t('cancel')}</button>
           <button className="skw-btn skw-btn-primary" type="button" onClick={onSave} disabled={busy}>{t('save')}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The destructive-confirmation sheet.
+ *
+ * It is a real modal for keyboards too: an accessible name, Escape to dismiss,
+ * initial focus on Cancel (the safe action) and focus restored to whatever
+ * opened it, so a keyboard user can never get trapped behind a delete prompt.
+ */
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  cancelLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  title: string
+  message: string
+  confirmLabel: string
+  cancelLabel: string
+  busy: boolean
+  onConfirm(): void
+  onCancel(): void
+}): JSX.Element {
+  const cancelRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    const previous = typeof document === 'undefined' ? null : document.activeElement
+    cancelRef.current?.focus()
+    return () => {
+      if (previous !== null && typeof (previous as HTMLElement).focus === 'function') (previous as HTMLElement).focus()
+    }
+  }, [])
+  return (
+    <div
+      className="skw-scrim"
+      role="presentation"
+      onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel() }}
+    >
+      <div
+        className="skw-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={{ width: 'min(420px, 100%)' }}
+        onKeyDown={(event) => {
+          if (event.repeat) return
+          if (event.key === 'Escape' && !busy) {
+            event.stopPropagation()
+            onCancel()
+          }
+        }}
+      >
+        <div className="skw-sheet-head">{title}</div>
+        <div className="skw-sheet-body">
+          <p style={{ margin: 0 }}>{message}</p>
+        </div>
+        <div className="skw-sheet-foot">
+          <span className="skw-spacer" />
+          <button ref={cancelRef} className="skw-btn" type="button" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
+          <button className="skw-btn skw-btn-danger" type="button" onClick={onConfirm} disabled={busy}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -185,6 +255,8 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const alive = useRef(true)
   const life = useRef(new AbortController())
   const sequence = useRef(0)
+  /** Synchronous write fence: React state is too late for same-tick events. */
+  const inFlight = useRef(false)
 
   const activeLocale = locale.getSnapshot().active
 
@@ -196,14 +268,21 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     return unsubscribe
   }, [locale])
 
-  const reload = useMemo(() => async (options: { includeArchived: boolean; sort: Sort }): Promise<void> => {
+  /**
+   * Refetch the wall.
+   *
+   * `clearError` defaults to true for a fresh user-initiated load; the
+   * reconcile after a mutation passes false so a successful refetch does not
+   * erase the error that mutation just reported.
+   */
+  const reload = useMemo(() => async (options: { includeArchived: boolean; sort: Sort; clearError?: boolean }): Promise<void> => {
     const seq = ++sequence.current
     setLoading(true)
     try {
       const next = await api.list(options.includeArchived, options.sort, life.current.signal)
       if (alive.current && seq === sequence.current) {
         setNotes(next)
-        setError('')
+        if (options.clearError !== false) setError('')
       }
     } catch (cause) {
       if (alive.current && seq === sequence.current && !life.current.signal.aborted) setError(errorText(cause, t))
@@ -212,30 +291,47 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     }
   }, [api, t])
 
+  // The archived filter is useless without archived records, so it implies
+  // `includeArchived` regardless of the "show archived" toggle. This also makes
+  // the archived count (and therefore the clear-archive action) real on a
+  // normal wall.
+  const includeArchived = showArchived || filter === 'archived'
+
   useEffect(() => {
     alive.current = true
     life.current = new AbortController()
-    void reload({ includeArchived: showArchived, sort })
+    void reload({ includeArchived, sort })
     return () => {
       alive.current = false
       life.current.abort()
       sequence.current += 1
     }
-  }, [reload, showArchived, sort])
+  }, [reload, includeArchived, sort])
 
-
-  /** Run one mutation, reconcile the response, and surface the failure inline. */
+  /**
+   * Run one mutation, reconcile with the Host, and surface a failure inline.
+   *
+   * The reload runs on BOTH outcomes: a rejected request may still have written
+   * something (a batch that failed midway), and the wall must never keep
+   * showing a snapshot the Host no longer has.
+   */
   async function mutate(run: () => Promise<Note[] | string[] | void>): Promise<void> {
-    if (busy) return
+    // A ref, not the `busy` state: two events in one tick would both read the
+    // pre-flush state value and both fire.
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     setError('')
     try {
       await run()
-      await reload({ includeArchived: showArchived, sort })
     } catch (cause) {
       if (alive.current && !life.current.signal.aborted) setError(errorText(cause, t))
     } finally {
-      if (alive.current) setBusy(false)
+      if (alive.current) {
+        await reload({ includeArchived, sort, clearError: false }).catch(() => {})
+        setBusy(false)
+      }
+      inFlight.current = false
     }
   }
 
@@ -247,7 +343,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   }
 
   async function saveDraft(): Promise<void> {
-    if (!draft) return
+    if (!draft || inFlight.current) return
     const body = draft.body.trim()
     if (body === '') {
       setDraftError(t('emptyBody'))
@@ -301,7 +397,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       <div className="skw-toolbar">
         <input className="skw-search" type="search" value={query} placeholder={t('search')} aria-label={t('search')}
           onChange={(event) => setQuery(event.target.value)} />
-        <div className="skw-seg" role="group" aria-label={t('all')}>
+        <div className="skw-seg" role="group" aria-label={t('filters')}>
           {(['all', 'pinned', 'archived'] as const).map((key) => (
             <button key={key} type="button" data-on={filter === key} onClick={() => setFilter(key)}>
               {key === 'all' ? t('all') : key === 'pinned' ? t('pin') : t('archive')}
@@ -325,7 +421,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       <div className="skw-body">
         {error !== '' && (
           <p className="skw-error" role="alert">
-            {error} <button className="skw-btn skw-btn-quiet" type="button" onClick={() => void reload({ includeArchived: showArchived, sort })}>{t('retry')}</button>
+            {error} <button className="skw-btn skw-btn-quiet" type="button" onClick={() => void reload({ includeArchived, sort })}>{t('retry')}</button>
           </p>
         )}
         {loading && notes.length === 0 ? (
@@ -333,7 +429,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         ) : visible.length === 0 ? (
           <div className="skw-empty">
             <span className="skw-empty-icon" aria-hidden="true">🗒️</span>
-            <p>{filter === 'archived' ? t('emptyArchived') : query.trim() !== '' ? t('failed') : t('empty')}</p>
+            <p>{filter === 'archived' ? t('emptyArchived') : query.trim() !== '' ? t('noResults') : t('empty')}</p>
             {filter !== 'archived' && query.trim() === '' && (
               <button className="skw-btn" type="button" onClick={() => openComposer()}>{t('new')}</button>
             )}
@@ -358,27 +454,22 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       )}
 
       {confirming !== null && (
-        <div className="skw-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setConfirming(null) }}>
-          <div className="skw-sheet" role="dialog" aria-modal="true" style={{ width: 'min(420px, 100%)' }}>
-            <div className="skw-sheet-head">{confirming === 'clear' ? t('clearArchived') : t('delete')}</div>
-            <div className="skw-sheet-body">
-              <p style={{ margin: 0 }}>{confirming === 'clear' ? t('confirmClear') : t('confirmDelete')}</p>
-            </div>
-            <div className="skw-sheet-foot">
-              <span className="skw-spacer" />
-              <button className="skw-btn" type="button" onClick={() => setConfirming(null)} disabled={busy}>{t('cancel')}</button>
-              <button className="skw-btn skw-btn-danger" type="button" disabled={busy}
-                onClick={() => {
-                  const target = confirming
-                  setConfirming(null)
-                  void mutate(async () => {
-                    if (target === 'clear') await api.clearArchived(life.current.signal)
-                    else await api.remove([target.id], life.current.signal)
-                  })
-                }}>{t('delete')}</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={confirming === 'clear' ? t('clearArchived') : t('delete')}
+          message={confirming === 'clear' ? t('confirmClear') : t('confirmDelete')}
+          confirmLabel={t('delete')}
+          cancelLabel={t('cancel')}
+          busy={busy}
+          onConfirm={() => {
+            const target = confirming
+            setConfirming(null)
+            void mutate(async () => {
+              if (target === 'clear') await api.clearArchived(life.current.signal)
+              else await api.remove([target.id], life.current.signal)
+            })
+          }}
+          onCancel={() => setConfirming(null)}
+        />
       )}
     </section>
   )

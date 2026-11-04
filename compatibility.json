@@ -15,9 +15,12 @@
         "api-update",
         "api-archive",
         "api-archive-hides-note",
+        "api-archive-batch-atomic",
         "storage-persistence-across-restart",
         "api-delete",
+        "api-delete-batch-atomic",
         "api-auth-fence",
+        "api-error-no-internal-leak",
         "fiber-cleanup",
         "browser",
         "browser-sidebar-entry",
@@ -29,12 +32,13 @@
         "browser-search",
         "browser-archive",
         "browser-show-archived",
+        "browser-archive-filter",
         "browser-persistence-reload",
         "browser-dark-theme",
         "browser-no-console-errors",
         "zh-locale"
       ],
-      "notes": "Packed tarball 0.1.0 (sha256 55a7c7e36d81c349e7ca611f682be85ef55aa8b5d26a7850b96366053d69470b) installed into an owned, disposable, non-Desktop web profile created from the shipped template (DSH 0.2.1-rc.5). dsh --profile <test> --dump-config composed the bundle row; a bounded real startup served the Web app; the authenticated browser transport exercised the exact /api/skillre-sticky-wall/execute route (list, create, update, archive, delete) and a second startup proved the note survived a restart through the storage domain. An unauthenticated request to the same route returned 401, so Connection still fences it. Cleanup stopped every owned process, removed the owned profile root and verified it was gone. The real DSH Web UI was then driven in headless Chromium against the same owned profile: the 便签墙 sidebar entry appeared and selected the panel, the wall mounted with the seeded welcome note, the composer created a blue note, pin moved it first, search filtered to it, archive hid it from the default wall, the archived toggle showed it again, the note survived a full page reload, and the dark theme re-styled every card. 15/15 UI assertions passed with no uncaught errors (docs/evidence/ui-verification.json plus four screenshots). Cleanup stopped every owned process, removed the owned profile and Chromium scratch directories and verified both were gone.",
+      "notes": "Packed tarball 0.1.0 (sha256 9a73dd8a2bdbc66fcd8558e37bb45d5dbf9fcd5b229b28ef611c52300394555b) installed into an owned, disposable, non-Desktop web profile created from the shipped template (DSH 0.2.1-rc.5). dsh --profile <test> --dump-config composed the bundle row; a bounded real startup served the Web app; the authenticated browser transport exercised the exact /api/skillre-sticky-wall/execute route (list, create, update, archive, delete) and a second startup proved the note survived a restart through the storage domain. An unauthenticated request to the same route returned 401, so Connection still fences it. Cleanup stopped every owned process, removed the owned profile root and verified it was gone. The real DSH Web UI was then driven in headless Chromium against the same owned profile: the 便签墙 sidebar entry appeared and selected the panel, the wall mounted with the seeded welcome note, the composer created a blue note, pin moved it first, search filtered to it, archive hid it from the default wall, the archived toggle showed it again, the note survived a full page reload, and the dark theme re-styled every card. 15/15 UI assertions passed with no uncaught errors (docs/evidence/ui-verification.json plus four screenshots). Cleanup stopped every owned process, removed the owned profile and Chromium scratch directories and verified both were gone.",
       "evidence": [
         "docs/evidence/isolated-mount-0.1.0.json",
         "docs/evidence/ui-verification.json",
@@ -42,11 +46,13 @@
         "docs/evidence/sticky-wall-note-created.png",
         "docs/evidence/sticky-wall-composer.png",
         "docs/evidence/sticky-wall-archived.png",
+        "docs/evidence/sticky-wall-archive-filter.png",
         "docs/evidence/sticky-wall-dark.png",
-        "tests/transport.spec.ts",
         "tests/store.spec.ts",
+        "tests/transport.spec.ts",
         "tests/plugin.spec.ts",
-        "tests/client-bundle.spec.ts"
+        "tests/client-bundle.spec.ts",
+        "tests/view.spec.tsx"
       ]
     }
   ],

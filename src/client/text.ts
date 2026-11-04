@@ -36,6 +36,7 @@ export const zh: Record<string, string> = {
   'sortCreated': '按创建',
   'sortUpdated': '按更新',
   'all': '全部',
+  'filters': '筛选',
   'search': '搜索便签…',
   'bodyPlaceholder': '写点什么…',
   'titlePlaceholder': '标题（可选）',
@@ -48,6 +49,7 @@ export const zh: Record<string, string> = {
   'created': '创建于 {time}',
   'loading': '加载中…',
   'failed': '操作失败',
+  'noResults': '没有匹配的便签',
   'retry': '重试',
   'tooLong': '内容太长了',
   'emptyBody': '便签不能为空',
@@ -84,6 +86,7 @@ export const en: Record<string, string> = {
   'sortCreated': 'By created',
   'sortUpdated': 'By updated',
   'all': 'All',
+  'filters': 'Filter',
   'search': 'Search notes…',
   'bodyPlaceholder': 'Write something…',
   'titlePlaceholder': 'Title (optional)',
@@ -96,6 +99,7 @@ export const en: Record<string, string> = {
   'created': 'Created {time}',
   'loading': 'Loading…',
   'failed': 'Something went wrong',
+  'noResults': 'No matching notes',
   'retry': 'Retry',
   'tooLong': 'Too long',
   'emptyBody': 'A note cannot be empty',
@@ -104,6 +108,11 @@ export const en: Record<string, string> = {
   'pinHint': 'Pinned notes stay on top',
   'more': 'More',
   'agentHint': 'You can also ask me to note it: say "note that …"',
+}
+
+/** Read one key from a dictionary, falling back to the key itself. */
+export function textOf(dict: Record<string, string>, key: string): string {
+  return dict[key] ?? key
 }
 
 /** Pick the dictionary for a locale id, falling back to English. */
