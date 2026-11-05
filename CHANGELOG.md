@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+- Redesign the wall's visual language: masonry layout so short notes stop
+  leaving dead space, a derived accent palette with tinted shadows, real tag
+  pills and status badges, a paper dot grid, and quieter chip-style controls.
+
 ## 0.1.1
 
 ### Patch Changes

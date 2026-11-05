@@ -1,6 +1,6 @@
 {
   "name": "@skillre/dsh-plugin-sticky-wall",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "便签墙：随手记录灵感与临时工作的 DSH 侧栏便签板",
   "icon": "./icon.svg",
   "type": "module",

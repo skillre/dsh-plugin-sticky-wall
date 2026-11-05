@@ -219,6 +219,8 @@ function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
         nothing reflows on hover.
       */}
       <div className="skw-note-bar">
+        <span className="skw-note-dot" aria-hidden="true" />
+        <span className="skw-spacer" />
         <div className="skw-note-tools">
           <button className="skw-icon-btn" type="button" title={note.pinned ? t('unpin') : t('pin')}
             data-on={note.pinned} aria-label={note.pinned ? t('unpin') : t('pin')}
@@ -238,8 +240,8 @@ function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
       <div className="skw-note-foot">
         <span>{formatTime(note.updatedAt, locale)}</span>
         <span className="skw-spacer" />
-        {note.archived && <span>{t('archive')}</span>}
-        {note.pinned && <span aria-hidden="true">★</span>}
+        {note.archived && <span className="skw-note-badge">{t('archive')}</span>}
+        {note.pinned && <span className="skw-note-badge" aria-hidden="true">★ {t('pin')}</span>}
       </div>
     </article>
   )
@@ -388,7 +390,10 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       <style>{WALL_CSS}</style>
       <header className="skw-head">
         <div className="skw-head-text">
-          <h1 className="skw-title">{t('title')}</h1>
+          <h1 className="skw-title">
+            <span className="skw-title-mark" aria-hidden="true"><SidebarGlyph size={15} /></span>
+            {t('title')}
+          </h1>
           <p className="skw-subtitle">{t('subtitle')}</p>
         </div>
         <div className="skw-actions">
@@ -404,8 +409,16 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       </header>
 
       <div className="skw-toolbar">
-        <input className="skw-search" type="search" value={query} placeholder={t('search')} aria-label={t('search')}
-          onChange={(event) => setQuery(event.target.value)} />
+        <div className="skw-search-wrap">
+          <span className="skw-search-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="10.5" cy="10.5" r="6.2" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M15.4 15.4L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </span>
+          <input className="skw-search" type="search" value={query} placeholder={t('search')} aria-label={t('search')}
+            onChange={(event) => setQuery(event.target.value)} />
+        </div>
         <div className="skw-seg" role="group" aria-label={t('filters')}>
           {(['all', 'pinned', 'archived'] as const).map((key) => (
             <button key={key} type="button" data-on={filter === key} onClick={() => setFilter(key)}>
