@@ -17,7 +17,7 @@
     "rootRemoved": true,
     "verified": true
   },
-  "spec": "git+https://github.com/skillre/dsh-plugin-sticky-wall.git#83c932f36074c34b358b374c4b6d2f31411d167e",
-  "version": "0.1.2",
+  "spec": "git+https://github.com/skillre/dsh-plugin-sticky-wall.git#8446f8755210f8660e92a07a554bea03368995b5",
+  "version": "0.2.0",
   "notes": 1
 }
