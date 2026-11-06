@@ -214,8 +214,18 @@ try {
     assert.equal(moved.changed?.[0]?.updatedAt, updated.changed?.[0]?.updatedAt, 'a move must not bump updatedAt')
     report.endpoint.move = moved.changed?.[0]?.layout
     checks.push('api-move')
-    const refused = await rpcExpectError(origin, cookie, { action: 'move', id: note.id, layout: { x: 1e6, y: 0, rotate: 0, width: 'md' } })
-    assert.equal(refused.code, 'sticky-wall/bad-request', 'an out-of-bounds placement must be refused')
+    // An out-of-bounds drag is CLAMPED, not refused: a user who drags past the
+    // world edge must not get an error toast. The bounds policy lives in the
+    // store's clampLayout, so the route accepts any finite number.
+    const clamped = await rpc(origin, cookie, { action: 'move', id: note.id, layout: { x: 1e6, y: -1e6, rotate: 90, width: 'md' } })
+    const clampedLayout = clamped.changed?.[0]?.layout
+    assert.ok(clampedLayout.x <= 20000 && clampedLayout.x >= -20000, 'x must be clamped into the world')
+    assert.ok(clampedLayout.y <= 20000 && clampedLayout.y >= -20000, 'y must be clamped into the world')
+    assert.ok(Math.abs(clampedLayout.rotate) <= 12, 'rotation must be clamped')
+    checks.push('api-move-clamped')
+    // A non-finite placement has no sensible clamp, so it is still refused.
+    const refused = await rpcExpectError(origin, cookie, { action: 'move', id: note.id, layout: { x: 'left', y: 0, rotate: 0, width: 'md' } })
+    assert.equal(refused.code, 'sticky-wall/bad-request', 'a non-numeric placement must be refused')
     checks.push('api-move-bounds')
 
     const arranged = await rpc(origin, cookie, { action: 'arrange' })

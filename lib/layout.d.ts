@@ -46,12 +46,26 @@ export declare function layoutOf(note: Note, index: number): NoteLayout;
  */
 export declare function previewLayout(note: Note, index: number): NoteLayout;
 /**
+ * The axis-aligned bounding box of a rotated card.
+ *
+ * A tidied card is tilted up to {@link TIDY_TILT} degrees, which widens its
+ * footprint by `h * sin(t)`. Packing by the unrotated width therefore let
+ * neighbouring cards clip each other's corners, so the packer advances by the
+ * rotated box and the gap covers the rest.
+ */
+export declare function rotatedExtent(width: number, height: number, rotate: number): {
+    width: number;
+    height: number;
+};
+/**
  * Deterministic tidy arrangement for the whole wall.
  *
  * Shelf packing: cards flow left to right with a hash jitter and a small tilt,
- * wrapping to a new shelf when the row is full. The output is shifted so the
- * top-left card starts near the origin, which keeps the canvas' scroll extent
- * predictable instead of starting inside negative space.
+ * wrapping to a new shelf when the row is full. The shelf width adapts to the
+ * wall: a large wall gets wider shelves so the arrangement stays roughly square
+ * instead of growing into a single column kilometres tall. The output is shifted
+ * so the top-left card starts near the origin, which keeps the canvas' scroll
+ * extent predictable instead of starting inside negative space.
  *
  * Returns a map from note id to its new layout, for every note that needs to
  * move. Notes already at exactly that layout are omitted, so pressing tidy on

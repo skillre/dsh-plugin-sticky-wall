@@ -159,7 +159,14 @@ try {
   process.exitCode = 1
 } finally {
   await shutdown()
-  await writeFile(join(process.cwd(), 'market-install-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
+  // Evidence belongs with the other verification records, not as a stray file
+  // in the repository root that has to be cleaned up by hand after every run.
+  await mkdir(join(process.cwd(), 'docs', 'evidence'), { recursive: true })
+  await writeFile(
+    join(process.cwd(), 'docs', 'evidence', `market-install-${report.version}.json`),
+    `${JSON.stringify(report, null, 2)}\n`,
+    'utf8',
+  )
 }
 
 process.stdout.write(`${process.exitCode ? 'FAILED' : 'OK'} ${JSON.stringify(report, null, 2)}\n`)

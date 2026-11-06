@@ -219,15 +219,27 @@ describe('sticky-wall transport', () => {
     expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/bad-request' } })
   })
 
-  it('rejects a placement outside the world bounds and an unknown width preset', async () => {
+  it('clamps a placement outside the world bounds instead of rejecting the drag', async () => {
+    // A user can drag a card past the world edge; that must produce a clamped
+    // position, not an error toast. The bounds policy lives in the store's
+    // clampLayout, so the route accepts any finite number.
+    const route = createExecuteRoute(actions)
+    await store.create({ body: 'x' })
+    const response = await route.fetch(
+      request({ action: 'move', id: 'n1', layout: { x: 99_999, y: -99_999, rotate: 90, width: 'md' } }, 'rpc-bound'),
+    )
+    const document = await body(response)
+    expect(document.result).toMatchObject({ ok: true })
+  })
+
+  it('still refuses a non-finite placement and an unknown width preset', async () => {
     const route = createExecuteRoute(actions)
     await store.create({ body: 'x' })
     for (const layout of [
-      { x: 99_999, y: 0, rotate: 0, width: 'md' },
+      { x: 'left', y: 0, rotate: 0, width: 'md' },
       { x: 0, y: 0, rotate: 0, width: 'huge' },
-      { x: 0, y: 0, rotate: 90, width: 'md' },
     ]) {
-      const response = await route.fetch(request({ action: 'move', id: 'n1', layout }, 'rpc-bound'))
+      const response = await route.fetch(request({ action: 'move', id: 'n1', layout }, 'rpc-bad'))
       const document = await body(response)
       expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/bad-request' } })
     }

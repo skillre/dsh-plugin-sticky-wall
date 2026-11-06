@@ -369,45 +369,12 @@ try {
     detail: `left=${canvas.left} top=${canvas.top} transform=${canvas.transform}`,
   })
 
-  // Drag the card by 90px and confirm the Host persisted a new placement: after
-  // the mutation the card's inline left/top must differ from the pre-drag value.
-  const dragStart = await page.evaluate(`(() => {
-    const card = [...document.querySelectorAll('.skw-note')].find((n) => n.innerText.includes('验证便签'));
-    if (!card) return null;
-    const rect = card.getBoundingClientRect();
-    return { x: rect.x + rect.width / 2, y: rect.y + 12 };
-  })()`)
-  if (dragStart === null) throw new Error('the canvas card is missing for the drag check')
-  const dragTo = { x: dragStart.x + 96, y: dragStart.y + 62 }
-  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: dragStart.x, y: dragStart.y, button: 'none', buttons: 0 })
-  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: dragStart.x, y: dragStart.y, button: 'left', buttons: 1, clickCount: 1 })
-  for (let step = 1; step <= 6; step += 1) {
-    await page.send('Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x: dragStart.x + ((dragTo.x - dragStart.x) * step) / 6,
-      y: dragStart.y + ((dragTo.y - dragStart.y) * step) / 6,
-      button: 'left',
-      buttons: 1,
-    })
-  }
-  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: dragTo.x, y: dragTo.y, button: 'left', buttons: 0, clickCount: 1 })
-  await page.wait(1500)
-  const afterDrag = await page.evaluate(`(() => {
-    const card = [...document.querySelectorAll('.skw-note')].find((n) => n.innerText.includes('验证便签'));
-    return {
-      left: card ? card.style.left : null,
-      top: card ? card.style.top : null,
-      dragged: card ? card.getAttribute('data-dragging') : null,
-    };
-  })()`)
-  const beforeLeft = Number.parseFloat(canvas.left)
-  const beforeTop = Number.parseFloat(canvas.top)
-  record('canvas-drag-persists-placement', {
-    ok: Number.parseFloat(afterDrag.left) !== beforeLeft && Number.parseFloat(afterDrag.top) !== beforeTop,
-    detail: `${canvas.left},${canvas.top} -> ${afterDrag.left},${afterDrag.top}`,
-  })
-
-  // Tidy: the arrangement must change and no card may keep an unplaced position.
+  // Tidy FIRST, then drag.
+  //
+  // Dragging before tidy means the cards may still overlap at their derived
+  // positions, so a press aimed at one card can land on another card's title —
+  // the drag then moves the wrong card and the assertion reads a no-op. Tidying
+  // gives a non-overlapping wall, which is also the order a user works in.
   const beforeTidy = await page.evaluate(`(() => [...document.querySelectorAll('.skw-note')].map((n) => n.style.left + ',' + n.style.top))()`)
   await page.evaluate(`(() => {
     const tidy = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '整理');
@@ -424,7 +391,7 @@ try {
     detail: `${beforeTidy.length} cards repositioned`,
   })
 
-  // A tidied wall must actually be readable: no two cards may overlap. The
+  // A tidied wall must actually be readable: no two cards may overlap. An
   // earlier build packed only the live set, so an archived-but-visible card
   // stayed at its dragged corner and landed on top of the tidied ones — a
   // screenshot caught it, an assertion should have.
@@ -450,6 +417,54 @@ try {
     detail: overlaps.pairs.length === 0 ? `${overlaps.cards} cards, no overlap` : `overlap: ${overlaps.pairs.join(' | ')}`,
   })
   const canvasShot = await page.shot('sticky-wall-canvas.png')
+
+  // Now the wall is tidy, so a press can be aimed at one specific card.
+  const dragStart = await page.evaluate(`(() => {
+    const card = [...document.querySelectorAll('.skw-note')].find((n) => n.innerText.includes('验证便签'));
+    if (!card) return null;
+    const rect = card.getBoundingClientRect();
+    // Press on the body, below the action row: a press that lands on one of the
+    // top-row buttons is stopped by stopPropagation and never starts a drag.
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + rect.height * 0.62;
+    const hit = document.elementFromPoint(x, y);
+    return {
+      x, y,
+      hitIsCard: hit === card || (hit !== null && card.contains(hit)),
+      hitClass: hit ? String(hit.className).slice(0, 40) : null,
+      left: card.style.left,
+      top: card.style.top,
+    };
+  })()`)
+  if (dragStart === null) throw new Error('the canvas card is missing for the drag check')
+  if (!dragStart.hitIsCard) throw new Error(`the drag press would land on ${dragStart.hitClass}, not the card`)
+  const dragTo = { x: dragStart.x + 96, y: dragStart.y + 62 }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: dragStart.x, y: dragStart.y, button: 'none', buttons: 0 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: dragStart.x, y: dragStart.y, button: 'left', buttons: 1, clickCount: 1 })
+  for (let step = 1; step <= 6; step += 1) {
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: dragStart.x + ((dragTo.x - dragStart.x) * step) / 6,
+      y: dragStart.y + ((dragTo.y - dragStart.y) * step) / 6,
+      button: 'left',
+      buttons: 1,
+    })
+  }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: dragTo.x, y: dragTo.y, button: 'left', buttons: 0, clickCount: 1 })
+  await page.wait(1600)
+  const afterDrag = await page.evaluate(`(() => {
+    const card = [...document.querySelectorAll('.skw-note')].find((n) => n.innerText.includes('验证便签'));
+    return { left: card ? card.style.left : null, top: card ? card.style.top : null, transform: card ? card.style.transform : null };
+  })()`)
+  record('canvas-drag-persists-placement', {
+    ok: Number.parseFloat(afterDrag.left) !== Number.parseFloat(dragStart.left) && Number.parseFloat(afterDrag.top) !== Number.parseFloat(dragStart.top),
+    detail: `${dragStart.left},${dragStart.top} -> ${afterDrag.left},${afterDrag.top}`,
+  })
+  // The drag must keep the tilt that tidy applied, not straighten the card.
+  record('canvas-drag-keeps-rotation', {
+    ok: afterDrag.transform !== null && afterDrag.transform.includes('rotate(') && !afterDrag.transform.includes('rotate(0deg)'),
+    detail: afterDrag.transform,
+  })
 
   // 9. Markdown renders on the card instead of showing literal markers. The
   // note written in step 3 carries `**bold**`, `` `code` `` and a bullet list,

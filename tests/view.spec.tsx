@@ -279,6 +279,63 @@ describe('view modes and the free canvas', () => {
     expect(body.textContent).not.toContain('**')
   })
 
+  it('keeps a legacy note in place when the search box filters the list', async () => {
+    // Blocker regression: the derived preview position was keyed off the
+    // FILTERED list, so typing in the search box shifted every legacy note.
+    // The index must come from the unfiltered snapshot.
+    const api = makeApi({
+      list: async () => [
+        makeNote({ id: 'a', title: 'alpha', body: 'first' }),
+        makeNote({ id: 'b', title: 'beta', body: 'second' }),
+      ],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(2))
+    const beforeLeft = (document.querySelector('[data-note-id="b"] .skw-note') as HTMLElement).style.left
+    // Filter down to just "b": if the index came from the filtered list it
+    // would now be index 0 and jump.
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'beta' } })
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const afterLeft = (document.querySelector('[data-note-id="b"] .skw-note') as HTMLElement).style.left
+    expect(afterLeft).toBe(beforeLeft)
+  })
+
+  it('preserves a card rotation when it is dragged', async () => {
+    // Blocker regression: every drag wrote rotate: 0, silently straightening the
+    // tilt that tidy had just applied.
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'tilted', layout: { x: 40, y: 40, rotate: -3, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const card = document.querySelector('[data-note-id="a"] .skw-note') as HTMLElement
+    expect(card.style.transform).toContain('rotate(-3deg)')
+    // Drive a real drag through the pointer handlers the component installs.
+    // jsdom has no PointerEvent constructor, so build a plain Event and attach
+    // the pointer fields the handlers read.
+    const pointer = (type: string, x: number, y: number): Event => {
+      const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+      event.pointerId = 1
+      event.clientX = x
+      event.clientY = y
+      event.button = 0
+      return event
+    }
+    // Dispatch through the DOM directly: `fireEvent.pointerDown` drops
+    // `pointerId` in jsdom, and the handler correlates the move against it.
+    act(() => {
+      card.dispatchEvent(pointer('pointerdown', 100, 100))
+    })
+    act(() => {
+      window.dispatchEvent(pointer('pointermove', 160, 150))
+      window.dispatchEvent(pointer('pointerup', 160, 150))
+    })
+    await waitFor(() => expect(api.calls).toContain('move'))
+    const moved = (api as unknown as { lastMove?: { layout: { rotate: number; x: number } } }).lastMove
+    expect(moved?.layout.rotate).toBe(-3)
+    expect(moved?.layout.x).not.toBe(40)
+  })
+
   it('keeps the camera controls usable and bounded', async () => {
     const api = makeApi()
     render(<WallPage api={api} locale={locale} t={t} />)

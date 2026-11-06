@@ -312,6 +312,19 @@ describe('sticky-wall store', () => {
     expect(all.find((note) => note.id === live.id)?.layout).not.toBeNull()
   })
 
+  it('tidies without bumping updatedAt, so a tidy never reshuffles a by-updated sort', async () => {
+    // The move test asserts this for `move`; `arrange` writes through the same
+    // path, and a future refactor through `update()` must not start bumping it.
+    const store = await makeStore()
+    const note = await store.create({ body: 'note' })
+    await store.move(note.id, { x: 500, y: 500, rotate: 0, width: 'md' })
+    const before = store.list()[0]!
+    await store.arrange()
+    const after = store.list()[0]!
+    expect(after.updatedAt).toBe(before.updatedAt)
+    expect(after.layout).not.toEqual(before.layout)
+  })
+
   it('keeps the seeded welcome note placed so a new wall is immediately draggable', async () => {
     const store = await makeStore({ seed: true })
     const welcome = store.list()[0]!

@@ -44,10 +44,15 @@ interface Draft {
   width: NoteWidth
 }
 
-/** The camera over the world canvas: pan offset plus zoom. */
+/**
+ * The camera over the world canvas.
+ *
+ * Zoom only: panning is the scroll container's job, which keeps native scroll
+ * bars, trackpad inertia and keyboard scrolling working. A `x`/`y` offset here
+ * would have had to reimplement all of that (and an earlier draft carried two
+ * fields that nothing ever applied).
+ */
 interface Camera {
-  x: number
-  y: number
   zoom: number
 }
 
@@ -261,7 +266,6 @@ function NoteCard({
   onRemove,
   onResize,
   onDragStart,
-  onDragEnd,
 }: {
   note: Note
   index: number
@@ -273,7 +277,6 @@ function NoteCard({
   onRemove(note: Note): void
   onResize(note: Note, width: NoteWidth): void
   onDragStart(note: Note, event: React.PointerEvent<HTMLElement>): void
-  onDragEnd(moved: boolean): void
 }): JSX.Element {
   const layout = layoutOf(note, index)
   const style: React.CSSProperties = {
@@ -377,7 +380,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [draftError, setDraftError] = useState('')
   const [confirming, setConfirming] = useState<'clear' | Note | null>(null)
-  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 })
+  const [camera, setCamera] = useState<Camera>({ zoom: 1 })
   const [draggingId, setDraggingId] = useState<string | null>(null)
   // Re-render on locale switch: relative times and copy are read from the
   // active locale, so the page must observe the locale revision.
@@ -403,6 +406,23 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const canvasRef = useRef<HTMLDivElement | null>(null)
 
   const activeLocale = locale.getSnapshot().active
+
+  /**
+   * A note's stable index for the derived preview position.
+   *
+   * The preview position is derived from the note's index, so that index MUST
+   * come from the unfiltered snapshot: keying it off the filtered list made a
+   * legacy (never-placed) note jump sideways as soon as the user typed in the
+   * search box or toggled archived, because removing one earlier note shifted
+   * every later index.
+   */
+  const stableIndex = useMemo(() => {
+    const map = new Map<string, number>()
+    notes.forEach((note, index) => map.set(note.id, index))
+    return map
+  }, [notes])
+
+  const indexOf = (note: Note): number => stableIndex.get(note.id) ?? 0
 
   // Track locale switches so relative times and copy re-render without a reload.
   useEffect(() => {
@@ -504,7 +524,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         // rather than the content patch (which must not bump `updatedAt`).
         const current = notes.find((note) => note.id === draft.id)
         if (current !== undefined) {
-          const layout = layoutOf(current, 0)
+          const layout = layoutOf(current, stableIndex.get(current.id) ?? 0)
           if (layout.width !== draft.width) await api.move(current.id, { ...layout, width: draft.width }, life.current.signal)
         }
       }
@@ -546,8 +566,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   /** Begin a drag; the move itself is applied on pointerup through the Host. */
   function startDrag(note: Note, event: React.PointerEvent<HTMLElement>): void {
     if (event.button !== 0) return
-    const index = visible.findIndex((candidate) => candidate.id === note.id)
-    const layout = layoutOf(note, index < 0 ? 0 : index)
+    const layout = layoutOf(note, indexOf(note))
     // Assign through a named value, not an inline literal: a literal followed
     // by a `(` on the next line parses as a call expression, not as ASI.
     drag.current = {
@@ -561,8 +580,15 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       x: layout.x,
       y: layout.y,
     }
-    const target = event.currentTarget as HTMLElement
-    target.setPointerCapture?.(event.pointerId)
+    // Capture is an optimisation, not a requirement: the move/up listeners are
+    // on `window`, so the drag works without it. Guarded because a capture call
+    // throws when the pointer id is no longer active (and in DOM-less tests).
+    try {
+      const target = event.currentTarget as HTMLElement
+      target.setPointerCapture?.(event.pointerId)
+    } catch {
+      // Ignore: the window-level listeners still receive the drag.
+    }
     setDraggingId(note.id)
   }
 
@@ -592,7 +618,16 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       const node = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${current.id}"]`)
       if (node !== null && node !== undefined) node.style.transform = ''
       if (!current.moved) return
-      const layout: NoteLayout = { x: current.x, y: current.y, rotate: 0, width: layoutOf(notes.find((note) => note.id === current.id) ?? notes[0]!, 0).width }
+      const dragged = notes.find((note) => note.id === current.id)
+      // Carry the existing tilt through the drag. Flattening it here meant the
+      // first drag of any tidied card silently straightened it and persisted
+      // that, which contradicts "the placement is owned by the Host".
+      const layout: NoteLayout = {
+        x: current.x,
+        y: current.y,
+        rotate: dragged === undefined ? 0 : layoutOf(dragged, indexOf(dragged)).rotate,
+        width: dragged === undefined ? 'md' : layoutOf(dragged, indexOf(dragged)).width,
+      }
       void mutate(async () => { await api.move(current.id, layout, life.current.signal) })
     }
     window.addEventListener('pointermove', move)
@@ -709,16 +744,16 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
           </div>
         ) : view === 'grid' ? (
           <div className="skw-grid">
-            {visible.map((note, index) => (
-              <NoteCard key={note.id} note={note} index={index} t={t} locale={activeLocale} dragging={false}
+            {visible.map((note) => (
+              <NoteCard key={note.id} note={note} index={indexOf(note)} t={t} locale={activeLocale} dragging={false}
                 onEdit={openComposer}
                 onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
                 onRemove={(target) => setConfirming(target)}
                 onResize={(target, width) => void mutate(async () => {
                   const current = notes.find((candidate) => candidate.id === target.id)
-                  if (current !== undefined) await api.move(target.id, { ...layoutOf(current, index), width }, life.current.signal)
+                  if (current !== undefined) await api.move(target.id, { ...layoutOf(current, stableIndex.get(current.id) ?? 0), width }, life.current.signal)
                 })}
-                onDragStart={() => {}} onDragEnd={() => {}} />
+                onDragStart={() => {}} />
             ))}
           </div>
         ) : (
@@ -731,17 +766,17 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
               onWheel={onWheel}
             >
               <div className="skw-world" style={{ transform: `scale(${camera.zoom})`, transformOrigin: '0 0' }}>
-                {visible.map((note, index) => (
+                {visible.map((note) => (
                   <div key={note.id} className="skw-note-slot" data-note-id={note.id}>
-                    <NoteCard note={note} index={index} t={t} locale={activeLocale} dragging={draggingId === note.id}
+                    <NoteCard note={note} index={indexOf(note)} t={t} locale={activeLocale} dragging={draggingId === note.id}
                       onEdit={openComposer}
                       onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
                       onRemove={(target) => setConfirming(target)}
                       onResize={(target, width) => void mutate(async () => {
                         const current = notes.find((candidate) => candidate.id === target.id)
-                        if (current !== undefined) await api.move(target.id, { ...layoutOf(current, index), width }, life.current.signal)
+                        if (current !== undefined) await api.move(target.id, { ...layoutOf(current, stableIndex.get(current.id) ?? 0), width }, life.current.signal)
                       })}
-                      onDragStart={startDrag} onDragEnd={() => {}} />
+                      onDragStart={startDrag} />
                   </div>
                 ))}
               </div>
@@ -756,7 +791,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
           <span className="skw-camera-value">{Math.round(camera.zoom * 100)}%</span>
           <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} onClick={() => zoomBy(0.15)}>+</button>
           <button className="skw-camera-btn" type="button" aria-label={t('zoomReset')}
-            onClick={() => setCamera({ x: 0, y: 0, zoom: 1 })}>⌖</button>
+            onClick={() => setCamera({ zoom: 1 })}>⌖</button>
         </div>
       )}
 

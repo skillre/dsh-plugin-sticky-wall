@@ -141,17 +141,42 @@ try {
 } catch (error) {
   failure = error
 } finally {
-  // Teardown order matters: signal the harness, then stop Chrome, then wait for
+  // Teardown order matters: signal the harness, then stop Chrome, then WAIT for
   // both, then delete only the scratch directory this run created.
+  //
+  // The harness deletes its owned DSH profile in its own `finally`. Signalling
+  // it and immediately escalating to SIGKILL skips that cleanup and orphans a
+  // whole profile directory under the platform temp root — which is exactly what
+  // an earlier version of this script did (seven leaked profiles). So the stop
+  // signal gets a real grace period, and the escalation only fires after the
+  // process has had its chance.
   await writeFile(stopPath, 'stop\n', 'utf8').catch(() => {})
   for (const child of children) {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
   }
-  await delay(5000)
   for (const child of children) {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    const exited = await Promise.race([
+      new Promise((resolveExit) => child.once('close', () => resolveExit(true))),
+      delay(30_000).then(() => false),
+    ])
+    if (!exited && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
   }
   await delay(1000)
+
+  // Verify the harness actually cleaned its owned profile: it publishes the path
+  // in .preview-state.json, and a leftover directory is a cleanup failure, not a
+  // silent detail.
+  const ownedPath = await readFile(statePath, 'utf8')
+    .then((text) => JSON.parse(text).owned)
+    .catch(() => undefined)
+  if (typeof ownedPath === 'string' && existsSync(ownedPath)) {
+    await rm(ownedPath, { recursive: true, force: true }).catch(() => {})
+    const stillThere = existsSync(ownedPath)
+    process.stdout.write(`cleanup: owned profile removed=${!stillThere}\n`)
+    if (stillThere) failure ??= new Error(`owned profile could not be removed: ${ownedPath}`)
+  } else {
+    process.stdout.write('cleanup: owned profile removed=true\n')
+  }
   for (const path of [stopPath, urlPath, statePath]) await rm(path, { force: true })
   await rm(scratch, { recursive: true, force: true })
   const scratchGone = !existsSync(scratch)

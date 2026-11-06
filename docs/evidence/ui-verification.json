@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-06T14:22:46.299Z",
+  "capturedAt": "2026-11-06T14:50:42.172Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -84,12 +84,7 @@
     {
       "check": "canvas-positions-cards-absolutely",
       "ok": true,
-      "detail": "left=19.1px top=15.6px transform=rotate(0deg)"
-    },
-    {
-      "check": "canvas-drag-persists-placement",
-      "ok": true,
-      "detail": "19.1px,15.6px -> 115.1px,77.6px"
+      "detail": "left=0px top=0.2px transform=rotate(-3.8deg)"
     },
     {
       "check": "canvas-tidy-repacks-the-wall",
@@ -100,6 +95,16 @@
       "check": "canvas-tidy-leaves-no-overlap",
       "ok": true,
       "detail": "2 cards, no overlap"
+    },
+    {
+      "check": "canvas-drag-persists-placement",
+      "ok": true,
+      "detail": "26px,30px -> 122px,92px"
+    },
+    {
+      "check": "canvas-drag-keeps-rotation",
+      "ok": true,
+      "detail": "rotate(-3deg)"
     },
     {
       "check": "card-body-renders-markdown",

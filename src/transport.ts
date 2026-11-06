@@ -17,7 +17,6 @@ import { WallError } from './store.js'
 import {
   COLORS,
   ENDPOINT,
-  LAYOUT_LIMITS,
   LIMITS,
   SORTS,
   WIDTHS,
@@ -71,12 +70,19 @@ const sortSchema = z.enum(SORTS)
 const idSchema = z.string().min(1).max(128)
 const idsSchema = z.array(idSchema).min(1).max(LIMITS.bulk)
 
-/** One card placement; the store re-clamps, this only rejects non-numbers. */
+/** One card placement; only the shape is validated here.
+ *
+ * The bounds are deliberately NOT enforced with `.min/.max`: a user who drags a
+ * card past the world edge should get a clamped position, not an error toast.
+ * The store clamps with `clampLayout`, which is the single place the policy
+ * lives; rejecting here made that clamp unreachable over RPC. Non-finite values
+ * are still refused, because there is no sensible clamp for NaN or Infinity.
+ */
 const layoutSchema = z
   .object({
-    x: z.number().min(-LAYOUT_LIMITS.coord).max(LAYOUT_LIMITS.coord),
-    y: z.number().min(-LAYOUT_LIMITS.coord).max(LAYOUT_LIMITS.coord),
-    rotate: z.number().min(-LAYOUT_LIMITS.rotate).max(LAYOUT_LIMITS.rotate),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    rotate: z.number().finite(),
     width: z.enum(WIDTHS),
   })
   .strict()
