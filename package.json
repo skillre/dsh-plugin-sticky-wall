@@ -1,14 +1,14 @@
 {
   "name": "@skillre/dsh-plugin-sticky-wall",
-  "version": "0.1.2",
-  "description": "便签墙：随手记录灵感与临时工作的 DSH 侧栏便签板",
+  "version": "0.2.0",
+  "description": "便签墙：DSH 侧栏的自由画布便签板，可拖动摆放、一键整理，正文按 Markdown 渲染",
   "icon": "./icon.svg",
   "type": "module",
   "license": "MIT",
   "author": "skillre",
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.1-rc.5 <0.3.0"
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
   },
   "packageManager": "npm@11.12.1",
   "main": "lib/index.js",
@@ -23,8 +23,8 @@
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json",
     "./client": {
-      "default": "./lib/client.js",
-      "browser": "./lib/client.js"
+      "browser": "./lib/client.js",
+      "default": "./lib/client.js"
     }
   },
   "files": [
@@ -33,6 +33,11 @@
     "compatibility.json",
     "locale/*.json",
     "icon.svg",
+    "docs/DETAIL.md",
+    "docs/DETAIL.zh.md",
+    "docs/preview.svg",
+    "docs/preview.zh.svg",
+    "docs/PREVIEW.md",
     "README.md",
     "README.en.md",
     "UNINSTALL.md",
@@ -78,7 +83,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "npm run build:client && vitest run",
     "pack:check": "npm run build && publint && npm pack --dry-run --json --ignore-scripts",
-    "check": "npm run typecheck && npm test && npm run check:lib && npm run pack:check",
+    "check": "npm run preview:check && npm run typecheck && npm test && npm run check:lib && npm run pack:check",
     "changeset": "changeset",
     "version": "changeset version",
     "release:prepare": "node scripts/prepare-release.mjs",
@@ -86,14 +91,15 @@
     "build:client": "node scripts/build-client.mjs",
     "test:integration": "node scripts/verify-isolated.mjs",
     "test:market": "node scripts/verify-market-install.mjs",
-    "check:lib": "npm run build && node scripts/verify-lib-committed.mjs"
+    "check:lib": "npm run build && node scripts/verify-lib-committed.mjs",
+    "preview:check": "node scripts/preview.mjs check"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5"
+    "@deepseek-ai/cordis": "~4.1.0"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.2",
-    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/cordis": "4.1.0",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "~18.3.31",
@@ -106,7 +112,7 @@
     "vitest": "^4.1.8"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "~3.18.5",
+    "@deepseek-ai/schemastery": "~3.19.0",
     "zod": "^4.6.7"
   }
 }

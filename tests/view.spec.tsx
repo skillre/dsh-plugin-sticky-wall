@@ -7,7 +7,7 @@ import type { ClientLocaleLike } from '../src/client/contracts.js'
 import { en, textOf } from '../src/client/text.js'
 import type { Translate } from '../src/client/text.js'
 import { ConfirmDialog, WallPage } from '../src/client/view.jsx'
-import type { Note } from '../src/types.js'
+import { WIDTH_PX, type Note } from '../src/types.js'
 
 /**
  * Client component behavior tests.
@@ -51,6 +51,7 @@ function makeNote(overrides: Partial<Note> = {}): Note {
     archived: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    layout: null,
     ...overrides,
   }
 }
@@ -86,6 +87,17 @@ function makeApi(overrides: Partial<ClientApi> = {}): ClientApi & { calls: strin
     async clearArchived() {
       calls.push('clearArchived')
       if (overrides.clearArchived) return overrides.clearArchived()
+      return []
+    },
+    async move(id, layout) {
+      calls.push('move')
+      ;(api as unknown as { lastMove: { id: string; layout: unknown } }).lastMove = { id, layout }
+      if (overrides.move) return overrides.move(id, layout)
+      return makeNote({ id, layout })
+    },
+    async arrange() {
+      calls.push('arrange')
+      if (overrides.arrange) return overrides.arrange()
       return []
     },
   }
@@ -192,6 +204,90 @@ describe('note card layout', () => {
     expect(bar.contains(card.querySelector('.skw-note-head'))).toBe(false)
     expect(bar.contains(card.querySelector('.skw-note-body'))).toBe(false)
     expect(bar.contains(card.querySelector('.skw-note-foot'))).toBe(false)
+  })
+})
+
+describe('view modes and the free canvas', () => {
+  it('renders each card at the placement the Host stored', async () => {
+    const api = makeApi({
+      list: async () => [
+        makeNote({ id: 'a', body: 'placed', layout: { x: 140, y: 90, rotate: -3, width: 'lg' } }),
+        makeNote({ id: 'b', body: 'derived' }),
+      ],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(2))
+    const placed = document.querySelector('[data-note-id="a"] .skw-note') as HTMLElement
+    expect(placed.style.left).toBe('140px')
+    expect(placed.style.top).toBe('90px')
+    // The stored preset drives the rendered width, not a responsive guess.
+    expect(placed.style.width).toBe(`${WIDTH_PX.lg}px`)
+    expect(placed.style.transform).toContain('rotate(-3deg)')
+    // A never-placed note still lands somewhere distinct instead of at (0,0).
+    const derived = document.querySelector('[data-note-id="b"] .skw-note') as HTMLElement
+    expect(derived.style.left).not.toBe('0px')
+  })
+
+  it('switches to the grid and list views without losing the note set', async () => {
+    const api = makeApi({ list: async () => [makeNote({ id: 'a', title: 'A note', body: 'body' })] })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-canvas')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: copy('view_grid') }))
+    await waitFor(() => expect(document.querySelector('.skw-grid')).not.toBeNull())
+    expect(document.querySelectorAll('.skw-note').length).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: copy('view_list') }))
+    await waitFor(() => expect(document.querySelector('.skw-list')).not.toBeNull())
+    expect(document.querySelectorAll('.skw-row').length).toBe(1)
+    // The canvas and its camera belong to the canvas view only.
+    expect(document.querySelector('.skw-canvas')).toBeNull()
+    expect(document.querySelector('.skw-cameras')).toBeNull()
+  })
+
+  it('tidies the wall through the Host and does not arrange from the grid view', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    fireEvent.click(screen.getByRole('button', { name: copy('arrange') }))
+    await waitFor(() => expect(api.calls).toContain('arrange'))
+    fireEvent.click(screen.getByRole('button', { name: copy('view_grid') }))
+    await waitFor(() => expect(document.querySelector('.skw-grid')).not.toBeNull())
+    // In grid view the cards are laid out by CSS, so tidying is meaningless.
+    expect(screen.queryByRole('button', { name: copy('arrange') })).toBeNull()
+  })
+
+  it('cycles a card width through the Host so the preset is persisted', async () => {
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 10, y: 10, rotate: 0, width: 'sm' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    fireEvent.click(document.querySelector('button[aria-label="' + copy('resize') + '"]')!)
+    await waitFor(() => expect(api.calls).toContain('move'))
+    // sm -> md, keeping the existing position.
+    const moved = (api as unknown as { lastMove?: { layout: { width: string; x: number } } }).lastMove
+    expect(moved?.layout.width).toBe('md')
+    expect(moved?.layout.x).toBe(10)
+  })
+
+  it('renders Markdown in the card body instead of literal asterisks', async () => {
+    const api = makeApi({ list: async () => [makeNote({ body: '**bold** and `code`' })] })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const body = document.querySelector('.skw-note-body')!
+    expect(body.querySelector('strong')?.textContent).toBe('bold')
+    expect(body.querySelector('code')?.textContent).toBe('code')
+    expect(body.textContent).not.toContain('**')
+  })
+
+  it('keeps the camera controls usable and bounded', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-cameras')).not.toBeNull())
+    const zoomIn = screen.getByRole('button', { name: copy('zoomIn') })
+    for (let step = 0; step < 12; step += 1) fireEvent.click(zoomIn)
+    await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('200%'))
+    fireEvent.click(screen.getByRole('button', { name: copy('zoomReset') }))
+    await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('100%'))
   })
 })
 

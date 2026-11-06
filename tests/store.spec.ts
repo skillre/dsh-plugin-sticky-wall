@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { StickyWallStore, WallError, DOMAIN_SPEC } from '../src/store.js'
-import { LIMITS, type Note } from '../src/types.js'
+import { LAYOUT_LIMITS, LIMITS, type Note } from '../src/types.js'
 
 /**
  * In-memory stand-in for one opened storage domain.
@@ -239,6 +239,84 @@ describe('sticky-wall store', () => {
     await store.create({ body: 'mine' })
     const reopened = await StickyWallStore.open(open, { maxNotes: LIMITS.notes, seedWelcomeNote: true, now: steppingClock() })
     expect(reopened.list()).toHaveLength(1)
+  })
+
+  it('moves a card without touching its content timestamp', async () => {
+    const store = await makeStore()
+    const note = await store.create({ body: 'draggable' })
+    expect(note.layout).toBeNull()
+    const moved = await store.move(note.id, { x: 120, y: 64, rotate: 3, width: 'lg' })
+    expect(moved.layout).toEqual({ x: 120, y: 64, rotate: 3, width: 'lg' })
+    // Rearranging a wall is not editing a note, so a "by updated" sort must not
+    // reshuffle just because a card was dragged.
+    expect(moved.updatedAt).toBe(note.updatedAt)
+  })
+
+  it('clamps an out-of-range placement and treats a repeat move as a no-op', async () => {
+    const store = await makeStore()
+    const note = await store.create({ body: 'bounded' })
+    const moved = await store.move(note.id, { x: 99_999, y: -99_999, rotate: 999, width: 'md' })
+    expect(moved.layout?.x).toBe(LAYOUT_LIMITS.coord)
+    expect(moved.layout?.y).toBe(-LAYOUT_LIMITS.coord)
+    expect(moved.layout?.rotate).toBe(LAYOUT_LIMITS.rotate)
+    // The same placement again returns the stored record instead of rewriting.
+    const again = await store.move(note.id, moved.layout!)
+    expect(again).toBe(moved)
+  })
+
+  it('rejects a move for a missing note and a non-numeric placement', async () => {
+    const store = await makeStore()
+    await expect(store.move('nope', { x: 1, y: 2, rotate: 0, width: 'md' })).rejects.toMatchObject({ code: 'not-found' })
+    const note = await store.create({ body: 'x' })
+    await expect(store.move(note.id, { x: Number.NaN, y: 0, rotate: 0, width: 'md' })).rejects.toMatchObject({ code: 'invalid-layout' })
+  })
+
+  it('accepts a placement on create so a new card can land where it was dropped', async () => {
+    const store = await makeStore()
+    const note = await store.create({ body: 'placed', layout: { x: 40, y: 50, rotate: -2, width: 'sm' } })
+    expect(note.layout).toEqual({ x: 40, y: 50, rotate: -2, width: 'sm' })
+  })
+
+  it('tidies every card into a non-overlapping arrangement and only reports real moves', async () => {
+    const store = await makeStore()
+    for (let index = 0; index < 6; index += 1) await store.create({ body: `note ${index}` })
+    const changed = await store.arrange()
+    expect(changed.length).toBeGreaterThan(0)
+    const placed = store.list()
+    for (const note of placed) {
+      expect(note.layout).not.toBeNull()
+      expect(note.layout?.width).toMatch(/^(sm|md|lg)$/)
+    }
+    // Coordinates are distinct: two cards never share an exact corner.
+    expect(new Set(placed.map((note) => `${note.layout?.x}:${note.layout?.y}`)).size).toBe(placed.length)
+    // A second tidy on an already-tidy wall writes nothing.
+    await expect(store.arrange()).resolves.toEqual([])
+  })
+
+  it('tidies archived notes too, so an archived card cannot overlap a tidied one', async () => {
+    // Regression: `arrange` used to pack only the live set, leaving an
+    // archived-but-visible note wherever it had been dragged — on top of the
+    // freshly tidied cards. Tidy must cover every note the wall can show.
+    const store = await makeStore()
+    const live = await store.create({ body: 'live note' })
+    const archived = await store.create({ body: 'archived note' })
+    await store.move(archived.id, { x: 900, y: 900, rotate: 0, width: 'md' })
+    await store.setArchived([archived.id], true)
+    await store.arrange()
+    const all = store.list(true)
+    expect(all).toHaveLength(2)
+    const archivedAfter = all.find((note) => note.id === archived.id)!
+    // The archived card was repacked instead of staying at its dragged corner.
+    expect(archivedAfter.layout?.x).not.toBe(900)
+    expect(archivedAfter.layout?.y).not.toBe(900)
+    expect(all.find((note) => note.id === live.id)?.layout).not.toBeNull()
+  })
+
+  it('keeps the seeded welcome note placed so a new wall is immediately draggable', async () => {
+    const store = await makeStore({ seed: true })
+    const welcome = store.list()[0]!
+    expect(welcome.layout).not.toBeNull()
+    expect(welcome.layout?.width).toBe('md')
   })
 
   it('closes the domain and refuses later writes instead of dropping them', async () => {

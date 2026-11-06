@@ -15,7 +15,7 @@ import { StickyWallStore } from './store.js'
 import type { DomainHandle } from './store.js'
 import { createExecuteRoute } from './transport.js'
 import type { HostConnection } from './transport.js'
-import { LIMITS, type Note, type NoteColor } from './types.js'
+import { LIMITS, type Note, type NoteColor, type NoteLayout } from './types.js'
 
 export { Config, StickyWallStore }
 export const name = 'skillre-sticky-wall'
@@ -78,6 +78,10 @@ function renderWall(value: unknown): string {
     })
     return [`${String(data.total ?? notes.length)} notes (${String(data.archived ?? 0)} archived):`, ...lines].join('\n')
   }
+  if (action === 'arrange') {
+    const notes = Array.isArray(data.changed) ? (data.changed as Note[]) : []
+    return notes.length === 0 ? 'The wall was already tidy.' : `Tidied ${notes.length} note${notes.length === 1 ? '' : 's'} into the shelf arrangement.`
+  }
   if (action === 'delete' || action === 'clear-archived') {
     const removed = Array.isArray(data.removed) ? data.removed.length : 0
     return `Removed ${removed} note${removed === 1 ? '' : 's'}.`
@@ -105,7 +109,7 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
         additionalProperties: false,
         required: ['action'],
         properties: {
-          action: { type: 'string', enum: ['list', 'create', 'update', 'archive', 'delete', 'clear-archived'] },
+          action: { type: 'string', enum: ['list', 'create', 'update', 'archive', 'delete', 'clear-archived', 'arrange'] },
           id: { type: 'string', description: 'Exact note id; required by update.' },
           ids: { type: 'array', items: { type: 'string' }, description: 'Note ids; required by archive and delete (1–200 entries).' },
           body: { type: 'string', description: `The note text (1–${LIMITS.body} characters). Required by create; optional patch field for update.` },
@@ -115,6 +119,8 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
           pinned: { type: 'boolean', description: 'Pin the note to the top of the wall.' },
           archived: { type: 'boolean', description: 'Archive (true) or restore (false) one note on update.' },
           includeArchived: { type: 'boolean', description: 'list only: include archived notes.' },
+          x: { type: 'number', description: 'Free-canvas horizontal position of the card, in canvas pixels. Optional on create.' },
+          y: { type: 'number', description: 'Free-canvas vertical position of the card, in canvas pixels. Optional on create.' },
           limit: { type: 'integer', description: 'list only: how many notes to return (1–50, default 20).' },
         },
       },
@@ -144,6 +150,9 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
                 ...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
                 ...(typeof args.color === 'string' ? { color: args.color as NoteColor } : {}),
                 ...(typeof args.pinned === 'boolean' ? { pinned: args.pinned } : {}),
+                ...(typeof args.x === 'number' && typeof args.y === 'number'
+                  ? { layout: { x: args.x, y: args.y, rotate: 0, width: 'md' as const } }
+                  : {}),
               }),
             }
           case 'update':
@@ -164,6 +173,8 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
             return { action: 'delete', removed: await store.remove((args.ids as string[] | undefined) ?? []) }
           case 'clear-archived':
             return { action: 'clear-archived', removed: await store.clearArchived() }
+          case 'arrange':
+            return { action: 'arrange', changed: await store.arrange() }
           default:
             throw new Error(`Unknown sticky_wall action ${JSON.stringify(args.action)}.`)
         }
@@ -206,6 +217,8 @@ export function apply(ctx: Context, rawConfig: Partial<WallConfig> = {}): void {
             setArchived: (ids, archived) => store.setArchived(ids, archived),
             remove: (ids) => store.remove(ids),
             clearArchived: () => store.clearArchived(),
+            move: (id, layout) => store.move(id, layout),
+            arrange: () => store.arrange(),
           }
         }),
       ),

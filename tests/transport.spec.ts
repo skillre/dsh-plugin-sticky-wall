@@ -18,6 +18,7 @@ const store = {
     const note = {
       id: 'n1', title: '', body: input.body, tags: [], color: 'yellow' as const,
       pinned: false, archived: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      layout: null,
     }
     store.notes.set(note.id, note)
     return note
@@ -41,6 +42,16 @@ const store = {
   },
   async clearArchived() {
     return []
+  },
+  async move(id: string, layout: { x: number; y: number; rotate: number; width: 'sm' | 'md' | 'lg' }) {
+    const note = store.notes.get(id)
+    if (!note) throw Object.assign(new Error('missing'), { code: 'not-found' })
+    const next = { ...note, layout }
+    store.notes.set(id, next)
+    return next
+  },
+  async arrange() {
+    return [...store.notes.values()]
   },
 }
 
@@ -184,6 +195,53 @@ describe('sticky-wall transport', () => {
     const document = await body(response)
     const result = document.result as { ok: boolean; value: { changed: Note[] } }
     expect(result.value.changed[0]?.archived).toBe(false)
+  })
+
+  it('moves a card through the exact route and echoes the stored placement', async () => {
+    const route = createExecuteRoute(actions)
+    await store.create({ body: 'movable' })
+    const response = await route.fetch(
+      request({ action: 'move', id: 'n1', layout: { x: 88, y: 44, rotate: 2, width: 'lg' } }, 'rpc-move'),
+    )
+    const document = await body(response)
+    const result = document.result as { ok: boolean; value: { changed: Note[] } }
+    expect(result.ok).toBe(true)
+    expect(result.value.changed[0]?.layout).toEqual({ x: 88, y: 44, rotate: 2, width: 'lg' })
+  })
+
+  it('rejects a placement with a non-numeric coordinate before it reaches the store', async () => {
+    const route = createExecuteRoute(actions)
+    await store.create({ body: 'x' })
+    const response = await route.fetch(
+      request({ action: 'move', id: 'n1', layout: { x: 'left', y: 0, rotate: 0, width: 'md' } }, 'rpc-bad-move'),
+    )
+    const document = await body(response)
+    expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/bad-request' } })
+  })
+
+  it('rejects a placement outside the world bounds and an unknown width preset', async () => {
+    const route = createExecuteRoute(actions)
+    await store.create({ body: 'x' })
+    for (const layout of [
+      { x: 99_999, y: 0, rotate: 0, width: 'md' },
+      { x: 0, y: 0, rotate: 0, width: 'huge' },
+      { x: 0, y: 0, rotate: 90, width: 'md' },
+    ]) {
+      const response = await route.fetch(request({ action: 'move', id: 'n1', layout }, 'rpc-bound'))
+      const document = await body(response)
+      expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/bad-request' } })
+    }
+  })
+
+  it('dispatches a tidy request and returns the notes it repacked', async () => {
+    const route = createExecuteRoute(actions)
+    await store.create({ body: 'a' })
+    await store.create({ body: 'b' })
+    const response = await route.fetch(request({ action: 'arrange' }, 'rpc-arrange'))
+    const document = await body(response)
+    const result = document.result as { ok: boolean; value: { changed: Note[] } }
+    expect(result.ok).toBe(true)
+    expect(Array.isArray(result.value.changed)).toBe(true)
   })
 
   it('reports a storage-open failure on the first request instead of at registration', async () => {

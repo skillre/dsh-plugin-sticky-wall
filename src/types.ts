@@ -49,13 +49,58 @@ export type NoteColor = (typeof COLORS)[number]
 export const SORTS = Object.freeze(['pinned', 'created', 'updated'] as const)
 export type NoteSort = (typeof SORTS)[number]
 
+/**
+ * Card width presets.
+ *
+ * A free canvas looks dead when every card is the same width, so the wall keeps
+ * three sizes. They are presets rather than arbitrary pixels: the card's text
+ * metrics, the auto-arrange packing and the drag handles all assume a known
+ * width, and a preset keeps the stored layout small and legible.
+ */
+export const WIDTHS = Object.freeze(['sm', 'md', 'lg'] as const)
+export type NoteWidth = (typeof WIDTHS)[number]
+
+/** Rendered card width for each preset, in world pixels at zoom 1. */
+export const WIDTH_PX: Readonly<Record<NoteWidth, number>> = Object.freeze({
+  sm: 178,
+  md: 222,
+  lg: 276,
+})
+
+/** Bounds of the free canvas: a note may sit anywhere inside this square. */
+export const LAYOUT_LIMITS = Object.freeze({
+  /** Absolute value of x and y, in world pixels. */
+  coord: 20_000,
+  /** Absolute rotation, in degrees. */
+  rotate: 12,
+})
+
+/**
+ * Where one note sits on the free canvas.
+ *
+ * `null` on a note means "never placed": the Client derives a stable preview
+ * position from the note id so a wall written before the canvas existed still
+ * opens as a scattered wall instead of a single stack. Dragging or arranging
+ * writes a real layout, so the Host stays the only owner of the arrangement.
+ */
+export interface NoteLayout {
+  /** World x of the card's top-left corner, in pixels at zoom 1. */
+  x: number
+  /** World y of the card's top-left corner, in pixels at zoom 1. */
+  y: number
+  /** Rotation in degrees, clamped to {@link LAYOUT_LIMITS.rotate}. */
+  rotate: number
+  /** Card width preset. */
+  width: NoteWidth
+}
+
 /** One sticky note as stored and as sent over the wire. */
 export interface Note {
   /** Stable id; `crypto.randomUUID()` for locally created notes. */
   id: string
   /** Optional short heading; the body alone is enough for a quick capture. */
   title: string
-  /** The note text. Never empty for a live note. */
+  /** The note text. Never empty for a live note. Markdown is rendered, not stored away. */
   body: string
   /** Normalized lowercase tags, deduplicated, at most {@link LIMITS.tags}. */
   tags: string[]
@@ -67,8 +112,10 @@ export interface Note {
   archived: boolean
   /** ISO-8601 creation time. */
   createdAt: string
-  /** ISO-8601 last-write time. */
+  /** ISO-8601 last-write time. Moving a card does not bump this. */
   updatedAt: string
+  /** Free-canvas placement, or `null` for a note the user never positioned. */
+  layout: NoteLayout | null
 }
 
 /** The complete wall state a Client renders. */
@@ -86,6 +133,8 @@ export type WallRequest =
   | { action: 'archive'; ids: string[]; archived: boolean }
   | { action: 'delete'; ids: string[] }
   | { action: 'clear-archived' }
+  | { action: 'move'; id: string; layout: NoteLayout }
+  | { action: 'arrange' }
 
 /** The fields a Client may submit when creating a note. */
 export interface NoteInput {
@@ -94,6 +143,7 @@ export interface NoteInput {
   tags?: string[]
   color?: NoteColor
   pinned?: boolean
+  layout?: NoteLayout | null
 }
 
 /** The fields a Client may change on an existing note. */

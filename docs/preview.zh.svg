@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="600" viewBox="0 0 1280 600">
+  <defs>
+    <linearGradient id="board" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1d24"/>
+      <stop offset="0.55" stop-color="#14161b"/>
+      <stop offset="1" stop-color="#0f1115"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#4d7cfe" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#4d7cfe" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- The app frame: the wall is the centre column of the DSH shell. -->
+  <rect x="0" y="0" width="1280" height="600" fill="url(#board)"/>
+  <rect x="28" y="34" width="1224" height="532" rx="18" fill="#ffffff" fill-opacity="0.02" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
+  <rect x="28" y="34" width="1224" height="170" fill="url(#glow)"/>
+
+  
+  <rect x="28" y="34" width="72" height="532" rx="16" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.09" stroke-width="1"/>
+  <circle cx="64" cy="66" r="10" fill="#4d7cfe" fill-opacity="1"/>
+  <g transform="translate(56 56)" fill="none" stroke="#ffffff" stroke-opacity="0.95" stroke-width="1.4" stroke-linecap="round">
+    <rect x="1" y="5" width="13" height="13" rx="2.4"/>
+    <path d="M5.4 2.6h9a2.4 2.4 0 0 1 2.4 2.4v9"/>
+  </g>
+  <text x="64" y="94" font-size="10.5" fill="#ffffff" fill-opacity="0.58" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">便签墙</text>
+  
+  <rect x="44" y="124" width="40" height="26" rx="8" fill="#ffffff" fill-opacity="0.15"/>
+  <rect x="44" y="158" width="40" height="26" rx="8" fill="#ffffff" fill-opacity="0.05"/>
+  <rect x="44" y="192" width="40" height="26" rx="8" fill="#ffffff" fill-opacity="0.05"/>
+
+  <!-- Paper dot grid on the canvas. Dots, not a pattern: the parser rejects patterns. -->
+  <g fill="#ffffff" fill-opacity="0.05">
+<circle cx="148" cy="176" r="1.6"/><circle cx="198" cy="176" r="1.6"/><circle cx="248" cy="176" r="1.6"/><circle cx="298" cy="176" r="1.6"/><circle cx="348" cy="176" r="1.6"/><circle cx="398" cy="176" r="1.6"/><circle cx="448" cy="176" r="1.6"/><circle cx="498" cy="176" r="1.6"/><circle cx="548" cy="176" r="1.6"/><circle cx="598" cy="176" r="1.6"/><circle cx="648" cy="176" r="1.6"/><circle cx="698" cy="176" r="1.6"/><circle cx="748" cy="176" r="1.6"/><circle cx="798" cy="176" r="1.6"/><circle cx="848" cy="176" r="1.6"/><circle cx="898" cy="176" r="1.6"/><circle cx="948" cy="176" r="1.6"/><circle cx="998" cy="176" r="1.6"/><circle cx="1048" cy="176" r="1.6"/><circle cx="1098" cy="176" r="1.6"/><circle cx="1148" cy="176" r="1.6"/><circle cx="1198" cy="176" r="1.6"/>
+<circle cx="148" cy="212" r="1.6"/><circle cx="198" cy="212" r="1.6"/><circle cx="248" cy="212" r="1.6"/><circle cx="298" cy="212" r="1.6"/><circle cx="348" cy="212" r="1.6"/><circle cx="398" cy="212" r="1.6"/><circle cx="448" cy="212" r="1.6"/><circle cx="498" cy="212" r="1.6"/><circle cx="548" cy="212" r="1.6"/><circle cx="598" cy="212" r="1.6"/><circle cx="648" cy="212" r="1.6"/><circle cx="698" cy="212" r="1.6"/><circle cx="748" cy="212" r="1.6"/><circle cx="798" cy="212" r="1.6"/><circle cx="848" cy="212" r="1.6"/><circle cx="898" cy="212" r="1.6"/><circle cx="948" cy="212" r="1.6"/><circle cx="998" cy="212" r="1.6"/><circle cx="1048" cy="212" r="1.6"/><circle cx="1098" cy="212" r="1.6"/><circle cx="1148" cy="212" r="1.6"/><circle cx="1198" cy="212" r="1.6"/>
+<circle cx="148" cy="248" r="1.6"/><circle cx="198" cy="248" r="1.6"/><circle cx="248" cy="248" r="1.6"/><circle cx="298" cy="248" r="1.6"/><circle cx="348" cy="248" r="1.6"/><circle cx="398" cy="248" r="1.6"/><circle cx="448" cy="248" r="1.6"/><circle cx="498" cy="248" r="1.6"/><circle cx="548" cy="248" r="1.6"/><circle cx="598" cy="248" r="1.6"/><circle cx="648" cy="248" r="1.6"/><circle cx="698" cy="248" r="1.6"/><circle cx="748" cy="248" r="1.6"/><circle cx="798" cy="248" r="1.6"/><circle cx="848" cy="248" r="1.6"/><circle cx="898" cy="248" r="1.6"/><circle cx="948" cy="248" r="1.6"/><circle cx="998" cy="248" r="1.6"/><circle cx="1048" cy="248" r="1.6"/><circle cx="1098" cy="248" r="1.6"/><circle cx="1148" cy="248" r="1.6"/><circle cx="1198" cy="248" r="1.6"/>
+<circle cx="148" cy="284" r="1.6"/><circle cx="198" cy="284" r="1.6"/><circle cx="248" cy="284" r="1.6"/><circle cx="298" cy="284" r="1.6"/><circle cx="348" cy="284" r="1.6"/><circle cx="398" cy="284" r="1.6"/><circle cx="448" cy="284" r="1.6"/><circle cx="498" cy="284" r="1.6"/><circle cx="548" cy="284" r="1.6"/><circle cx="598" cy="284" r="1.6"/><circle cx="648" cy="284" r="1.6"/><circle cx="698" cy="284" r="1.6"/><circle cx="748" cy="284" r="1.6"/><circle cx="798" cy="284" r="1.6"/><circle cx="848" cy="284" r="1.6"/><circle cx="898" cy="284" r="1.6"/><circle cx="948" cy="284" r="1.6"/><circle cx="998" cy="284" r="1.6"/><circle cx="1048" cy="284" r="1.6"/><circle cx="1098" cy="284" r="1.6"/><circle cx="1148" cy="284" r="1.6"/><circle cx="1198" cy="284" r="1.6"/>
+<circle cx="148" cy="320" r="1.6"/><circle cx="198" cy="320" r="1.6"/><circle cx="248" cy="320" r="1.6"/><circle cx="298" cy="320" r="1.6"/><circle cx="348" cy="320" r="1.6"/><circle cx="398" cy="320" r="1.6"/><circle cx="448" cy="320" r="1.6"/><circle cx="498" cy="320" r="1.6"/><circle cx="548" cy="320" r="1.6"/><circle cx="598" cy="320" r="1.6"/><circle cx="648" cy="320" r="1.6"/><circle cx="698" cy="320" r="1.6"/><circle cx="748" cy="320" r="1.6"/><circle cx="798" cy="320" r="1.6"/><circle cx="848" cy="320" r="1.6"/><circle cx="898" cy="320" r="1.6"/><circle cx="948" cy="320" r="1.6"/><circle cx="998" cy="320" r="1.6"/><circle cx="1048" cy="320" r="1.6"/><circle cx="1098" cy="320" r="1.6"/><circle cx="1148" cy="320" r="1.6"/><circle cx="1198" cy="320" r="1.6"/>
+<circle cx="148" cy="356" r="1.6"/><circle cx="198" cy="356" r="1.6"/><circle cx="248" cy="356" r="1.6"/><circle cx="298" cy="356" r="1.6"/><circle cx="348" cy="356" r="1.6"/><circle cx="398" cy="356" r="1.6"/><circle cx="448" cy="356" r="1.6"/><circle cx="498" cy="356" r="1.6"/><circle cx="548" cy="356" r="1.6"/><circle cx="598" cy="356" r="1.6"/><circle cx="648" cy="356" r="1.6"/><circle cx="698" cy="356" r="1.6"/><circle cx="748" cy="356" r="1.6"/><circle cx="798" cy="356" r="1.6"/><circle cx="848" cy="356" r="1.6"/><circle cx="898" cy="356" r="1.6"/><circle cx="948" cy="356" r="1.6"/><circle cx="998" cy="356" r="1.6"/><circle cx="1048" cy="356" r="1.6"/><circle cx="1098" cy="356" r="1.6"/><circle cx="1148" cy="356" r="1.6"/><circle cx="1198" cy="356" r="1.6"/>
+<circle cx="148" cy="392" r="1.6"/><circle cx="198" cy="392" r="1.6"/><circle cx="248" cy="392" r="1.6"/><circle cx="298" cy="392" r="1.6"/><circle cx="348" cy="392" r="1.6"/><circle cx="398" cy="392" r="1.6"/><circle cx="448" cy="392" r="1.6"/><circle cx="498" cy="392" r="1.6"/><circle cx="548" cy="392" r="1.6"/><circle cx="598" cy="392" r="1.6"/><circle cx="648" cy="392" r="1.6"/><circle cx="698" cy="392" r="1.6"/><circle cx="748" cy="392" r="1.6"/><circle cx="798" cy="392" r="1.6"/><circle cx="848" cy="392" r="1.6"/><circle cx="898" cy="392" r="1.6"/><circle cx="948" cy="392" r="1.6"/><circle cx="998" cy="392" r="1.6"/><circle cx="1048" cy="392" r="1.6"/><circle cx="1098" cy="392" r="1.6"/><circle cx="1148" cy="392" r="1.6"/><circle cx="1198" cy="392" r="1.6"/>
+<circle cx="148" cy="428" r="1.6"/><circle cx="198" cy="428" r="1.6"/><circle cx="248" cy="428" r="1.6"/><circle cx="298" cy="428" r="1.6"/><circle cx="348" cy="428" r="1.6"/><circle cx="398" cy="428" r="1.6"/><circle cx="448" cy="428" r="1.6"/><circle cx="498" cy="428" r="1.6"/><circle cx="548" cy="428" r="1.6"/><circle cx="598" cy="428" r="1.6"/><circle cx="648" cy="428" r="1.6"/><circle cx="698" cy="428" r="1.6"/><circle cx="748" cy="428" r="1.6"/><circle cx="798" cy="428" r="1.6"/><circle cx="848" cy="428" r="1.6"/><circle cx="898" cy="428" r="1.6"/><circle cx="948" cy="428" r="1.6"/><circle cx="998" cy="428" r="1.6"/><circle cx="1048" cy="428" r="1.6"/><circle cx="1098" cy="428" r="1.6"/><circle cx="1148" cy="428" r="1.6"/><circle cx="1198" cy="428" r="1.6"/>
+<circle cx="148" cy="464" r="1.6"/><circle cx="198" cy="464" r="1.6"/><circle cx="248" cy="464" r="1.6"/><circle cx="298" cy="464" r="1.6"/><circle cx="348" cy="464" r="1.6"/><circle cx="398" cy="464" r="1.6"/><circle cx="448" cy="464" r="1.6"/><circle cx="498" cy="464" r="1.6"/><circle cx="548" cy="464" r="1.6"/><circle cx="598" cy="464" r="1.6"/><circle cx="648" cy="464" r="1.6"/><circle cx="698" cy="464" r="1.6"/><circle cx="748" cy="464" r="1.6"/><circle cx="798" cy="464" r="1.6"/><circle cx="848" cy="464" r="1.6"/><circle cx="898" cy="464" r="1.6"/><circle cx="948" cy="464" r="1.6"/><circle cx="998" cy="464" r="1.6"/><circle cx="1048" cy="464" r="1.6"/><circle cx="1098" cy="464" r="1.6"/><circle cx="1148" cy="464" r="1.6"/><circle cx="1198" cy="464" r="1.6"/>
+<circle cx="148" cy="500" r="1.6"/><circle cx="198" cy="500" r="1.6"/><circle cx="248" cy="500" r="1.6"/><circle cx="298" cy="500" r="1.6"/><circle cx="348" cy="500" r="1.6"/><circle cx="398" cy="500" r="1.6"/><circle cx="448" cy="500" r="1.6"/><circle cx="498" cy="500" r="1.6"/><circle cx="548" cy="500" r="1.6"/><circle cx="598" cy="500" r="1.6"/><circle cx="648" cy="500" r="1.6"/><circle cx="698" cy="500" r="1.6"/><circle cx="748" cy="500" r="1.6"/><circle cx="798" cy="500" r="1.6"/><circle cx="848" cy="500" r="1.6"/><circle cx="898" cy="500" r="1.6"/><circle cx="948" cy="500" r="1.6"/><circle cx="998" cy="500" r="1.6"/><circle cx="1048" cy="500" r="1.6"/><circle cx="1098" cy="500" r="1.6"/><circle cx="1148" cy="500" r="1.6"/><circle cx="1198" cy="500" r="1.6"/>
+<circle cx="148" cy="536" r="1.6"/><circle cx="198" cy="536" r="1.6"/><circle cx="248" cy="536" r="1.6"/><circle cx="298" cy="536" r="1.6"/><circle cx="348" cy="536" r="1.6"/><circle cx="398" cy="536" r="1.6"/><circle cx="448" cy="536" r="1.6"/><circle cx="498" cy="536" r="1.6"/><circle cx="548" cy="536" r="1.6"/><circle cx="598" cy="536" r="1.6"/><circle cx="648" cy="536" r="1.6"/><circle cx="698" cy="536" r="1.6"/><circle cx="748" cy="536" r="1.6"/><circle cx="798" cy="536" r="1.6"/><circle cx="848" cy="536" r="1.6"/><circle cx="898" cy="536" r="1.6"/><circle cx="948" cy="536" r="1.6"/><circle cx="998" cy="536" r="1.6"/><circle cx="1048" cy="536" r="1.6"/><circle cx="1098" cy="536" r="1.6"/><circle cx="1148" cy="536" r="1.6"/><circle cx="1198" cy="536" r="1.6"/>
+  </g>
+
+  
+  <text x="128" y="72" font-size="19" font-weight="700" fill="#ffffff" fill-opacity="0.95" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">便签墙</text>
+  <text x="128" y="94" font-size="11.5" fill="#ffffff" fill-opacity="0.44" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">灵感还没溜走的时候。</text>
+  <rect x="128" y="112" width="296" height="34" rx="10" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
+  <circle cx="148" cy="127" r="5.5" fill="none" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.6"/>
+  <path d="M152.4 131.4l4.4 4.4" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="166" y="133" font-size="12" fill="#ffffff" fill-opacity="0.36" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">搜索便签…</text>
+  
+  <rect x="436" y="112" width="68" height="34" rx="17" fill="#ffffff" fill-opacity="0.92"/>
+  <text x="470" y="134" font-size="12" font-weight="650" fill="#191b21" fill-opacity="1" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">全部</text>
+  <rect x="512" y="112" width="68" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
+  <text x="546" y="134" font-size="12" font-weight="500" fill="#ffffff" fill-opacity="0.58" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">置顶</text>
+  <rect x="588" y="112" width="68" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
+  <text x="622" y="134" font-size="12" font-weight="500" fill="#ffffff" fill-opacity="0.58" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">归档</text>
+  <rect x="1080" y="112" width="72" height="34" rx="10" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
+  <text x="1116" y="134" font-size="12" font-weight="500" fill="#ffffff" fill-opacity="0.68" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">整理</text>
+  <rect x="1162" y="112" width="90" height="34" rx="10" fill="#4d7cfe"/>
+  <text x="1207" y="134" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">+ 新建</text>
+  
+  <g transform="translate(168 194) rotate(-4.5 126 86)">
+    <rect x="0" y="0" width="252" height="172" rx="14" fill="#fdf7dc" stroke="#ecdc9e" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <rect x="0" y="16" width="3" height="72" rx="1.5" fill="#e0b53a"/>
+    <circle cx="20" cy="24" r="4" fill="#e0b53a" fill-opacity="1"/>
+    <text x="236" y="28" font-size="10.5" font-weight="600" fill="#4a3d12" fill-opacity="0.5" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">★ 已置顶</text>
+    <text x="18" y="52" font-size="17" font-weight="700" fill="#4a3d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">先做小一点</text>
+    <text x="18" y="78" font-size="13" font-weight="650" fill="#4a3d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">一页纸，一个想法。</text>
+    
+    <text x="18" y="100" font-size="12" font-weight="400" fill="#4a3d12" fill-opacity="0.8" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">写下能证明它成立</text>
+    <text x="18" y="117" font-size="12" font-weight="400" fill="#4a3d12" fill-opacity="0.8" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">的最小版本。</text>
+    
+    <rect x="18" y="138" width="52" height="21" rx="10.5" fill="#e0b53a"/>
+    <text x="44" y="152.525" font-size="11.5" font-weight="500" fill="#8a6a0d" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">#灵感</text>
+    
+    <rect x="76" y="138" width="52" height="21" rx="10.5" fill="#e0b53a"/>
+    <text x="102" y="152.525" font-size="11.5" font-weight="500" fill="#8a6a0d" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">#今天</text>
+  </g>
+  <g transform="translate(444 176) rotate(3.2 99 79)">
+    <rect x="0" y="0" width="198" height="158" rx="14" fill="#fde9ef" stroke="#f2c9d6" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <text x="18" y="36" font-size="15" font-weight="650" fill="#5a2437" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">待读清单</text>
+    
+    <circle cx="22" cy="62" r="3.2" fill="#e78aa8" fill-opacity="1"/>
+    <text x="34" y="66" font-size="12.5" fill="#5a2437" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">砍掉范围</text>
+    <circle cx="22" cy="89" r="3.2" fill="#e78aa8" fill-opacity="1"/>
+    <text x="34" y="93" font-size="12.5" fill="#5a2437" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">周五发布</text>
+    <circle cx="22" cy="116" r="3.2" fill="#e78aa8" fill-opacity="1"/>
+    <text x="34" y="120" font-size="12.5" fill="#5a2437" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">告诉一个人</text>
+    <text x="182" y="144" font-size="10.5" fill="#5a2437" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3 天</text>
+  </g>
+  <g transform="translate(668 212) rotate(-2.4 120 66)">
+    <rect x="0" y="0" width="240" height="132" rx="14" fill="#e6f1fd" stroke="#c2daf1" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <text x="18" y="34" font-size="15" font-weight="650" fill="#1b3550" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">发布便签</text>
+    <text x="224" y="34" font-size="10.5" fill="#1b3550" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3 天</text>
+    <rect x="14" y="48" width="212" height="56" rx="8" fill="#1b3550" fill-opacity="0.09" stroke="#1b3550" stroke-opacity="0.16" stroke-width="1"/>
+    
+    <text x="26" y="70" font-size="11.5" font-weight="500" fill="#1b3550" fill-opacity="0.88" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">pnpm build</text>
+    <text x="26" y="90" font-size="11.5" font-weight="500" fill="#1b3550" fill-opacity="0.88" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">然后把我拖走</text>
+  </g>
+  <g transform="translate(924 168) rotate(4.6 92 70)">
+    <rect x="0" y="0" width="184" height="140" rx="14" fill="#e7f6ea" stroke="#c3e5cd" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <text x="18" y="36" font-size="15" font-weight="650" fill="#1d3f27" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">安静的角落</text>
+    
+    <rect x="18" y="54" width="13" height="13" rx="3" fill="#55b874" stroke="none" stroke-opacity="0.4" stroke-width="1.2"/>
+    <path d="M21 60 l2.6 2.6 l4.6 -5.2" stroke="#2c7a47" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="40" y="65" font-size="12.5" fill="#1d3f27" fill-opacity="0.55" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">起草</text>
+    <rect x="18" y="84" width="13" height="13" rx="3" fill="none" stroke="#1d3f27" stroke-opacity="0.4" stroke-width="1.2"/>
+    
+    <text x="40" y="95" font-size="12.5" fill="#1d3f27" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">复看</text>
+    <text x="168" y="126" font-size="10.5" fill="#1d3f27" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3 天</text>
+  </g>
+  <g transform="translate(296 396) rotate(2.8 107 50)">
+    <rect x="0" y="0" width="214" height="100" rx="14" fill="#efe9fd" stroke="#d6c9f2" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <rect x="16" y="20" width="2.5" height="60" rx="1.25" fill="#9b81e0"/>
+    <text x="30" y="55" font-size="12.5" font-style="italic" fill="#36264f" fill-opacity="0.84" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">工具应该消失。</text>
+  </g>
+  <g transform="translate(556 386) rotate(-5.2 86 58)">
+    <rect x="0" y="0" width="172" height="116" rx="14" fill="#fdeee0" stroke="#f1d3b4" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <text x="18" y="36" font-size="15" font-weight="650" fill="#4f2d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">晨间三行</text>
+    
+    <text x="18" y="60" font-size="12.5" font-weight="400" fill="#4f2d12" fill-opacity="0.84" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">咖啡之前</text>
+    <text x="18" y="79" font-size="12.5" font-weight="400" fill="#4f2d12" fill-opacity="0.84" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">先写三行。</text>
+  </g>
+  <g transform="translate(770 372) rotate(1.8 93 62)">
+    <rect x="0" y="0" width="186" height="124" rx="14" fill="#fdf7dc" stroke="#ecdc9e" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <text x="18" y="34" font-size="15" font-weight="650" fill="#4a3d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">本周</text>
+    <text x="18" y="64" font-size="11.5" font-weight="650" fill="#4a3d12" fill-opacity="0.9" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">计划</text>
+    <text x="92" y="64" font-size="11.5" font-weight="650" fill="#4a3d12" fill-opacity="0.9" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">天</text>
+    <line x1="16" y1="72" x2="170" y2="72" stroke="#4a3d12" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="18" y="92" font-size="11.5" fill="#4a3d12" fill-opacity="0.78" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">写作</text>
+    <text x="92" y="92" font-size="11.5" fill="#4a3d12" fill-opacity="0.78" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">2</text>
+  </g>
+  <g transform="translate(998 344) rotate(-3.6 86 64)">
+    <rect x="0" y="0" width="172" height="128" rx="14" fill="#fde9ef" stroke="#f2c9d6" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <text x="18" y="36" font-size="15" font-weight="650" fill="#5a2437" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">慢就是稳</text>
+    
+    <text x="18" y="62" font-size="12.5" font-weight="400" fill="#5a2437" fill-opacity="0.8" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">这里没有</text>
+    <text x="18" y="81" font-size="12.5" font-weight="400" fill="#5a2437" fill-opacity="0.8" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">什么急事。</text>
+    <text x="156" y="114" font-size="10.5" fill="#5a2437" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3 天</text>
+  </g>
+
+  <!-- Drag cue: the dashed drop target and a pointer on the hero card's corner. -->
+  <rect x="176" y="202" width="252" height="172" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1.4" stroke-dasharray="7 7" transform="rotate(-4.5 302 288)"/>
+  <g transform="translate(404 356)">
+    <path d="M0 0v20l5.2-5.2 3.6 8.4 4.2-1.8-3.6-8.2 7-.2z" fill="#ffffff" fill-opacity="0.92" stroke="#191c22" stroke-width="1.4" stroke-linejoin="round"/>
+    <rect x="15" y="18" width="54" height="20" rx="10" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1"/>
+    <text x="42" y="32" font-size="10.5" fill="#ffffff" fill-opacity="0.78" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">拖动</text>
+  </g>
+
+  
+  <rect x="128" y="522" width="128" height="32" rx="16" fill="#ffffff" fill-opacity="0.09" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1"/>
+  <text x="150" y="543" font-size="13" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">−</text>
+  <text x="192" y="542" font-size="11" fill="#ffffff" fill-opacity="0.52" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">100%</text>
+  <text x="234" y="543" font-size="13" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">+</text>
+</svg>

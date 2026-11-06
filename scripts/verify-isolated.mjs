@@ -133,6 +133,28 @@ async function rpc(origin, cookie, payload) {
   return envelope.result.value
 }
 
+/**
+ * Drive the same route expecting a plugin-owned failure.
+ *
+ * The happy-path helper asserts `ok: true`; this one asserts the envelope is a
+ * namespaced `sticky-wall/*` error, so a validation refusal is verified as a
+ * real refusal rather than a transport failure.
+ */
+async function rpcExpectError(origin, cookie, payload) {
+  const rpcId = randomUUID()
+  const endpoint = 'skillre-sticky-wall/execute'
+  const response = await fetch(`${origin}/api/${endpoint}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Cookie: cookie, Origin: origin },
+    body: JSON.stringify({ type: 'client-request', rpcId, method: endpoint, payload }),
+    signal: AbortSignal.timeout(15000),
+  })
+  assert.equal(response.status, 200, `${endpoint}: a validation refusal must still be a 200 envelope`)
+  const envelope = await response.json()
+  assert.equal(envelope.result.ok, false, `${endpoint}: expected a refusal, got success`)
+  return envelope.result.error
+}
+
 try {
   await writeFile(join(owned, '.owned-by-sticky-wall'), owner, { flag: 'wx', mode: 0o600 })
   await mkdir(home)
@@ -185,6 +207,21 @@ try {
     assert.equal(updated.changed?.[0]?.pinned, true)
     checks.push('api-update')
 
+    // Free-canvas placement: a move persists the layout without touching the
+    // content timestamp, and an out-of-range placement is rejected at the route.
+    const moved = await rpc(origin, cookie, { action: 'move', id: note.id, layout: { x: 168, y: 112, rotate: -3, width: 'lg' } })
+    assert.deepEqual(moved.changed?.[0]?.layout, { x: 168, y: 112, rotate: -3, width: 'lg' }, 'move must echo the stored placement')
+    assert.equal(moved.changed?.[0]?.updatedAt, updated.changed?.[0]?.updatedAt, 'a move must not bump updatedAt')
+    report.endpoint.move = moved.changed?.[0]?.layout
+    checks.push('api-move')
+    const refused = await rpcExpectError(origin, cookie, { action: 'move', id: note.id, layout: { x: 1e6, y: 0, rotate: 0, width: 'md' } })
+    assert.equal(refused.code, 'sticky-wall/bad-request', 'an out-of-bounds placement must be refused')
+    checks.push('api-move-bounds')
+
+    const arranged = await rpc(origin, cookie, { action: 'arrange' })
+    assert.ok(Array.isArray(arranged.changed), 'arrange must return the notes it repacked')
+    checks.push('api-arrange')
+
     const archived = await rpc(origin, cookie, { action: 'archive', ids: [note.id], archived: true })
     assert.equal(archived.changed?.[0]?.archived, true)
     checks.push('api-archive')
@@ -202,6 +239,11 @@ try {
       const again = await rpc(second.origin, second.cookie, { action: 'list', includeArchived: true })
       assert.ok(again.notes.some((candidate) => candidate.id === note.id), 'note did not survive a restart')
       checks.push('storage-persistence-across-restart')
+      const survived = again.notes.find((candidate) => candidate.id === note.id)
+      // The tidy pass ran before the restart, so the placement that survived is
+      // whatever `arrange` wrote; the point is that it survived at all.
+      assert.ok(survived?.layout !== null && typeof survived?.layout?.x === 'number', 'canvas placement did not survive a restart')
+      checks.push('storage-persistence-layout')
       const removed = await rpc(second.origin, second.cookie, { action: 'delete', ids: [note.id] })
       assert.deepEqual(removed.removed, [note.id])
       checks.push('api-delete')
@@ -239,7 +281,14 @@ try {
     report.cleanup.error = String(error)
   }
   report.cleanup.verified = cleanupVerified
-  await writeFile(join(repo, `verify-isolated-${manifest.version}.json`), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
+  // Evidence goes to docs/evidence so it is committed with the release, not
+  // dropped as a stray JSON file in the repository root.
+  await mkdir(join(repo, 'docs', 'evidence'), { recursive: true })
+  await writeFile(
+    join(repo, 'docs', 'evidence', `isolated-mount-${manifest.version}.json`),
+    `${JSON.stringify(report, null, 2)}\n`,
+    'utf8',
+  )
 }
 
 if (failure) {

@@ -14,7 +14,22 @@
 
 import { z } from 'zod'
 import { WallError } from './store.js'
-import { COLORS, ENDPOINT, LIMITS, SORTS, type MutationResult, type Note, type NoteInput, type NotePatch, type NoteSort, type WallRequest, type WallResult } from './types.js'
+import {
+  COLORS,
+  ENDPOINT,
+  LAYOUT_LIMITS,
+  LIMITS,
+  SORTS,
+  WIDTHS,
+  type MutationResult,
+  type Note,
+  type NoteInput,
+  type NoteLayout,
+  type NotePatch,
+  type NoteSort,
+  type WallRequest,
+  type WallResult,
+} from './types.js'
 
 /** Path of the exact route, under the shared `/api` channel. */
 export const EXECUTE_PATH = `/api/${ENDPOINT}`
@@ -40,6 +55,8 @@ export interface WallActions {
   setArchived(ids: string[], archived: boolean): Promise<Note[]>
   remove(ids: string[]): Promise<string[]>
   clearArchived(): Promise<string[]>
+  move(id: string, layout: NoteLayout): Promise<Note>
+  arrange(): Promise<Note[]>
 }
 
 const envelopeSchema = z.object({
@@ -54,6 +71,16 @@ const sortSchema = z.enum(SORTS)
 const idSchema = z.string().min(1).max(128)
 const idsSchema = z.array(idSchema).min(1).max(LIMITS.bulk)
 
+/** One card placement; the store re-clamps, this only rejects non-numbers. */
+const layoutSchema = z
+  .object({
+    x: z.number().min(-LAYOUT_LIMITS.coord).max(LAYOUT_LIMITS.coord),
+    y: z.number().min(-LAYOUT_LIMITS.coord).max(LAYOUT_LIMITS.coord),
+    rotate: z.number().min(-LAYOUT_LIMITS.rotate).max(LAYOUT_LIMITS.rotate),
+    width: z.enum(WIDTHS),
+  })
+  .strict()
+
 const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list'), includeArchived: z.boolean().optional(), sort: sortSchema.optional() }).strict(),
   z
@@ -66,6 +93,7 @@ const requestSchema = z.discriminatedUnion('action', [
           tags: z.array(z.string().max(LIMITS.tag)).max(LIMITS.tags).optional(),
           color: colorSchema.optional(),
           pinned: z.boolean().optional(),
+          layout: layoutSchema.nullable().optional(),
         })
         .strict(),
     })
@@ -89,6 +117,8 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('archive'), ids: idsSchema, archived: z.boolean() }).strict(),
   z.object({ action: z.literal('delete'), ids: idsSchema }).strict(),
   z.object({ action: z.literal('clear-archived') }).strict(),
+  z.object({ action: z.literal('move'), id: idSchema, layout: layoutSchema }).strict(),
+  z.object({ action: z.literal('arrange') }).strict(),
 ])
 
 /** A JSON response with no-store caching; the wall is always live state. */
@@ -126,6 +156,10 @@ async function dispatch(actions: WallActions, request: WallRequest): Promise<unk
       return { action: 'delete', changed: [], removed: await actions.remove(request.ids) } satisfies MutationResult
     case 'clear-archived':
       return { action: 'clear-archived', changed: [], removed: await actions.clearArchived() } satisfies MutationResult
+    case 'move':
+      return { action: 'move', changed: [await actions.move(request.id, request.layout)], removed: [] } satisfies MutationResult
+    case 'arrange':
+      return { action: 'arrange', changed: await actions.arrange(), removed: [] } satisfies MutationResult
   }
 }
 

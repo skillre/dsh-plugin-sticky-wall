@@ -42,6 +42,21 @@ For Cordis composition or preset work, load `editing-cordis-compositions` when a
 - Host↔Client boundaries carry only minimal lossless JSON.
 - Do not add Client structure from memory; query the current Client contract and then add the required build/export manifest deliberately.
 
+## Display contract
+
+The plugin detail page is a **picture**, not the README. Keep the three layers separate:
+
+- `locale/en.json` and `locale/zh.json` carry `meta.title`, a one-sentence `meta.description`
+  (<= 120 characters, plain text) and `meta.detail`;
+- `docs/DETAIL.md` / `docs/DETAIL.zh.md` hold exactly one `![alt](preview*.svg)` line and nothing else;
+- `README.md` / `README.en.md` keep the install, configuration, compatibility and limitation detail.
+
+The preview image is edited on a **Feishu whiteboard** and exported into `docs/preview.svg` /
+`docs/preview.zh.svg`; `docs/PREVIEW.md` records each language's board. `npm run check` runs
+`node scripts/preview.mjs check`, which enforces the fixed 640x300 banner ratio, the 500 KiB budget
+and the parser element set. Never replace the picture with prose, and never let `meta.detail` fall
+back to the README by leaving it unset.
+
 ## Development workflow
 
 1. Define goal, non-goals, permissions and data owner.

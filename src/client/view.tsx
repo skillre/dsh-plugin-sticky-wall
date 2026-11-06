@@ -1,17 +1,29 @@
 /**
- * The sticky wall page and its composer sheet.
+ * The sticky wall page, its free canvas and its composer sheet.
  *
- * State rules: the Host owns every note; this page holds only view state
- * (search text, sort, filter) plus the last snapshot it received. Every
+ * State rules: the Host owns every note AND its placement; this page holds only
+ * view state (search text, filter, camera zoom/pan, the in-flight drag). Every
  * mutation goes to the Host and the response is reconciled in place, so two
  * windows on the same wall converge instead of fighting over local state.
+ *
+ * The canvas has three view modes:
+ * - `canvas` — the free board: cards sit where the Host says, drag to move,
+ *   scroll to pan, ⌘/Ctrl + wheel to zoom, "整理" repacks them into a tidy
+ *   shelf arrangement on the Host.
+ * - `grid` — the same notes as a responsive masonry grid, for scanning a lot of
+ *   text without the spatial noise.
+ * - `list` — a dense one-line-per-note index, for finding a note by title.
+ *
+ * Markdown is rendered, never parsed as HTML: see `markdown.tsx`.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LIMITS, type Note, type NoteColor, type NotePatch } from '../types.js'
+import { LIMITS, WIDTH_PX, type Note, type NoteColor, type NoteLayout, type NotePatch, type NoteWidth } from '../types.js'
 import type { ClientApi } from './api.js'
 import { ActionError } from './api.js'
 import type { ClientLocaleLike } from './contracts.js'
+import { layoutOf } from '../layout.js'
+import { Markdown } from './markdown.jsx'
 import { SWATCHES, WALL_CSS } from './styles.js'
 import type { Translate } from './text.js'
 
@@ -19,6 +31,8 @@ import type { Translate } from './text.js'
 type Filter = 'all' | 'pinned' | 'archived'
 /** The orderings the Host accepts. */
 type Sort = 'pinned' | 'created' | 'updated'
+/** How the wall lays its notes out. */
+type ViewMode = 'canvas' | 'grid' | 'list'
 
 /** One draft the composer edits; a null id means "new note". */
 interface Draft {
@@ -27,6 +41,14 @@ interface Draft {
   body: string
   tags: string
   color: NoteColor
+  width: NoteWidth
+}
+
+/** The camera over the world canvas: pan offset plus zoom. */
+interface Camera {
+  x: number
+  y: number
+  zoom: number
 }
 
 /** Props the `main` slot passes through; the wall owns its own data. */
@@ -36,8 +58,16 @@ export interface WallPageProps {
   t: Translate
 }
 
+/** Zoom limits: below 0.4 a note is unreadable, above 2 it is a magnifier. */
+const ZOOM_MIN = 0.4
+const ZOOM_MAX = 2
+/** Pointer travel, in px, before a press becomes a drag instead of a click. */
+const DRAG_THRESHOLD = 3
+/** Width cycle order for the resize action. */
+const WIDTH_CYCLE: NoteWidth[] = ['sm', 'md', 'lg']
+
 /** The sidebar glyph: a small stack of notes, sized by the sidebar slot. */
-export function SidebarGlyph({ size = 18 }: { size?: number; active?: boolean }): JSX.Element {
+export function SidebarGlyph({ size = 18 }: { size?: number }): JSX.Element {
   return (
     <svg className="skw-glyph" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="7.5" width="11.5" height="11.5" rx="2" stroke="currentColor" strokeWidth="1.6" />
@@ -90,6 +120,7 @@ function Composer({
   onCancel(): void
 }): JSX.Element {
   const bodyRef = useRef<HTMLTextAreaElement | null>(null)
+  const [preview, setPreview] = useState(false)
   useEffect(() => {
     bodyRef.current?.focus()
   }, [])
@@ -104,20 +135,40 @@ function Composer({
             onSave()
           }
         }}>
-        <div className="skw-sheet-head">{draft.id ? t('edit') : t('new')}</div>
+        <div className="skw-sheet-head">
+          {draft.id ? t('edit') : t('new')}
+          <span className="skw-spacer" />
+          <button className="skw-btn skw-btn-quiet" type="button" data-on={preview} aria-pressed={preview}
+            onClick={() => setPreview((value) => !value)}>{preview ? t('edit') : t('preview')}</button>
+        </div>
         <div className="skw-sheet-body">
           <input className="skw-input" value={draft.title} placeholder={t('titlePlaceholder')} maxLength={LIMITS.title}
             onChange={(event) => onChange({ title: event.target.value })} aria-label={t('titlePlaceholder')} />
-          <textarea ref={bodyRef} className="skw-textarea" value={draft.body} placeholder={t('bodyPlaceholder')} maxLength={LIMITS.body}
-            onChange={(event) => onChange({ body: event.target.value })} aria-label={t('bodyPlaceholder')} />
+          {preview ? (
+            <div className="skw-preview-box">
+              {draft.body.trim() === '' ? <p className="skw-preview-empty">{t('bodyPlaceholder')}</p> : <Markdown source={draft.body} />}
+            </div>
+          ) : (
+            <textarea ref={bodyRef} className="skw-textarea" value={draft.body} placeholder={t('bodyPlaceholder')} maxLength={LIMITS.body}
+              onChange={(event) => onChange({ body: event.target.value })} aria-label={t('bodyPlaceholder')} />
+          )}
           <input className="skw-input" value={draft.tags} placeholder={t('tagsPlaceholder')}
             onChange={(event) => onChange({ tags: event.target.value })} aria-label={t('tagsPlaceholder')} />
-          <div className="skw-swatches" role="group" aria-label={t('colorLabel')}>
-            {SWATCHES.map((swatch) => (
-              <button key={swatch.key} type="button" className="skw-swatch" data-on={draft.color === swatch.key}
-                style={{ background: swatch.css }} aria-label={swatch.key} aria-pressed={draft.color === swatch.key}
-                onClick={() => onChange({ color: swatch.key as NoteColor })} />
-            ))}
+          <div className="skw-sheet-row">
+            <div className="skw-swatches" role="group" aria-label={t('colorLabel')}>
+              {SWATCHES.map((swatch) => (
+                <button key={swatch.key} type="button" className="skw-swatch" data-on={draft.color === swatch.key}
+                  style={{ background: swatch.css }} aria-label={swatch.key} aria-pressed={draft.color === swatch.key}
+                  onClick={() => onChange({ color: swatch.key as NoteColor })} />
+              ))}
+            </div>
+            <span className="skw-spacer" />
+            <div className="skw-sizes" role="group" aria-label={t('widthLabel')}>
+              {WIDTH_CYCLE.map((width) => (
+                <button key={width} type="button" className="skw-size" data-on={draft.width === width}
+                  aria-pressed={draft.width === width} onClick={() => onChange({ width })}>{t(`width_${width}`)}</button>
+              ))}
+            </div>
           </div>
           {error !== '' && <p className="skw-error" role="alert">{error}</p>}
         </div>
@@ -198,19 +249,59 @@ export function ConfirmDialog({
   )
 }
 
-/** One note card; every action is a Host mutation with an optimistic-free flow. */
-function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
+/** One note card on the canvas; drag moves it, click selects, double-click edits. */
+function NoteCard({
+  note,
+  index,
+  t,
+  locale,
+  dragging,
+  onEdit,
+  onPatch,
+  onRemove,
+  onResize,
+  onDragStart,
+  onDragEnd,
+}: {
   note: Note
+  index: number
   t: Translate
   locale: string
+  dragging: boolean
   onEdit(note: Note): void
   onPatch(note: Note, patch: NotePatch): void
   onRemove(note: Note): void
+  onResize(note: Note, width: NoteWidth): void
+  onDragStart(note: Note, event: React.PointerEvent<HTMLElement>): void
+  onDragEnd(moved: boolean): void
 }): JSX.Element {
+  const layout = layoutOf(note, index)
+  const style: React.CSSProperties = {
+    left: `${layout.x}px`,
+    top: `${layout.y}px`,
+    width: `${WIDTH_PX[layout.width]}px`,
+    transform: `rotate(${layout.rotate}deg)`,
+  }
   return (
-    <article className="skw-note" data-color={note.color} data-pinned={note.pinned} data-archived={note.archived}
-      aria-label={note.title || note.body.slice(0, 40)} tabIndex={0}
-      onDoubleClick={() => onEdit(note)}>
+    <article
+      className="skw-note"
+      data-color={note.color}
+      data-pinned={note.pinned}
+      data-archived={note.archived}
+      data-width={layout.width}
+      data-dragging={dragging}
+      style={style}
+      aria-label={note.title || note.body.slice(0, 40)}
+      tabIndex={0}
+      onPointerDown={(event) => onDragStart(note, event)}
+      onDoubleClick={() => onEdit(note)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault()
+          onEdit(note)
+        }
+      }}
+    >
       {/*
         Two stacked rows: the actions own the top-right row, the title owns the
         full-width row below it. Sharing one line made a long title wrap early
@@ -224,18 +315,29 @@ function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
         <div className="skw-note-tools">
           <button className="skw-icon-btn" type="button" title={note.pinned ? t('unpin') : t('pin')}
             data-on={note.pinned} aria-label={note.pinned ? t('unpin') : t('pin')}
+            onPointerDown={(event) => event.stopPropagation()}
             onClick={() => onPatch(note, { pinned: !note.pinned })}>
             <span className="skw-pin" aria-hidden="true">{note.pinned ? '★' : '☆'}</span>
           </button>
-          <button className="skw-icon-btn" type="button" title={t('edit')} aria-label={t('edit')} onClick={() => onEdit(note)}>✎</button>
+          <button className="skw-icon-btn" type="button" title={t('resize')} aria-label={t('resize')}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onResize(note, WIDTH_CYCLE[(WIDTH_CYCLE.indexOf(layout.width) + 1) % WIDTH_CYCLE.length] ?? 'md')}>⤢</button>
+          <button className="skw-icon-btn" type="button" title={t('edit')} aria-label={t('edit')}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onEdit(note)}>✎</button>
           <button className="skw-icon-btn" type="button" title={note.archived ? t('restore') : t('archive')}
             aria-label={note.archived ? t('restore') : t('archive')}
+            onPointerDown={(event) => event.stopPropagation()}
             onClick={() => onPatch(note, { archived: !note.archived })}>{note.archived ? '↩' : '▤'}</button>
-          <button className="skw-icon-btn" type="button" title={t('delete')} aria-label={t('delete')} onClick={() => onRemove(note)}>✕</button>
+          <button className="skw-icon-btn" type="button" title={t('delete')} aria-label={t('delete')}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onRemove(note)}>✕</button>
         </div>
       </div>
       {note.title !== '' && <div className="skw-note-head"><span className="skw-note-title">{note.title}</span></div>}
-      <p className="skw-note-body is-clamped">{note.body}</p>
+      <div className="skw-note-body is-clamped">
+        <Markdown source={note.body} compact />
+      </div>
       {note.tags.length > 0 && <div className="skw-note-tags">{note.tags.map((tag) => <span key={tag} className="skw-tag">#{tag}</span>)}</div>}
       <div className="skw-note-foot">
         <span>{formatTime(note.updatedAt, locale)}</span>
@@ -247,11 +349,26 @@ function NoteCard({ note, t, locale, onEdit, onPatch, onRemove }: {
   )
 }
 
+/** One row in the dense list view. */
+function NoteRow({ note, t, locale, onEdit }: { note: Note; t: Translate; locale: string; onEdit(note: Note): void }): JSX.Element {
+  return (
+    <button className="skw-row" type="button" data-color={note.color} data-archived={note.archived} onClick={() => onEdit(note)}>
+      <span className="skw-row-dot" aria-hidden="true" />
+      <span className="skw-row-title">{note.title || note.body.split('\n')[0]}</span>
+      {note.tags.length > 0 && <span className="skw-row-tags">{note.tags.map((tag) => `#${tag}`).join(' ')}</span>}
+      <span className="skw-spacer" />
+      {note.pinned && <span className="skw-row-badge" aria-hidden="true">★</span>}
+      <span className="skw-row-time">{formatTime(note.updatedAt, locale)}</span>
+    </button>
+  )
+}
+
 /** The wall page mounted into the `main` slot. */
 export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [notes, setNotes] = useState<Note[]>([])
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<Sort>('pinned')
+  const [view, setView] = useState<ViewMode>('canvas')
   const [query, setQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -260,6 +377,8 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [draftError, setDraftError] = useState('')
   const [confirming, setConfirming] = useState<'clear' | Note | null>(null)
+  const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 })
+  const [draggingId, setDraggingId] = useState<string | null>(null)
   // Re-render on locale switch: relative times and copy are read from the
   // active locale, so the page must observe the locale revision.
   const [, setLocaleRevision] = useState(0)
@@ -268,6 +387,20 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const sequence = useRef(0)
   /** Synchronous write fence: React state is too late for same-tick events. */
   const inFlight = useRef(false)
+  /** The live drag, kept in a ref so pointermove does not re-render per frame. */
+  const drag = useRef<{
+    id: string
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+    moved: boolean
+    /** Local preview position while dragging, so the card follows the pointer. */
+    x: number
+    y: number
+  } | null>(null)
+  const canvasRef = useRef<HTMLDivElement | null>(null)
 
   const activeLocale = locale.getSnapshot().active
 
@@ -349,8 +482,8 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   function openComposer(note?: Note): void {
     setDraftError('')
     setDraft(note
-      ? { id: note.id, title: note.title, body: note.body, tags: note.tags.join(' '), color: note.color }
-      : { id: null, title: '', body: '', tags: '', color: 'yellow' })
+      ? { id: note.id, title: note.title, body: note.body, tags: note.tags.join(' '), color: note.color, width: layoutOf(note, 0).width }
+      : { id: null, title: '', body: '', tags: '', color: 'yellow', width: 'md' })
   }
 
   async function saveDraft(): Promise<void> {
@@ -367,6 +500,13 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         await api.create({ body, title: draft.title.trim(), tags, color: draft.color }, life.current.signal)
       } else {
         await api.update(draft.id, { body, title: draft.title.trim(), tags, color: draft.color }, life.current.signal)
+        // A width change is a placement change, so it goes through `move`
+        // rather than the content patch (which must not bump `updatedAt`).
+        const current = notes.find((note) => note.id === draft.id)
+        if (current !== undefined) {
+          const layout = layoutOf(current, 0)
+          if (layout.width !== draft.width) await api.move(current.id, { ...layout, width: draft.width }, life.current.signal)
+        }
       }
       setDraft(null)
     })
@@ -385,6 +525,98 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
 
   const archivedCount = notes.filter((note) => note.archived).length
 
+  /**
+   * The world extent of the visible notes.
+   *
+   * The canvas is one large absolutely-positioned surface; its size comes from
+   * the furthest card plus padding, so a wall of three notes does not scroll
+   * for three screens of empty paper.
+   */
+  const extent = useMemo(() => {
+    let maxX = 0
+    let maxY = 0
+    for (const [index, note] of visible.entries()) {
+      const layout = layoutOf(note, index)
+      maxX = Math.max(maxX, layout.x + WIDTH_PX[layout.width])
+      maxY = Math.max(maxY, layout.y + 220)
+    }
+    return { width: maxX + 420, height: maxY + 320 }
+  }, [visible])
+
+  /** Begin a drag; the move itself is applied on pointerup through the Host. */
+  function startDrag(note: Note, event: React.PointerEvent<HTMLElement>): void {
+    if (event.button !== 0) return
+    const index = visible.findIndex((candidate) => candidate.id === note.id)
+    const layout = layoutOf(note, index < 0 ? 0 : index)
+    // Assign through a named value, not an inline literal: a literal followed
+    // by a `(` on the next line parses as a call expression, not as ASI.
+    drag.current = {
+      id: note.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: layout.x,
+      originY: layout.y,
+      moved: false,
+      x: layout.x,
+      y: layout.y,
+    }
+    const target = event.currentTarget as HTMLElement
+    target.setPointerCapture?.(event.pointerId)
+    setDraggingId(note.id)
+  }
+
+  /** Track the pointer; only a real move becomes a drag. */
+  useEffect(() => {
+    if (draggingId === null) return
+    const zoom = camera.zoom
+    const move = (event: PointerEvent): void => {
+      const current = drag.current
+      if (current === null || event.pointerId !== current.pointerId) return
+      const dx = (event.clientX - current.startX) / zoom
+      const dy = (event.clientY - current.startY) / zoom
+      if (!current.moved && Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < DRAG_THRESHOLD) return
+      current.moved = true
+      current.x = current.originX + dx
+      current.y = current.originY + dy
+      // Move the DOM node directly: a React state update per pointermove would
+      // re-render the whole wall on every frame.
+      const node = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${current.id}"]`)
+      if (node !== null && node !== undefined) node.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(0deg)`
+    }
+    const end = (event: PointerEvent): void => {
+      const current = drag.current
+      drag.current = null
+      setDraggingId(null)
+      if (current === null || event.pointerId !== current.pointerId) return
+      const node = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${current.id}"]`)
+      if (node !== null && node !== undefined) node.style.transform = ''
+      if (!current.moved) return
+      const layout: NoteLayout = { x: current.x, y: current.y, rotate: 0, width: layoutOf(notes.find((note) => note.id === current.id) ?? notes[0]!, 0).width }
+      void mutate(async () => { await api.move(current.id, layout, life.current.signal) })
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', end)
+    window.addEventListener('pointercancel', end)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
+    }
+  }, [draggingId, camera.zoom, notes, api, mutate])
+
+  /** Zoom with the wheel; trackpad pinch arrives as ctrl+wheel. */
+  function onWheel(event: React.WheelEvent<HTMLDivElement>): void {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom - event.deltaY * 0.002))
+    setCamera((current) => ({ ...current, zoom: next }))
+  }
+
+  const zoomBy = (delta: number): void => {
+    setCamera((current) => ({ ...current, zoom: Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current.zoom + delta)) }))
+  }
+
   return (
     <section className="skw-page" aria-label={t('title')}>
       <style>{WALL_CSS}</style>
@@ -400,6 +632,12 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
           {archivedCount > 0 && (
             <button className="skw-btn skw-btn-quiet" type="button" onClick={() => setConfirming('clear')} disabled={busy}>
               {t('clearArchived')}
+            </button>
+          )}
+          {view === 'canvas' && (
+            <button className="skw-btn skw-btn-quiet" type="button" disabled={busy || visible.length === 0}
+              onClick={() => void mutate(async () => { await api.arrange(life.current.signal) })}>
+              {t('arrange')}
             </button>
           )}
           <button className="skw-btn skw-btn-primary" type="button" onClick={() => openComposer()} disabled={busy}>
@@ -437,10 +675,17 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
             </button>
           ))}
         </div>
+        <div className="skw-seg skw-view-seg" role="group" aria-label={t('viewLabel')}>
+          {(['canvas', 'grid', 'list'] as const).map((mode) => (
+            <button key={mode} type="button" data-on={view === mode} onClick={() => setView(mode)} aria-label={t(`view_${mode}`)}>
+              {t(`view_${mode}`)}
+            </button>
+          ))}
+        </div>
         <span className="skw-count">{t('count', { count: visible.length })}</span>
       </div>
 
-      <div className="skw-body">
+      <div className="skw-body" data-view={view}>
         {error !== '' && (
           <p className="skw-error" role="alert">
             {error} <button className="skw-btn skw-btn-quiet" type="button" onClick={() => void reload({ includeArchived, sort })}>{t('retry')}</button>
@@ -456,17 +701,64 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
               <button className="skw-btn" type="button" onClick={() => openComposer()}>{t('new')}</button>
             )}
           </div>
-        ) : (
-          <div className="skw-grid">
+        ) : view === 'list' ? (
+          <div className="skw-list">
             {visible.map((note) => (
-              <NoteCard key={note.id} note={note} t={t} locale={activeLocale}
+              <NoteRow key={note.id} note={note} t={t} locale={activeLocale} onEdit={openComposer} />
+            ))}
+          </div>
+        ) : view === 'grid' ? (
+          <div className="skw-grid">
+            {visible.map((note, index) => (
+              <NoteCard key={note.id} note={note} index={index} t={t} locale={activeLocale} dragging={false}
                 onEdit={openComposer}
                 onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
-                onRemove={(target) => setConfirming(target)} />
+                onRemove={(target) => setConfirming(target)}
+                onResize={(target, width) => void mutate(async () => {
+                  const current = notes.find((candidate) => candidate.id === target.id)
+                  if (current !== undefined) await api.move(target.id, { ...layoutOf(current, index), width }, life.current.signal)
+                })}
+                onDragStart={() => {}} onDragEnd={() => {}} />
             ))}
+          </div>
+        ) : (
+          <div className="skw-canvas-scroll">
+            <div
+              ref={canvasRef}
+              className="skw-canvas"
+              data-zoomed={camera.zoom !== 1}
+              style={{ width: `${extent.width}px`, height: `${extent.height}px` }}
+              onWheel={onWheel}
+            >
+              <div className="skw-world" style={{ transform: `scale(${camera.zoom})`, transformOrigin: '0 0' }}>
+                {visible.map((note, index) => (
+                  <div key={note.id} className="skw-note-slot" data-note-id={note.id}>
+                    <NoteCard note={note} index={index} t={t} locale={activeLocale} dragging={draggingId === note.id}
+                      onEdit={openComposer}
+                      onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
+                      onRemove={(target) => setConfirming(target)}
+                      onResize={(target, width) => void mutate(async () => {
+                        const current = notes.find((candidate) => candidate.id === target.id)
+                        if (current !== undefined) await api.move(target.id, { ...layoutOf(current, index), width }, life.current.signal)
+                      })}
+                      onDragStart={startDrag} onDragEnd={() => {}} />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>
+
+      {view === 'canvas' && (
+        <div className="skw-cameras" role="group" aria-label={t('zoomLabel')}>
+          <button className="skw-camera-btn" type="button" aria-label={t('zoomOut')} onClick={() => zoomBy(-0.15)}>−</button>
+          <span className="skw-camera-value">{Math.round(camera.zoom * 100)}%</span>
+          <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} onClick={() => zoomBy(0.15)}>+</button>
+          <button className="skw-camera-btn" type="button" aria-label={t('zoomReset')}
+            onClick={() => setCamera({ x: 0, y: 0, zoom: 1 })}>⌖</button>
+        </div>
+      )}
 
       {draft && (
         <Composer draft={draft} t={t} busy={busy} error={draftError}

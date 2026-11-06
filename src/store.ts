@@ -17,7 +17,19 @@
  */
 
 import { z } from 'zod'
-import { COLORS, DOMAIN_NAME, DOMAIN_VERSION, LIMITS, type Note, type NoteColor, type NoteInput, type NotePatch } from './types.js'
+import { arrangeLayouts, clampLayout, normalizeWidth, sameLayout } from './layout.js'
+import {
+  COLORS,
+  WIDTHS,
+  DOMAIN_NAME,
+  DOMAIN_VERSION,
+  LIMITS,
+  type Note,
+  type NoteColor,
+  type NoteInput,
+  type NoteLayout,
+  type NotePatch,
+} from './types.js'
 
 /** Failure carrying a stable code the transport maps onto the RPC envelope. */
 export class WallError extends Error {
@@ -43,6 +55,18 @@ const NoteSchema = z
     archived: z.boolean().default(false),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
+    // `null` means "never placed": the Client derives a preview position from
+    // the note id. A stored layout is owned by the Host, so a wall opened in
+    // two windows shows the same arrangement.
+    layout: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+        rotate: z.number(),
+        width: z.enum(WIDTHS),
+      })
+      .nullable()
+      .default(null),
   })
   .passthrough()
 
@@ -112,6 +136,20 @@ function normalizeColor(raw: unknown): NoteColor {
   const match = COLORS.find((color) => color === value)
   if (match === undefined) throw new WallError('invalid-color', `Unknown note color ${JSON.stringify(value)}.`, { colors: [...COLORS] })
   return match
+}
+
+/** Validate and clamp a submitted placement; `null` clears it back to derived. */
+function normalizeLayout(raw: unknown): NoteLayout | null {
+  if (raw === null || raw === undefined) return null
+  if (typeof raw !== 'object') throw new WallError('invalid-layout', 'A note placement must be an object.')
+  const value = raw as Record<string, unknown>
+  const x = Number(value.x)
+  const y = Number(value.y)
+  const rotate = Number(value.rotate ?? 0)
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(rotate)) {
+    throw new WallError('invalid-layout', 'A note placement needs finite x, y and rotate values.')
+  }
+  return clampLayout({ x, y, rotate, width: normalizeWidth(value.width) })
 }
 
 /** Reject ids that are not plausible note keys before touching storage. */
@@ -232,6 +270,9 @@ export class StickyWallStore {
       archived: false,
       createdAt: stamp,
       updatedAt: stamp,
+      // The one note the plugin places itself, so a brand-new wall opens with a
+      // card that is obviously meant to be dragged.
+      layout: { x: 120, y: 96, rotate: -1.6, width: 'md' },
     }
     await this.notes.put(note.id, note)
   }
@@ -269,6 +310,7 @@ export class StickyWallStore {
       archived: false,
       createdAt: stamp,
       updatedAt: stamp,
+      layout: input?.layout === undefined ? null : normalizeLayout(input.layout),
     }
     if (this.notes.get(note.id) !== undefined) throw new WallError('duplicate-id', `A note with id ${JSON.stringify(note.id)} already exists.`)
     await this.notes.put(note.id, note)
@@ -355,6 +397,55 @@ export class StickyWallStore {
       removed.push(id)
     }
     return removed
+  }
+
+  /**
+   * Move one card on the free canvas.
+   *
+   * Moving is its own operation rather than an `update` patch: it deliberately
+   * does NOT bump `updatedAt`, because rearranging a wall is not editing a
+   * note's content and must not reshuffle a "by updated" sort. The write is
+   * still serialised on the mutation chain so two drags cannot race.
+   */
+  async move(id: string, layout: NoteLayout): Promise<Note> {
+    this.assertOpen()
+    return this.mutate(() => this.moveNow(id, layout))
+  }
+
+  private async moveNow(id: string, layout: NoteLayout): Promise<Note> {
+    const current = this.notes.get(id) as Note | undefined
+    if (current === undefined) throw new WallError('not-found', `No note with id ${JSON.stringify(id)}.`, { id })
+    const next = normalizeLayout(layout)
+    if (sameLayout(current.layout, next)) return current
+    return this.notes.update(id, () => ({ ...current, layout: next }))
+  }
+
+  /**
+   * Tidy the wall: repack every note into a deterministic shelf arrangement.
+   *
+   * Returns only the notes that actually moved, so the Client can reconcile
+   * without refetching the whole wall, and pressing tidy on an already-tidy
+   * wall is a no-op instead of a write storm.
+   */
+  async arrange(): Promise<Note[]> {
+    this.assertOpen()
+    return this.mutate(() => this.arrangeNow())
+  }
+
+  private async arrangeNow(): Promise<Note[]> {
+    // Every note, archived ones included. Packing only the live set left an
+    // archived-but-visible card at its dragged position, on top of the freshly
+    // tidied ones — the wall has to be tidy in every filter, not just the
+    // default one.
+    const current = this.list(true, 'pinned')
+    const planned = arrangeLayouts(current)
+    const changed: Note[] = []
+    for (const note of current) {
+      const target = planned.get(note.id)
+      if (target === undefined || sameLayout(note.layout, target)) continue
+      changed.push(await this.notes.update(note.id, () => ({ ...note, layout: target })))
+    }
+    return changed
   }
 
   /**

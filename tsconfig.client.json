@@ -20,7 +20,9 @@
     "src/client/**/*.ts",
     "src/client/**/*.tsx",
     "src/types.ts",
-    "tests/view.spec.tsx"
+    "src/layout.ts",
+    "tests/view.spec.tsx",
+    "tests/markdown.spec.tsx"
   ],
   "exclude": []
 }

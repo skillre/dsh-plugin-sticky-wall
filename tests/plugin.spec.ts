@@ -49,7 +49,7 @@ describe('@skillre/dsh-plugin-sticky-wall', () => {
     expect(definition.name).toBe('sticky_wall')
     expect(definition.timeoutMs).toBe(20_000)
     const properties = definition.parameters.properties as Record<string, { enum?: string[] }>
-    expect(properties.action?.enum).toEqual(['list', 'create', 'update', 'archive', 'delete', 'clear-archived'])
+    expect(properties.action?.enum).toEqual(['list', 'create', 'update', 'archive', 'delete', 'clear-archived', 'arrange'])
     expect((definition.parameters as { required: string[] }).required).toEqual(['action'])
 
     definitions.length = 0

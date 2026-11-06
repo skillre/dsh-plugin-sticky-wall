@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Sticky Wall",
-    "description": "A sticky-note wall in the DSH sidebar: capture passing ideas and temporary work, pin what matters, archive the rest."
+    "description": "A free-canvas note board in the DSH sidebar: drag cards into place, tidy them, and write Markdown.",
+    "detail": "docs/DETAIL.md"
   }
 }

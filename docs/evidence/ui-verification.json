@@ -1,31 +1,130 @@
 {
-  "capturedAt": "2026-11-05T09:29:01.538Z",
+  "capturedAt": "2026-11-06T14:22:46.299Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
-    "docs/evidence/sticky-wall-redesign-0.1.2.png",
-    "docs/evidence/sticky-wall-redesign-dark-0.1.2.png"
+    "docs/evidence/sticky-wall-zh.png",
+    "docs/evidence/sticky-wall-note-created.png",
+    "docs/evidence/sticky-wall-archived.png",
+    "docs/evidence/sticky-wall-canvas.png",
+    "docs/evidence/sticky-wall-light.png",
+    "docs/evidence/sticky-wall-dark.png"
   ],
   "results": [
     {
-      "check": "masonry-no-dead-space",
+      "check": "shell-overlays-dismissed",
       "ok": true,
-      "detail": "column-count layout; short notes keep natural height"
+      "detail": "2 overlay control(s) used"
     },
     {
-      "check": "palette-per-note",
+      "check": "sidebar-entry-present",
       "ok": true,
-      "detail": "6 hues, each with derived bg/edge/ink/accent/glow; dark theme restated"
+      "detail": "aria-label 便签墙"
     },
     {
-      "check": "tag-pills",
+      "check": "sidebar-click-attempts",
       "ok": true,
-      "detail": "tags render as accent-tinted pills"
+      "detail": "[{\"attempt\":0,\"hitIsEntry\":true,\"dialogs\":0,\"scrim\":0,\"mounted\":true,\"current\":\"便签墙\"}]"
     },
     {
-      "check": "pinned-rail",
+      "check": "sidebar-entry-selects-panel",
       "ok": true,
-      "detail": "pinned notes show a left accent rail and a badge"
+      "detail": "aria-current=便签墙"
+    },
+    {
+      "check": "wall-page-mounted",
+      "ok": true,
+      "detail": "title=便签墙"
+    },
+    {
+      "check": "welcome-note-seeded",
+      "ok": true,
+      "detail": "1 note card(s)"
+    },
+    {
+      "check": "zh-copy",
+      "ok": true,
+      "detail": "随手记下一闪而过的灵感，和临时的活儿；拖一拖，把它们摆成你自己的样子。"
+    },
+    {
+      "check": "composer-opens",
+      "ok": true,
+      "detail": "6 swatches"
+    },
+    {
+      "check": "composer-save-creates-note",
+      "ok": true,
+      "detail": "notes=2 colors=yellow,blue error=none"
+    },
+    {
+      "check": "pin-action-sorts-note-first",
+      "ok": true,
+      "detail": "first=★\n⤢\n✎\n▤\n✕\nUI 验证\n\n验证便签：来自真实 Web"
+    },
+    {
+      "check": "search-filters-wall",
+      "ok": true,
+      "detail": "count label=1 张便签"
+    },
+    {
+      "check": "archive-hides-note",
+      "ok": true,
+      "detail": "visible notes=1"
+    },
+    {
+      "check": "show-archived-toggle",
+      "ok": true,
+      "detail": "archived cards=1"
+    },
+    {
+      "check": "note-persists-across-ui-reload",
+      "ok": true,
+      "detail": "cards=2 archived=1"
+    },
+    {
+      "check": "canvas-positions-cards-absolutely",
+      "ok": true,
+      "detail": "left=19.1px top=15.6px transform=rotate(0deg)"
+    },
+    {
+      "check": "canvas-drag-persists-placement",
+      "ok": true,
+      "detail": "19.1px,15.6px -> 115.1px,77.6px"
+    },
+    {
+      "check": "canvas-tidy-repacks-the-wall",
+      "ok": true,
+      "detail": "2 cards repositioned"
+    },
+    {
+      "check": "canvas-tidy-leaves-no-overlap",
+      "ok": true,
+      "detail": "2 cards, no overlap"
+    },
+    {
+      "check": "card-body-renders-markdown",
+      "ok": true,
+      "detail": "strong=1 code=1 li=2 raw=false"
+    },
+    {
+      "check": "grid-view-renders-notes",
+      "ok": true,
+      "detail": "cards=2"
+    },
+    {
+      "check": "list-view-renders-rows",
+      "ok": true,
+      "detail": "rows=2"
+    },
+    {
+      "check": "theme-switches-note-palette",
+      "ok": true,
+      "detail": "light rgb(230, 241, 253)/rgb(27, 53, 80) -> dark rgb(31, 51, 70)/rgb(214, 232, 250)"
+    },
+    {
+      "check": "no-uncaught-errors",
+      "ok": true,
+      "detail": "0 recorded"
     }
   ]
 }

@@ -10,7 +10,7 @@
 
 import type { ClientConnectionLike, RpcResult } from './contracts.js'
 import { ENDPOINT } from '../types.js'
-import type { MutationResult, Note, NoteInput, NotePatch, WallRequest, WallSnapshot } from '../types.js'
+import type { MutationResult, Note, NoteInput, NoteLayout, NotePatch, WallRequest, WallSnapshot } from '../types.js'
 
 /** Failure raised by the Host; `code` is stable enough to switch on. */
 export class ActionError extends Error {
@@ -32,6 +32,8 @@ export interface ClientApi {
   archive(ids: string[], archived: boolean, signal?: AbortSignal): Promise<Note[]>
   remove(ids: string[], signal?: AbortSignal): Promise<string[]>
   clearArchived(signal?: AbortSignal): Promise<string[]>
+  move(id: string, layout: NoteLayout, signal?: AbortSignal): Promise<Note>
+  arrange(signal?: AbortSignal): Promise<Note[]>
 }
 
 /** Unwrap one endpoint result, converting a failure into a thrown error. */
@@ -75,6 +77,16 @@ export function createApi(connection: ClientConnectionLike, lifetime: AbortSigna
     async clearArchived(signal) {
       const value = await call<MutationResult>({ action: 'clear-archived' }, signal)
       return Array.isArray(value?.removed) ? value.removed : []
+    },
+    async move(id, layout, signal) {
+      const value = await call<MutationResult>({ action: 'move', id, layout }, signal)
+      const note = value?.changed?.[0]
+      if (!note) throw new ActionError('invalid-response', 'The Host moved no note.')
+      return note
+    },
+    async arrange(signal) {
+      const value = await call<MutationResult>({ action: 'arrange' }, signal)
+      return Array.isArray(value?.changed) ? value.changed : []
     },
   }
 }

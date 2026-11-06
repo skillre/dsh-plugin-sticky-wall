@@ -16,7 +16,7 @@
  * with zod record schemas.
  */
 import { z } from 'zod';
-import { type Note, type NoteInput, type NotePatch } from './types.js';
+import { type Note, type NoteInput, type NoteLayout, type NotePatch } from './types.js';
 /** Failure carrying a stable code the transport maps onto the RPC envelope. */
 export declare class WallError extends Error {
     readonly code: string;
@@ -48,6 +48,16 @@ export declare const DOMAIN_SPEC: {
                 archived: z.ZodDefault<z.ZodBoolean>;
                 createdAt: z.ZodString;
                 updatedAt: z.ZodString;
+                layout: z.ZodDefault<z.ZodNullable<z.ZodObject<{
+                    x: z.ZodNumber;
+                    y: z.ZodNumber;
+                    rotate: z.ZodNumber;
+                    width: z.ZodEnum<{
+                        sm: "sm";
+                        md: "md";
+                        lg: "lg";
+                    }>;
+                }, z.core.$strip>>>;
             }, z.core.$loose>;
         };
     };
@@ -135,6 +145,25 @@ export declare class StickyWallStore {
      */
     remove(ids: string[]): Promise<string[]>;
     private removeNow;
+    /**
+     * Move one card on the free canvas.
+     *
+     * Moving is its own operation rather than an `update` patch: it deliberately
+     * does NOT bump `updatedAt`, because rearranging a wall is not editing a
+     * note's content and must not reshuffle a "by updated" sort. The write is
+     * still serialised on the mutation chain so two drags cannot race.
+     */
+    move(id: string, layout: NoteLayout): Promise<Note>;
+    private moveNow;
+    /**
+     * Tidy the wall: repack every note into a deterministic shelf arrangement.
+     *
+     * Returns only the notes that actually moved, so the Client can reconcile
+     * without refetching the whole wall, and pressing tidy on an already-tidy
+     * wall is a no-op instead of a write storm.
+     */
+    arrange(): Promise<Note[]>;
+    private arrangeNow;
     /**
      * Permanently remove every archived note.
      *

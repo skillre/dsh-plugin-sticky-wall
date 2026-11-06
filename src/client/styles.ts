@@ -11,7 +11,7 @@
 
 export const WALL_CSS = `
 .skw-page {
-  height: 100%; display: flex; flex-direction: column;
+  position: relative; height: 100%; display: flex; flex-direction: column;
   background-color: var(--dsw-alias-bg-base);
   /* A barely-there dot grid reads as paper without competing with the notes. */
   background-image: radial-gradient(circle at 1px 1px, var(--dsw-alias-border-l1) 1px, transparent 0);
@@ -60,6 +60,7 @@ export const WALL_CSS = `
 .skw-count { margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .skw-body { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; padding: 4px 22px 40px; }
+.skw-body[data-view="canvas"] { padding: 0; overflow: hidden; }
 /* Masonry-style columns, not a row grid: cards keep their natural height and
    short notes no longer sit in a tall row with dead space underneath. */
 .skw-grid { column-count: 5; column-gap: 14px; }
@@ -67,6 +68,85 @@ export const WALL_CSS = `
 @media (max-width: 1180px) { .skw-grid { column-count: 3; } }
 @media (max-width: 860px)  { .skw-grid { column-count: 2; } }
 @media (max-width: 560px)  { .skw-grid { column-count: 1; } }
+
+/* The free canvas.
+   A scroll container holding a world-sized surface; every card is absolutely
+   positioned in world coordinates. Scrolling pans, and ⌘/Ctrl + wheel scales
+   the world around its origin, so a wall keeps its spatial memory instead of
+   being re-flowed by the window width. */
+.skw-canvas-scroll { width: 100%; height: 100%; overflow: auto; overscroll-behavior: contain; }
+.skw-canvas {
+  position: relative; min-width: 100%; min-height: 100%;
+  /* The same dot grid as the page, so the canvas reads as the paper itself. */
+  background-image: radial-gradient(circle at 1px 1px, var(--dsw-alias-border-l1) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+.skw-world { position: absolute; inset: 0; }
+.skw-note-slot { position: absolute; inset: 0; pointer-events: none; }
+/* Cards inside the canvas are absolutely placed by their stored layout, and
+   only the card itself takes pointer events, so empty paper stays scrollable. */
+.skw-canvas .skw-note {
+  position: absolute; pointer-events: auto; margin: 0;
+  cursor: grab; touch-action: none; will-change: transform;
+  /* The transition is what makes a drop feel placed rather than snapped. */
+  transition: box-shadow .18s ease, transform .16s ease;
+  /* The Host's tidy pass estimates card heights from text columns, so the
+     rendered box has to honour the same budget: without a cap a long note grows
+     past its estimate and the shelf packing underneath it overlaps. The value
+     mirrors MAX_CARD_HEIGHT in src/layout.ts. */
+  overflow: hidden;
+}
+.skw-canvas .skw-note[data-width="sm"] { max-height: 236px; }
+.skw-canvas .skw-note[data-width="md"] { max-height: 288px; }
+.skw-canvas .skw-note[data-width="lg"] { max-height: 336px; }
+.skw-canvas .skw-note[data-dragging="true"] {
+  cursor: grabbing; z-index: 20;
+  /* A dragged card lifts off the paper and stops animating its transform, so
+     the pointer tracks it exactly. */
+  transition: box-shadow .18s ease;
+  box-shadow: 0 4px 10px var(--dsw-alias-bg-mask-2), 0 26px 46px -14px var(--skw-note-glow);
+}
+.skw-canvas .skw-note:hover { transform-origin: center; }
+
+/* Dense one-line-per-note index. */
+.skw-list { display: flex; flex-direction: column; gap: 2px; }
+.skw-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 34px;
+  padding: 4px 10px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--dsw-alias-label-primary); cursor: pointer; text-align: left;
+}
+.skw-row:hover { background: var(--dsw-alias-bg-layer-2); }
+.skw-row:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+.skw-row[data-archived="true"] { opacity: .6; }
+.skw-row .skw-spacer { flex: 1; }
+.skw-row-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--skw-note-accent, var(--dsw-alias-brand-primary)); }
+.skw-row-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 52%; }
+.skw-row-tags { font-size: 11px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34%; }
+.skw-row-badge { color: var(--dsw-alias-brand-primary); font-size: 11px; }
+.skw-row-time { font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.skw-row[data-color="yellow"]  { --skw-note-accent: #e0b53a; }
+.skw-row[data-color="pink"]    { --skw-note-accent: #e78aa8; }
+.skw-row[data-color="green"]   { --skw-note-accent: #55b874; }
+.skw-row[data-color="blue"]    { --skw-note-accent: #5b9de0; }
+.skw-row[data-color="purple"]  { --skw-note-accent: #9b81e0; }
+.skw-row[data-color="orange"]  { --skw-note-accent: #e79a4e; }
+
+/* Floating camera control, bottom-left: it belongs to the canvas, not to the
+   toolbar, so the toolbar stays about filtering and the view switch. */
+.skw-cameras {
+  position: absolute; left: 22px; bottom: 18px; z-index: 12;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 3px; border-radius: 999px; border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1); box-shadow: 0 4px 14px var(--dsw-alias-bg-mask-2);
+}
+.skw-camera-btn {
+  width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary);
+  cursor: pointer; font-size: 13px; line-height: 1;
+}
+.skw-camera-btn:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-camera-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+.skw-camera-value { min-width: 38px; text-align: center; font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
 .skw-empty { margin: 64px auto 0; max-width: 380px; text-align: center; color: var(--dsw-alias-label-secondary); }
 .skw-empty p { margin: 0 0 14px; font-size: 13px; }
 .skw-empty-icon { font-size: 30px; line-height: 1; display: block; margin-bottom: 12px; opacity: .65; }
@@ -103,8 +183,10 @@ export const WALL_CSS = `
 .skw-note-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--skw-note-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--skw-note-accent) 16%, transparent); }
 .skw-note-head { display: flex; align-items: flex-start; gap: 6px; }
 .skw-note-title { font-size: 13px; line-height: 19px; font-weight: 650; letter-spacing: -.1px; overflow-wrap: anywhere; }
-.skw-note-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 20px; flex: 1; color: var(--skw-note-ink); opacity: .92; }
-.skw-note-body.is-clamped { display: -webkit-box; -webkit-line-clamp: 10; -webkit-box-orient: vertical; overflow: hidden; }
+.skw-note-body { margin: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 20px; flex: 1; color: var(--skw-note-ink); opacity: .92; }
+/* Clamp the rendered Markdown block, not a plain string: display:-webkit-box
+   on the wrapper clips every child, so a long note stays a card and not a page. */
+.skw-note-body.is-clamped { display: -webkit-box; -webkit-line-clamp: 12; -webkit-box-orient: vertical; overflow: hidden; }
 .skw-note-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 1px; }
 /* Tags read as real labels: a tinted pill with the note's accent, not a grey
    block. */
@@ -125,6 +207,82 @@ export const WALL_CSS = `
 .skw-icon-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; opacity: 1; }
 .skw-icon-btn[data-on="true"] { opacity: 1; color: var(--skw-note-accent-ink); }
 .skw-pin { flex: none; font-size: 11px; line-height: 1; }
+
+/* Rendered Markdown.
+   Sized in em so it follows the card's own font size at every width preset,
+   and kept quiet: headings are one step up, not a document outline. */
+.skw-md { font-size: inherit; line-height: inherit; }
+.skw-md[data-compact="true"] > *:first-child { margin-top: 0; }
+.skw-md[data-compact="true"] > *:last-child { margin-bottom: 0; }
+.skw-md .skw-md-p { margin: 0 0 .5em; }
+.skw-md .skw-md-p:last-child { margin-bottom: 0; }
+.skw-md .skw-md-heading { margin: .55em 0 .35em; font-weight: 650; line-height: 1.35; letter-spacing: -.1px; }
+.skw-md .skw-md-heading:first-child { margin-top: 0; }
+.skw-md h3.skw-md-heading { font-size: 1.12em; }
+.skw-md h4.skw-md-heading { font-size: 1.04em; }
+.skw-md h5.skw-md-heading, .skw-md h6.skw-md-heading { font-size: 1em; }
+.skw-md .skw-md-list { margin: .35em 0 .55em; padding-left: 1.15em; }
+.skw-md .skw-md-list li { margin: .12em 0; }
+.skw-md .skw-md-list li::marker { color: var(--skw-note-accent-ink); }
+.skw-md .skw-md-pre {
+  margin: .45em 0; padding: 7px 9px; border-radius: 7px; overflow: auto;
+  background: color-mix(in srgb, var(--skw-note-ink) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--skw-note-ink) 14%, transparent);
+  font-size: .92em; line-height: 1.45; max-height: 180px;
+}
+.skw-md .skw-md-pre code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+.skw-md .skw-md-code {
+  padding: .08em .34em; border-radius: 4px; font-size: .94em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: color-mix(in srgb, var(--skw-note-ink) 11%, transparent);
+}
+.skw-md .skw-md-quote {
+  margin: .4em 0; padding: .1em 0 .1em .7em;
+  border-left: 2px solid var(--skw-note-accent);
+  color: color-mix(in srgb, var(--skw-note-ink) 82%, transparent);
+}
+.skw-md .skw-md-rule { margin: .6em 0; border: 0; border-top: 1px solid color-mix(in srgb, var(--skw-note-ink) 22%, transparent); }
+.skw-md .skw-md-link { color: var(--skw-note-accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.skw-md .skw-md-link:hover { text-decoration-thickness: 2px; }
+.skw-md .skw-md-table { margin: .45em 0; border-collapse: collapse; width: 100%; font-size: .94em; }
+.skw-md .skw-md-table th, .skw-md .skw-md-table td {
+  padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--skw-note-ink) 18%, transparent); text-align: left;
+}
+.skw-md .skw-md-table th { background: color-mix(in srgb, var(--skw-note-ink) 7%, transparent); font-weight: 600; }
+.skw-md .skw-md-task { display: inline-flex; align-items: baseline; gap: 5px; }
+.skw-md .skw-md-box {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 12px; height: 12px; flex: none; border-radius: 3px; font-size: 9px; line-height: 1;
+  border: 1px solid color-mix(in srgb, var(--skw-note-ink) 40%, transparent);
+}
+.skw-md .skw-md-task[data-checked="true"] .skw-md-box { background: var(--skw-note-accent); border-color: transparent; color: var(--skw-note-accent-ink); }
+.skw-md .skw-md-task[data-checked="true"] { opacity: .78; }
+
+/* Composer preview pane: same Markdown, on a neutral sheet instead of a note. */
+.skw-preview-box {
+  min-height: 132px; max-height: 42vh; overflow: auto; padding: 9px 11px;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary);
+  font-size: 13px; line-height: 20px;
+}
+.skw-preview-box .skw-md-link { color: var(--dsw-alias-brand-primary); }
+.skw-preview-box .skw-md-code { background: var(--dsw-alias-bg-layer-2); }
+.skw-preview-box .skw-md-pre { background: var(--dsw-alias-bg-layer-2); border-color: var(--dsw-alias-border-l1); }
+.skw-preview-empty { margin: 0; color: var(--dsw-alias-label-tertiary); }
+.skw-sheet-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skw-sheet-row .skw-spacer { flex: 1; }
+.skw-sizes { display: inline-flex; gap: 2px; }
+.skw-size {
+  height: 22px; min-width: 26px; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary);
+  cursor: pointer; font-size: 11.5px;
+}
+.skw-size:hover { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l3); }
+.skw-size[data-on="true"] { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); border-color: transparent; }
+.skw-size:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+/* The view switch is a small segment of its own, visually separated from the
+   filter chips because it changes the whole surface rather than a subset. */
+.skw-view-seg { border-left: 1px solid var(--dsw-alias-border-l2); padding-left: 10px; margin-left: 2px; }
 
 /* Pastel palettes.
    Each note color defines five variables instead of one flat background, so the
