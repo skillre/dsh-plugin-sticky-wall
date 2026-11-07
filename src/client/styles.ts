@@ -85,11 +85,19 @@ export const WALL_CSS = `
 .skw-note-slot { position: absolute; inset: 0; pointer-events: none; }
 /* Cards inside the canvas are absolutely placed by their stored layout, and
    only the card itself takes pointer events, so empty paper stays scrollable. */
+/* The canvas card.
+   Performance note: transform must NEVER be transitioned here. The drag writes
+   a new transform on every animation frame, and an active transition makes each
+   write an animation target — the browser then interpolates toward it, so the
+   card visibly lags the pointer by ~160ms and reads as sticky. Only the
+   shadow is animated. */
 .skw-canvas .skw-note {
   position: absolute; pointer-events: auto; margin: 0;
-  cursor: grab; touch-action: none; will-change: transform;
-  /* The transition is what makes a drop feel placed rather than snapped. */
-  transition: box-shadow .18s ease, transform .16s ease;
+  cursor: grab; touch-action: none;
+  /* One layer per card, promoted once. Toggling will-change on drag would
+     itself cost a style recalculation on the press. */
+  will-change: transform;
+  transition: box-shadow .18s ease;
   /* The Host's tidy pass estimates card heights from text columns, so the
      rendered box has to honour the same budget: without a cap a long note grows
      past its estimate and the shelf packing underneath it overlaps. The value
@@ -99,14 +107,19 @@ export const WALL_CSS = `
 .skw-canvas .skw-note[data-width="sm"] { max-height: 236px; }
 .skw-canvas .skw-note[data-width="md"] { max-height: 288px; }
 .skw-canvas .skw-note[data-width="lg"] { max-height: 336px; }
+/* While dragging: no hover lift, no text selection, a lifted shadow, and no
+   pointer events on the card's own children so the drag cannot be interrupted
+   by a child capturing the pointer. */
 .skw-canvas .skw-note[data-dragging="true"] {
   cursor: grabbing; z-index: 20;
-  /* A dragged card lifts off the paper and stops animating its transform, so
-     the pointer tracks it exactly. */
-  transition: box-shadow .18s ease;
   box-shadow: 0 4px 10px var(--dsw-alias-bg-mask-2), 0 26px 46px -14px var(--skw-note-glow);
+  user-select: none; -webkit-user-select: none;
 }
-.skw-canvas .skw-note:hover { transform-origin: center; }
+.skw-canvas .skw-note[data-dragging="true"] * { pointer-events: none; }
+/* The hover lift belongs to the grid view only. On the canvas the card already
+   has a stored position, and a translateY(-2px) here would fight the drag's
+   own transform (the two rules would overwrite each other). */
+.skw-canvas .skw-note:hover { box-shadow: 0 2px 4px var(--dsw-alias-bg-mask-2), 0 14px 28px -10px var(--skw-note-glow); }
 
 /* Dense one-line-per-note index. */
 .skw-list { display: flex; flex-direction: column; gap: 2px; }
@@ -167,7 +180,10 @@ export const WALL_CSS = `
   break-inside: avoid; -webkit-column-break-inside: avoid;
   margin: 0 0 14px;
 }
-.skw-note:hover { box-shadow: 0 2px 4px var(--dsw-alias-bg-mask-2), 0 14px 28px -10px var(--skw-note-glow); transform: translateY(-2px); }
+.skw-note:hover { box-shadow: 0 2px 4px var(--dsw-alias-bg-mask-2), 0 14px 28px -10px var(--skw-note-glow); }
+/* The lift is a grid-view affordance; on the canvas the card's transform is
+   owned by its placement and the drag, so it must not be overridden here. */
+.skw-grid .skw-note:hover { transform: translateY(-2px); }
 .skw-note:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
 .skw-note[data-archived="true"] { opacity: .68; }
 /* Pinned notes get a colored left rail instead of just a heavier shadow, so

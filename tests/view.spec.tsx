@@ -8,6 +8,7 @@ import { en, textOf } from '../src/client/text.js'
 import type { Translate } from '../src/client/text.js'
 import { ConfirmDialog, WallPage } from '../src/client/view.jsx'
 import { WIDTH_PX, type Note } from '../src/types.js'
+import { WALL_CSS } from '../src/client/styles.js'
 
 /**
  * Client component behavior tests.
@@ -334,6 +335,83 @@ describe('view modes and the free canvas', () => {
     const moved = (api as unknown as { lastMove?: { layout: { rotate: number; x: number } } }).lastMove
     expect(moved?.layout.rotate).toBe(-3)
     expect(moved?.layout.x).not.toBe(40)
+  })
+
+  it('does not transition the canvas card transform, so a drag tracks the pointer', async () => {
+    // Regression: `transition: transform .16s ease` on the canvas card made every
+    // per-frame transform write an animation target, so the card lagged the
+    // pointer by ~160ms — the "sticky" drag feel. Only the shadow may animate.
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 10, y: 10, rotate: 0, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-canvas .skw-note')).not.toBeNull())
+    // jsdom does not apply an injected <style> sheet to getComputedStyle, so the
+    // assertion reads the stylesheet source, which is the actual contract.
+    const rule = WALL_CSS.slice(
+      WALL_CSS.indexOf('.skw-canvas .skw-note {'),
+      WALL_CSS.indexOf('.skw-canvas .skw-note[data-width'),
+    )
+    // The transition must not name `transform` (will-change is fine and
+    // desirable: it promotes the card to its own layer once).
+    const transition = rule.match(/transition:\s*([^;]+);/)?.[1] ?? ''
+    expect(transition).toContain('box-shadow')
+    expect(transition).not.toContain('transform')
+  })
+
+  it('restores the card tilt on drop instead of clearing its transform', async () => {
+    // Regression: the drop cleared the inline transform, which React had also
+    // written `rotate(...)` into, so every dropped card lost its tilt until the
+    // next render — a visible snap. The UI harness caught this; this test keeps
+    // it caught without a browser.
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 10, y: 10, rotate: -3, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const card = document.querySelector('.skw-canvas .skw-note') as HTMLElement
+    const pointer = (type: string, x: number, y: number): Event => {
+      const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+      event.pointerId = 1
+      event.clientX = x
+      event.clientY = y
+      event.button = 0
+      event.isPrimary = true
+      return event
+    }
+    act(() => { card.dispatchEvent(pointer('pointerdown', 100, 100)) })
+    act(() => {
+      window.dispatchEvent(pointer('pointermove', 140, 130))
+      window.dispatchEvent(pointer('pointerup', 140, 130))
+    })
+    await waitFor(() => expect(api.calls).toContain('move'))
+    // The inline transform must still carry the card's rotation.
+    expect(card.style.transform).toContain('rotate(-3deg)')
+  })
+
+  it('marks the dragged card on the node instead of re-rendering the wall', async () => {
+    // Regression: the drag flag was React state, so every press and release
+    // re-rendered the whole wall. It is now a data attribute on the node.
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 10, y: 10, rotate: 0, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const card = document.querySelector('.skw-canvas .skw-note') as HTMLElement
+    const pointer = (type: string, x: number, y: number): Event => {
+      const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+      event.pointerId = 1
+      event.clientX = x
+      event.clientY = y
+      event.button = 0
+      event.isPrimary = true
+      return event
+    }
+    act(() => { card.dispatchEvent(pointer('pointerdown', 100, 100)) })
+    // The attribute appears synchronously on press, before any React render.
+    expect(card.getAttribute('data-dragging')).toBe('true')
+    act(() => { window.dispatchEvent(pointer('pointerup', 100, 100)) })
+    await waitFor(() => expect(card.getAttribute('data-dragging')).toBeNull())
   })
 
   it('keeps the camera controls usable and bounded', async () => {

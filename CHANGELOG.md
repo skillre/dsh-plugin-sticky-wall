@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- Make dragging feel direct instead of laggy.
+  
+  - The canvas card no longer transitions `transform`. Every pointer move writes a
+    new transform, and an active transition turned each write into an animation
+    target, so the card trailed the pointer by ~160ms and read as rubber-banding.
+    Only the drop shadow animates now.
+  - The drag flag is a `data-dragging` attribute on the card instead of React
+    state, so pressing and releasing no longer re-renders the whole wall.
+  - Pointer moves are coalesced into one transform write per animation frame, so a
+    high-rate trackpad cannot queue more writes than there are paints.
+  - The pointer loop is registered once for the page instead of being torn down and
+    re-added on every press and release (and re-registered whenever the note list
+    changed mid-drag).
+  - The dragged card keeps its rotation and width throughout; the drag no longer
+    flattens the tilt and snaps it back on drop.
+  - The hover lift now applies only in the grid view. On the canvas it overwrote
+    the drag transform, so the card jumped a couple of pixels whenever the pointer
+    crossed it.
+
 ## 0.2.0
 
 ### Minor Changes

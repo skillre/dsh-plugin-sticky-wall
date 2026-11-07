@@ -53,7 +53,10 @@ async function freePort() {
 }
 
 const port = await freePort()
-const tarball = resolve(process.argv[2] ?? join(repo, 'skillre-dsh-plugin-sticky-wall-0.2.0.tgz'))
+// Derive the tarball name from the manifest instead of hard-coding a version:
+// a hard-coded one silently breaks the harness at the next release.
+const manifest = JSON.parse(await readFile(join(repo, 'package.json'), 'utf8'))
+const tarball = resolve(process.argv[2] ?? join(repo, `skillre-dsh-plugin-sticky-wall-${manifest.version}.tgz`))
 
 if (!existsSync(chrome)) throw new Error(`Chrome not found at ${chrome}; set CHROME_BIN`)
 if (!existsSync(tarball)) throw new Error(`tarball not found: ${tarball}`)

@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-06T14:50:42.172Z",
+  "capturedAt": "2026-11-07T01:24:43.286Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -84,7 +84,7 @@
     {
       "check": "canvas-positions-cards-absolutely",
       "ok": true,
-      "detail": "left=0px top=0.2px transform=rotate(-3.8deg)"
+      "detail": "left=3.8px top=3.2px transform=rotate(-3.6deg)"
     },
     {
       "check": "canvas-tidy-repacks-the-wall",
@@ -104,7 +104,7 @@
     {
       "check": "canvas-drag-keeps-rotation",
       "ok": true,
-      "detail": "rotate(-3deg)"
+      "detail": "translate3d(0px, 0px, 0px) rotate(-2.8deg)"
     },
     {
       "check": "card-body-renders-markdown",

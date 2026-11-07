@@ -260,7 +260,6 @@ function NoteCard({
   index,
   t,
   locale,
-  dragging,
   onEdit,
   onPatch,
   onRemove,
@@ -271,7 +270,6 @@ function NoteCard({
   index: number
   t: Translate
   locale: string
-  dragging: boolean
   onEdit(note: Note): void
   onPatch(note: Note, patch: NotePatch): void
   onRemove(note: Note): void
@@ -292,7 +290,6 @@ function NoteCard({
       data-pinned={note.pinned}
       data-archived={note.archived}
       data-width={layout.width}
-      data-dragging={dragging}
       style={style}
       aria-label={note.title || note.body.slice(0, 40)}
       tabIndex={0}
@@ -381,7 +378,6 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [draftError, setDraftError] = useState('')
   const [confirming, setConfirming] = useState<'clear' | Note | null>(null)
   const [camera, setCamera] = useState<Camera>({ zoom: 1 })
-  const [draggingId, setDraggingId] = useState<string | null>(null)
   // Re-render on locale switch: relative times and copy are read from the
   // active locale, so the page must observe the locale revision.
   const [, setLocaleRevision] = useState(0)
@@ -391,17 +387,37 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   /** Synchronous write fence: React state is too late for same-tick events. */
   const inFlight = useRef(false)
   /** The live drag, kept in a ref so pointermove does not re-render per frame. */
+  /**
+   * The live drag.
+   *
+   * Kept entirely in refs: React state is far too slow for a pointer loop (a
+   * state write per move re-renders the whole wall and drops frames), and the
+   * node, its geometry and the current offset are all needed on every event.
+   * The card is moved by writing one `transform` on the element itself.
+   */
   const drag = useRef<{
     id: string
     pointerId: number
+    /** The card element being dragged, captured once at pointerdown. */
+    node: HTMLElement | null
     startX: number
     startY: number
     originX: number
     originY: number
+    /** The card's own rotation, so a drag keeps its tilt instead of flattening. */
+    rotate: number
+    width: NoteWidth
     moved: boolean
+    /** Whether the browser pointer is captured, so cleanup knows to release. */
+    captured: boolean
     /** Local preview position while dragging, so the card follows the pointer. */
     x: number
     y: number
+    /** Pending animation frame, coalescing several pointermoves into one paint. */
+    frame: number
+    /** Latest pointer position, in client coordinates. */
+    lastX: number
+    lastY: number
   } | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
 
@@ -565,80 +581,134 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
 
   /** Begin a drag; the move itself is applied on pointerup through the Host. */
   function startDrag(note: Note, event: React.PointerEvent<HTMLElement>): void {
-    if (event.button !== 0) return
+    if (event.button !== 0 || event.isPrimary === false) return
     const layout = layoutOf(note, indexOf(note))
+    const node = event.currentTarget as HTMLElement
+    // Mark the card as dragging directly on the node: going through React state
+    // here re-rendered the entire wall on press and release, which is the main
+    // reason the drag felt laggy. The CSS hook is a data attribute, so it costs
+    // one attribute write instead.
+    node.setAttribute('data-dragging', 'true')
     // Assign through a named value, not an inline literal: a literal followed
     // by a `(` on the next line parses as a call expression, not as ASI.
     drag.current = {
       id: note.id,
       pointerId: event.pointerId,
+      node,
       startX: event.clientX,
       startY: event.clientY,
       originX: layout.x,
       originY: layout.y,
+      rotate: layout.rotate,
+      width: layout.width,
       moved: false,
+      captured: false,
       x: layout.x,
       y: layout.y,
+      frame: 0,
+      lastX: event.clientX,
+      lastY: event.clientY,
     }
     // Capture is an optimisation, not a requirement: the move/up listeners are
     // on `window`, so the drag works without it. Guarded because a capture call
     // throws when the pointer id is no longer active (and in DOM-less tests).
     try {
-      const target = event.currentTarget as HTMLElement
-      target.setPointerCapture?.(event.pointerId)
+      node.setPointerCapture?.(event.pointerId)
+      drag.current.captured = true
     } catch {
       // Ignore: the window-level listeners still receive the drag.
     }
-    setDraggingId(note.id)
   }
 
-  /** Track the pointer; only a real move becomes a drag. */
+  /**
+   * The pointer loop.
+   *
+   * Registered ONCE for the page's lifetime, not per drag: an effect keyed on
+   * `draggingId` tore down and re-added three window listeners on every press
+   * and release, and re-registered whenever `notes` changed mid-drag. Every
+   * handler below reads the drag from a ref, so a single registration is
+   * correct for any number of drags.
+   *
+   * Three things keep it smooth:
+   * - the offset is written on one element's `transform`, and the card's
+   *   `transition` is disabled while dragging (an animated transform fights
+   *   every frame of input and reads as rubber-banding);
+   * - several pointermoves are coalesced into one write per animation frame,
+   *   because a high-rate trackpad emits far more events than there are paints;
+   * - nothing in this path calls setState, so React never re-renders the wall
+   *   while the pointer is down.
+   */
   useEffect(() => {
-    if (draggingId === null) return
-    const zoom = camera.zoom
+    const paint = (current: NonNullable<typeof drag.current>): void => {
+      current.frame = 0
+      const node = current.node
+      if (node === null) return
+      const dx = (current.lastX - current.startX) / camera.zoom
+      const dy = (current.lastY - current.startY) / camera.zoom
+      node.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(${current.rotate}deg)`
+    }
+
     const move = (event: PointerEvent): void => {
       const current = drag.current
       if (current === null || event.pointerId !== current.pointerId) return
-      const dx = (event.clientX - current.startX) / zoom
-      const dy = (event.clientY - current.startY) / zoom
-      if (!current.moved && Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < DRAG_THRESHOLD) return
-      current.moved = true
-      current.x = current.originX + dx
-      current.y = current.originY + dy
-      // Move the DOM node directly: a React state update per pointermove would
-      // re-render the whole wall on every frame.
-      const node = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${current.id}"]`)
-      if (node !== null && node !== undefined) node.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(0deg)`
+      current.lastX = event.clientX
+      current.lastY = event.clientY
+      if (!current.moved) {
+        if (Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < DRAG_THRESHOLD) return
+        current.moved = true
+      }
+      // Coalesce: one transform write per frame instead of one per event.
+      if (current.frame === 0) current.frame = requestAnimationFrame(() => paint(current))
     }
-    const end = (event: PointerEvent): void => {
+
+    const finish = (event: PointerEvent): void => {
       const current = drag.current
-      drag.current = null
-      setDraggingId(null)
       if (current === null || event.pointerId !== current.pointerId) return
-      const node = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${current.id}"]`)
-      if (node !== null && node !== undefined) node.style.transform = ''
+      drag.current = null
+      if (current.frame !== 0) cancelAnimationFrame(current.frame)
+      const node = current.node
+      if (node !== null) {
+        node.removeAttribute('data-dragging')
+        // Restore the card's own placement transform rather than clearing the
+        // inline style: React wrote `rotate(...)` into the same inline property,
+        // so clearing it would strip the tilt until the next render — a visible
+        // snap on every drop.
+        node.style.transform = `translate3d(0, 0, 0) rotate(${current.rotate}deg)`
+        if (current.captured) {
+          try {
+            node.releasePointerCapture?.(event.pointerId)
+          } catch {
+            // The pointer may already be gone; nothing to release.
+          }
+        }
+      }
       if (!current.moved) return
-      const dragged = notes.find((note) => note.id === current.id)
-      // Carry the existing tilt through the drag. Flattening it here meant the
-      // first drag of any tidied card silently straightened it and persisted
-      // that, which contradicts "the placement is owned by the Host".
+      const dx = (current.lastX - current.startX) / camera.zoom
+      const dy = (current.lastY - current.startY) / camera.zoom
+      // The card keeps the tilt and width it had: a drag only changes where it
+      // sits, so `rotate`/`width` come from the captured layout, not defaults.
       const layout: NoteLayout = {
-        x: current.x,
-        y: current.y,
-        rotate: dragged === undefined ? 0 : layoutOf(dragged, indexOf(dragged)).rotate,
-        width: dragged === undefined ? 'md' : layoutOf(dragged, indexOf(dragged)).width,
+        x: current.originX + dx,
+        y: current.originY + dy,
+        rotate: current.rotate,
+        width: current.width,
       }
       void mutate(async () => { await api.move(current.id, layout, life.current.signal) })
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end)
-    window.addEventListener('pointercancel', end)
+
+    // `pointerup` and `pointercancel` share the same teardown; a cancel is not a
+    // move, so `moved` decides whether a write happens.
+    window.addEventListener('pointermove', move, { passive: true })
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
     return () => {
       window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      window.removeEventListener('pointercancel', end)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      const pending = drag.current
+      if (pending !== null && pending.frame !== 0) cancelAnimationFrame(pending.frame)
     }
-  }, [draggingId, camera.zoom, notes, api, mutate])
+  }, [camera.zoom, api, mutate])
 
   /** Zoom with the wheel; trackpad pinch arrives as ctrl+wheel. */
   function onWheel(event: React.WheelEvent<HTMLDivElement>): void {
@@ -745,7 +815,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         ) : view === 'grid' ? (
           <div className="skw-grid">
             {visible.map((note) => (
-              <NoteCard key={note.id} note={note} index={indexOf(note)} t={t} locale={activeLocale} dragging={false}
+              <NoteCard key={note.id} note={note} index={indexOf(note)} t={t} locale={activeLocale}
                 onEdit={openComposer}
                 onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
                 onRemove={(target) => setConfirming(target)}
@@ -768,7 +838,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
               <div className="skw-world" style={{ transform: `scale(${camera.zoom})`, transformOrigin: '0 0' }}>
                 {visible.map((note) => (
                   <div key={note.id} className="skw-note-slot" data-note-id={note.id}>
-                    <NoteCard note={note} index={indexOf(note)} t={t} locale={activeLocale} dragging={draggingId === note.id}
+                    <NoteCard note={note} index={indexOf(note)} t={t} locale={activeLocale}
                       onEdit={openComposer}
                       onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
                       onRemove={(target) => setConfirming(target)}
