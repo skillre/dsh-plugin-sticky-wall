@@ -5,7 +5,7 @@
 - GitHub: `skillre/dsh-plugin-sticky-wall`
 - npm: `@skillre/dsh-plugin-sticky-wall`
 - Fleet slug: `sticky-wall`
-- Initial DSH observation: `0.2.1-rc.5` on `2026-11-04`
+- Initial DSH observation: `0.2.2-rc.1` on `2026-11-04`
 - Status: experimental
 
 This repository is an independent Git and npm release unit. Its parent fleet instructions are not automatically inherited because this repository's `.git` is the project root; this file is therefore self-contained.
@@ -41,6 +41,50 @@ For Cordis composition or preset work, load `editing-cordis-compositions` when a
 - Every side effect must belong to the current Fiber and be removed on stop/update.
 - Host↔Client boundaries carry only minimal lossless JSON.
 - Do not add Client structure from memory; query the current Client contract and then add the required build/export manifest deliberately.
+
+## Release authority
+
+This repository is published through the reviewed OIDC workflow (`.github/workflows/release.yml`)
+with npm Trusted Publishing. Never store an npm token, and never run `npm publish` from a local
+checkout.
+
+An agent may **dispatch** that workflow after explicit human authorization:
+
+```sh
+DSH_RELEASE_AUTHORIZATION="@skillre/dsh-plugin-sticky-wall@<version> authorized by <name>" \
+  npm run release:dispatch -- sticky-wall
+```
+
+Dispatch is not publication: the protected `npm-publish` environment still needs a human reviewer.
+The dispatch preflight refuses unless the worktree is clean, the branch is `main`, HEAD matches
+`origin/main`, the update-readiness audit is clean, and `compatibility.json` carries a real
+`dump-config` + `bounded-startup` record for the mounted DSH line.
+
+## Update readiness is a hard requirement
+
+A user must be able to open the plugin card and get a **Versions** section with one-click in-place
+update. The DSH plugin manager grants that only to a bundle installed from a **registry spec under
+its own name** that declares a valid SemVer version, ships its bundle patch, carries no protected
+management row, and accepts the running DSH line.
+
+Non-negotiable consequences for this repository:
+
+- **Publish to npm.** `github:`, `git+`, `file:`, absolute paths and tarballs are never updatable in
+  place. The registry is the delivery channel, not an option.
+- Keep `publishConfig.access: "public"` and never set `private: true`; npm refuses those publishes.
+- Never declare a protected management row in `cordis.patch.yml`
+  (`@deepseek-ai/dsh-plugin-manager`, `@deepseek-ai/dsh-plugin-manager/tools`,
+  `@deepseek-ai/cordis-plugin-loader`, `@deepseek-ai/cordis-plugin-include`,
+  `@deepseek-ai/dsh-api-gateway`, `@deepseek-ai/dsh-host-webserver`, `@deepseek-ai/dsh-client-modules`,
+  and the plugin-inventory / typert / remotes rows). A bundle that ships one becomes unremovable and
+  loses its update path. Consuming the `pluginManager` service is fine; publishing those rows is not.
+- Keep `engines.dsh` honest and wide enough for the DSH line you actually mount. An update target is
+  refused with `incompatible-version` when its own `engines.dsh` or DSH peers reject the runtime.
+  DSH judges this with `includePrerelease`, so `>=0.2.0-rc.2 <0.3.0` does accept `0.2.2-rc.1`.
+- Do not add `scripts.prepare`; it only exists for raw Git installs, which are not updatable.
+
+`npm run check` enforces the repository-side half through the fleet audit; the remaining half is a
+user action (installing from the npm package spec instead of a Git URL).
 
 ## Display contract
 

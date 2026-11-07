@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "fleetOwner": "skillre",
   "slug": "sticky-wall",
-  "templateVersion": "0.8.0",
-  "templateDigest": "sha256:8fea18c0c8bac34a9e60ecd3626848146ecd5de1bc6b8fb86efad74971776d88",
-  "policyVersion": "0.8.1",
-  "policyDigest": "sha256:dcf3eeb80a6f351722f29ae676ee9cee152392071faf5778146627a133157de9",
+  "templateVersion": "0.10.0",
+  "templateDigest": "sha256:bd20a8ba654373a462a9b3bb269bade538747b2e7111df055db035e89a377434",
+  "policyVersion": "0.10.0",
+  "policyDigest": "sha256:47525334ed6beed743867e9de0d206c6eab93f4e1e01502f085e9da504ed9907",
   "createdAt": "2026-11-04",
   "createdWithDsh": "0.2.1-rc.5"
 }
