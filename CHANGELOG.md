@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.2
+
+### Patch Changes
+
+- Publish through the reviewed OIDC release workflow.
+  
+  0.2.1 was bootstrapped by a manual `npm publish`, which created the package so a
+  Trusted Publisher could be attached to it. This release is the first one to go
+  out through `release.yml` with npm Trusted Publishing, so it carries real
+  provenance instead of a bare publish by a maintainer account.
+  
+  No runtime change: the canvas, the Markdown renderer and the drag behaviour are
+  byte-identical to 0.2.1.
+
 ## 0.2.1
 
 ### Patch Changes
