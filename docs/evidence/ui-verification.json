@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-08T03:05:10.510Z",
+  "capturedAt": "2026-11-08T13:31:10.551Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -34,7 +34,7 @@
     {
       "check": "wall-page-mounted",
       "ok": true,
-      "detail": "title=便签墙"
+      "detail": "dock=true capture=true"
     },
     {
       "check": "welcome-note-seeded",
@@ -44,7 +44,7 @@
     {
       "check": "zh-copy",
       "ok": true,
-      "detail": "随手记下一闪而过的灵感，和临时的活儿；拖一拖，把它们摆成你自己的样子。"
+      "detail": "晚上好，收一下今天的碎片。 / 1 张便签 · 0 张已归档"
     },
     {
       "check": "composer-opens",
@@ -84,7 +84,7 @@
     {
       "check": "canvas-positions-cards-absolutely",
       "ok": true,
-      "detail": "left=-111px top=-100px transform=rotate(-0.3deg) id=8b586a43-b0bb-4eb3-bb79-308c8dee3641"
+      "detail": "left=205.6px top=-156.5px transform=rotate(-2.4deg) id=f7db6a07-1f68-4c2c-9785-fd31eb776003"
     },
     {
       "check": "canvas-tidy-repacks-the-wall",
@@ -99,42 +99,67 @@
     {
       "check": "canvas-camera-frames-the-wall-centre",
       "ok": true,
-      "detail": "offset=(-116,-83)px inside=true transform=translate3d(464.5px, 299.25px, 0px) scale(1)"
+      "detail": "offset=(-1,0)px inside=true transform=translate3d(271.5px, 93px, 0px) scale(1)"
     },
     {
       "check": "canvas-camera-is-a-transform-not-scroll",
       "ok": true,
-      "detail": "transform=translate3d(464.5px, 299.25px, 0px) scale(1) overflow=hidden scroll=0"
+      "detail": "transform=translate3d(271.5px, 93px, 0px) scale(1) overflow=hidden scroll=0"
     },
     {
       "check": "canvas-drag-persists-placement",
       "ok": true,
-      "detail": "-72.5px,-237.6px -> 23.5px,-175.6px"
+      "detail": "59.5px,307.7px -> 155.5px,369.7px"
     },
     {
       "check": "canvas-drag-keeps-rotation",
       "ok": true,
-      "detail": "rotate(-0.2deg)"
+      "detail": "rotate(-2.6deg)"
     },
     {
       "check": "canvas-drag-on-paper-pans-the-camera",
       "ok": true,
-      "detail": "(464.5,299.25) -> (584.5,239.25) cursor=grab"
+      "detail": "(271.5,93) -> (391.5,33) cursor=grab"
     },
     {
       "check": "canvas-wheel-zoom-keeps-the-pointer-anchored",
       "ok": true,
-      "detail": "zoom 1.000 -> 1.396, world point (-384.5,314.8) -> (-384.5,314.8)"
+      "detail": "zoom 1.000 -> 1.396, world point (-191.5,647.0) -> (-191.5,647.0)"
     },
     {
       "check": "canvas-reset-frames-the-whole-wall",
       "ok": true,
-      "detail": "zoom=100% offset=(-1,5) fits=true"
+      "detail": "zoom=100% offset=(-1,0) fits=true"
     },
     {
       "check": "canvas-large-wall-is-a-centred-disc",
       "ok": true,
-      "detail": "14 cards (seeded 14), overlaps=0, offset=(-50,9), ratio=0.94, zoom=54%, fits=true"
+      "detail": "14 cards (seeded 14), overlaps=0, offset=(-1,-1), ratio=1.03, zoom=50%, fits=false"
+    },
+    {
+      "check": "canvas-centrepiece-is-at-the-middle",
+      "ok": true,
+      "detail": "offset=(0,0)"
+    },
+    {
+      "check": "canvas-tidy-keeps-the-centre-clear",
+      "ok": true,
+      "detail": "14 cards, 0 overlapping the capture field"
+    },
+    {
+      "check": "canvas-centrepiece-stays-put-while-panning",
+      "ok": true,
+      "detail": "(860,450) -> (860,450)"
+    },
+    {
+      "check": "centre-capture-creates-a-note",
+      "ok": true,
+      "detail": "14 -> 15 notes, field cleared=true"
+    },
+    {
+      "check": "canvas-fills-the-page-with-a-floating-dock",
+      "ok": true,
+      "detail": "canvas=100.0% of page, dock 46px tall, centred=true"
     },
     {
       "check": "canvas-large-wall-screenshot",
@@ -149,12 +174,12 @@
     {
       "check": "grid-view-renders-notes",
       "ok": true,
-      "detail": "cards=14"
+      "detail": "cards=15"
     },
     {
       "check": "list-view-renders-rows",
       "ok": true,
-      "detail": "rows=14"
+      "detail": "rows=15"
     },
     {
       "check": "theme-switches-note-palette",

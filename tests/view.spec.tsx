@@ -107,7 +107,8 @@ function makeApi(overrides: Partial<ClientApi> = {}): ClientApi & { calls: strin
 
 /** Open the composer and fill its body, then press the save shortcut. */
 async function composeAndSave(body: string): Promise<void> {
-  fireEvent.click(screen.getByText(/New/))
+  // The dock's create button is the circular "+"; its accessible name is "New".
+  fireEvent.click(screen.getByRole('button', { name: copy('new') }))
   await waitFor(() => expect(document.querySelector('.skw-textarea')).not.toBeNull())
   fireEvent.change(document.querySelector('.skw-textarea')!, { target: { value: body } })
 }
@@ -167,7 +168,13 @@ describe('wall page', () => {
     render(<WallPage api={api} locale={locale} t={t} />)
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzz-no-match' } })
-    await waitFor(() => expect(screen.getByText(copy('noResults'))).toBeTruthy())
+    // On the canvas the centrepiece stays put and explains WHY it is empty
+    // ("No matching notes" rather than a bare zero), and the capture field stays
+    // available instead of the whole surface being replaced by an empty state.
+    await waitFor(() => expect(document.querySelector('.skw-centre-tally')?.textContent).toBe(copy('noResults')))
+    expect(document.querySelector('.skw-centre-tally')?.getAttribute('data-empty')).toBe('true')
+    expect(document.querySelector('.skw-capture')).not.toBeNull()
+    expect(document.querySelectorAll('.skw-note').length).toBe(0)
   })
 })
 
@@ -570,10 +577,70 @@ describe('view modes and the free canvas', () => {
     act(() => { window.dispatchEvent(pointer('pointerup', 320, 220)) })
   })
 
+  it('puts the greeting, the tally and the capture field at the centre of the wall', async () => {
+    // The complaint this fixes: the wall had no middle. The centre is now the
+    // wall's centrepiece — a screen-space overlay that stays put under pan/zoom.
+    const api = makeApi({
+      list: async () => [
+        makeNote({ id: 'a', body: 'one', layout: { x: 600, y: 400, rotate: 0, width: 'md' } }),
+        makeNote({ id: 'b', body: 'two', archived: true, layout: { x: 900, y: 400, rotate: 0, width: 'md' } }),
+      ],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-centre')).not.toBeNull())
+    const centre = document.querySelector('.skw-centre') as HTMLElement
+    // It is a child of the canvas, but NOT of the transformed world: if it were
+    // inside `.skw-world` a pan would drag the greeting off screen with the wall.
+    expect(centre.parentElement?.classList.contains('skw-canvas')).toBe(true)
+    expect(document.querySelector('.skw-world')?.contains(centre)).toBe(false)
+    // The wrapper must not swallow pointer events; the field itself must.
+    expect(getComputedStyle(centre).pointerEvents).toBe('none')
+    expect(getComputedStyle(document.querySelector('.skw-capture') as HTMLElement).pointerEvents).toBe('auto')
+    // The tally counts what the wall shows, and mentions the archive separately.
+    expect(document.querySelector('.skw-centre-tally')?.textContent).toBe(t('centreTally', { count: 1, archived: 1 }))
+  })
+
+  it('creates a note from the centre capture field and clears it', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-capture-input')).not.toBeNull())
+    const field = document.querySelector('.skw-capture-input') as HTMLInputElement
+    const form = document.querySelector('.skw-capture') as HTMLFormElement
+    const go = document.querySelector('.skw-capture-go') as HTMLButtonElement
+    // Empty input cannot submit: the button is disabled and the form is inert.
+    expect(go.disabled).toBe(true)
+    fireEvent.change(field, { target: { value: '记下一个灵感' } })
+    expect(go.disabled).toBe(false)
+    act(() => { fireEvent.submit(form) })
+    await waitFor(() => expect(api.calls).toContain('create'))
+    // The field clears so the next capture starts fresh, without opening the sheet.
+    await waitFor(() => expect((document.querySelector('.skw-capture-input') as HTMLInputElement).value).toBe(''))
+    expect(document.querySelector('.skw-sheet')).toBeNull()
+  })
+
+  it('keeps the whole wall on one dock instead of a toolbar row', async () => {
+    // The wall now uses the entire window: no header row and no toolbar row above
+    // the canvas, and the dock is a floating overlay rather than a layout row.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-dock')).not.toBeNull())
+    expect(document.querySelector('.skw-head')).toBeNull()
+    expect(document.querySelector('.skw-toolbar')).toBeNull()
+    const dock = document.querySelector('.skw-dock') as HTMLElement
+    expect(getComputedStyle(dock).position).toBe('absolute')
+    // Every control the toolbar used to hold is still reachable in the dock.
+    expect(document.querySelector('.skw-dock .skw-search')).not.toBeNull()
+    expect(document.querySelectorAll('.skw-dock .skw-seg').length).toBe(3)
+    expect(document.querySelector('.skw-dock .skw-toggle')).not.toBeNull()
+    expect(document.querySelector('.skw-dock-new')).not.toBeNull()
+    expect(document.querySelector('.skw-dock-zoom')).not.toBeNull()
+    expect(document.querySelector('.skw-dock .skw-count')?.textContent).toBe(t('count', { count: 1 }))
+  })
+
   it('keeps the camera controls usable and bounded', async () => {
     const api = makeApi()
     render(<WallPage api={api} locale={locale} t={t} />)
-    await waitFor(() => expect(document.querySelector('.skw-cameras')).not.toBeNull())
+    await waitFor(() => expect(document.querySelector('.skw-dock-zoom')).not.toBeNull())
     const zoomIn = screen.getByRole('button', { name: copy('zoomIn') })
     for (let step = 0; step < 12; step += 1) fireEvent.click(zoomIn)
     await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('200%'))

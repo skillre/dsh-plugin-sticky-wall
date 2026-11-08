@@ -75,6 +75,13 @@ export const zh: Record<string, string> = {
   'zoomReset': '重置视图',
   'dragHint': '拖动卡片摆放位置，⌘/Ctrl + 滚轮缩放',
   'markdownHint': '正文支持 Markdown：标题、列表、粗体、代码块、链接、表格',
+  'greetMorning': '早上好，今天想记点什么？',
+  'greetAfternoon': '下午好，有什么想留下来的？',
+  'greetEvening': '晚上好，收一下今天的碎片。',
+  'greetNight': '夜深了，想到什么就先记下来。',
+  'centreTally': '{count} 张便签 · {archived} 张已归档',
+  'capturePlaceholder': '记下一个灵感，或粘贴一个链接',
+  'captureGo': '记下',
 }
 
 /** English dictionary; every key mirrors {@link zh}. */
@@ -142,6 +149,13 @@ export const en: Record<string, string> = {
   'zoomReset': 'Reset view',
   'dragHint': 'Drag a card to place it · ⌘/Ctrl + wheel to zoom',
   'markdownHint': 'The body renders Markdown: headings, lists, bold, code blocks, links, tables',
+  'greetMorning': 'Good morning — what is worth keeping today?',
+  'greetAfternoon': 'Good afternoon — anything to jot down?',
+  'greetEvening': 'Good evening — collect the loose pieces.',
+  'greetNight': 'Late night — capture it before it goes.',
+  'centreTally': '{count} notes · {archived} archived',
+  'capturePlaceholder': 'Jot an idea, or paste a link',
+  'captureGo': 'Capture',
 }
 
 /** Read one key from a dictionary, falling back to the key itself. */

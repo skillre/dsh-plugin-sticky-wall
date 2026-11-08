@@ -47,6 +47,15 @@ export declare const WIDTHS: readonly ["sm", "md", "lg"];
 export type NoteWidth = (typeof WIDTHS)[number];
 /** Rendered card width for each preset, in world pixels at zoom 1. */
 export declare const WIDTH_PX: Readonly<Record<NoteWidth, number>>;
+/**
+ * Radius of the clear disc the tidy pass leaves at the wall's centre, in world
+ * pixels at zoom 1.
+ *
+ * The centre of the wall is its centrepiece: the greeting, the running tally and
+ * the quick-capture field live there. Packing a card on top of them would make
+ * the wall fight its own middle, so tidy starts every card outside this radius.
+ */
+export declare const CENTRE_RADIUS = 300;
 /** Bounds of the free canvas: a note may sit anywhere inside this square. */
 export declare const LAYOUT_LIMITS: Readonly<{
     /** Absolute value of x and y, in world pixels. */

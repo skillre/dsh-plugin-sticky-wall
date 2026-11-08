@@ -36,49 +36,38 @@
   <rect x="44" y="124" width="40" height="26" rx="8" fill="#ffffff" fill-opacity="0.15"/>
   <rect x="44" y="158" width="40" height="26" rx="8" fill="#ffffff" fill-opacity="0.05"/>
   <rect x="44" y="192" width="40" height="26" rx="8" fill="#ffffff" fill-opacity="0.05"/>
+  <text x="140" y="74" font-size="17" font-weight="700" fill="#ffffff" fill-opacity="0.92" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Sticky Wall</text>
+  <text x="140" y="94" font-size="11" fill="#ffffff" fill-opacity="0.38" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Ideas, before they evaporate.</text>
 
   <!-- Paper dot grid on the canvas. Dots, not a pattern: the parser rejects patterns. -->
   <g fill="#ffffff" fill-opacity="0.05">
-<circle cx="140" cy="168" r="1.6"/><circle cx="184" cy="168" r="1.6"/><circle cx="228" cy="168" r="1.6"/><circle cx="272" cy="168" r="1.6"/><circle cx="316" cy="168" r="1.6"/><circle cx="360" cy="168" r="1.6"/><circle cx="404" cy="168" r="1.6"/><circle cx="448" cy="168" r="1.6"/><circle cx="492" cy="168" r="1.6"/><circle cx="536" cy="168" r="1.6"/><circle cx="580" cy="168" r="1.6"/><circle cx="624" cy="168" r="1.6"/><circle cx="668" cy="168" r="1.6"/><circle cx="712" cy="168" r="1.6"/><circle cx="756" cy="168" r="1.6"/><circle cx="800" cy="168" r="1.6"/><circle cx="844" cy="168" r="1.6"/><circle cx="888" cy="168" r="1.6"/><circle cx="932" cy="168" r="1.6"/><circle cx="976" cy="168" r="1.6"/><circle cx="1020" cy="168" r="1.6"/><circle cx="1064" cy="168" r="1.6"/><circle cx="1108" cy="168" r="1.6"/><circle cx="1152" cy="168" r="1.6"/><circle cx="1196" cy="168" r="1.6"/><circle cx="1240" cy="168" r="1.6"/>
-<circle cx="140" cy="202" r="1.6"/><circle cx="184" cy="202" r="1.6"/><circle cx="228" cy="202" r="1.6"/><circle cx="272" cy="202" r="1.6"/><circle cx="316" cy="202" r="1.6"/><circle cx="360" cy="202" r="1.6"/><circle cx="404" cy="202" r="1.6"/><circle cx="448" cy="202" r="1.6"/><circle cx="492" cy="202" r="1.6"/><circle cx="536" cy="202" r="1.6"/><circle cx="580" cy="202" r="1.6"/><circle cx="624" cy="202" r="1.6"/><circle cx="668" cy="202" r="1.6"/><circle cx="712" cy="202" r="1.6"/><circle cx="756" cy="202" r="1.6"/><circle cx="800" cy="202" r="1.6"/><circle cx="844" cy="202" r="1.6"/><circle cx="888" cy="202" r="1.6"/><circle cx="932" cy="202" r="1.6"/><circle cx="976" cy="202" r="1.6"/><circle cx="1020" cy="202" r="1.6"/><circle cx="1064" cy="202" r="1.6"/><circle cx="1108" cy="202" r="1.6"/><circle cx="1152" cy="202" r="1.6"/><circle cx="1196" cy="202" r="1.6"/><circle cx="1240" cy="202" r="1.6"/>
-<circle cx="140" cy="236" r="1.6"/><circle cx="184" cy="236" r="1.6"/><circle cx="228" cy="236" r="1.6"/><circle cx="272" cy="236" r="1.6"/><circle cx="316" cy="236" r="1.6"/><circle cx="360" cy="236" r="1.6"/><circle cx="404" cy="236" r="1.6"/><circle cx="448" cy="236" r="1.6"/><circle cx="492" cy="236" r="1.6"/><circle cx="536" cy="236" r="1.6"/><circle cx="580" cy="236" r="1.6"/><circle cx="624" cy="236" r="1.6"/><circle cx="668" cy="236" r="1.6"/><circle cx="712" cy="236" r="1.6"/><circle cx="756" cy="236" r="1.6"/><circle cx="800" cy="236" r="1.6"/><circle cx="844" cy="236" r="1.6"/><circle cx="888" cy="236" r="1.6"/><circle cx="932" cy="236" r="1.6"/><circle cx="976" cy="236" r="1.6"/><circle cx="1020" cy="236" r="1.6"/><circle cx="1064" cy="236" r="1.6"/><circle cx="1108" cy="236" r="1.6"/><circle cx="1152" cy="236" r="1.6"/><circle cx="1196" cy="236" r="1.6"/><circle cx="1240" cy="236" r="1.6"/>
-<circle cx="140" cy="270" r="1.6"/><circle cx="184" cy="270" r="1.6"/><circle cx="228" cy="270" r="1.6"/><circle cx="272" cy="270" r="1.6"/><circle cx="316" cy="270" r="1.6"/><circle cx="360" cy="270" r="1.6"/><circle cx="404" cy="270" r="1.6"/><circle cx="448" cy="270" r="1.6"/><circle cx="492" cy="270" r="1.6"/><circle cx="536" cy="270" r="1.6"/><circle cx="580" cy="270" r="1.6"/><circle cx="624" cy="270" r="1.6"/><circle cx="668" cy="270" r="1.6"/><circle cx="712" cy="270" r="1.6"/><circle cx="756" cy="270" r="1.6"/><circle cx="800" cy="270" r="1.6"/><circle cx="844" cy="270" r="1.6"/><circle cx="888" cy="270" r="1.6"/><circle cx="932" cy="270" r="1.6"/><circle cx="976" cy="270" r="1.6"/><circle cx="1020" cy="270" r="1.6"/><circle cx="1064" cy="270" r="1.6"/><circle cx="1108" cy="270" r="1.6"/><circle cx="1152" cy="270" r="1.6"/><circle cx="1196" cy="270" r="1.6"/><circle cx="1240" cy="270" r="1.6"/>
-<circle cx="140" cy="304" r="1.6"/><circle cx="184" cy="304" r="1.6"/><circle cx="228" cy="304" r="1.6"/><circle cx="272" cy="304" r="1.6"/><circle cx="316" cy="304" r="1.6"/><circle cx="360" cy="304" r="1.6"/><circle cx="404" cy="304" r="1.6"/><circle cx="448" cy="304" r="1.6"/><circle cx="492" cy="304" r="1.6"/><circle cx="536" cy="304" r="1.6"/><circle cx="580" cy="304" r="1.6"/><circle cx="624" cy="304" r="1.6"/><circle cx="668" cy="304" r="1.6"/><circle cx="712" cy="304" r="1.6"/><circle cx="756" cy="304" r="1.6"/><circle cx="800" cy="304" r="1.6"/><circle cx="844" cy="304" r="1.6"/><circle cx="888" cy="304" r="1.6"/><circle cx="932" cy="304" r="1.6"/><circle cx="976" cy="304" r="1.6"/><circle cx="1020" cy="304" r="1.6"/><circle cx="1064" cy="304" r="1.6"/><circle cx="1108" cy="304" r="1.6"/><circle cx="1152" cy="304" r="1.6"/><circle cx="1196" cy="304" r="1.6"/><circle cx="1240" cy="304" r="1.6"/>
-<circle cx="140" cy="338" r="1.6"/><circle cx="184" cy="338" r="1.6"/><circle cx="228" cy="338" r="1.6"/><circle cx="272" cy="338" r="1.6"/><circle cx="316" cy="338" r="1.6"/><circle cx="360" cy="338" r="1.6"/><circle cx="404" cy="338" r="1.6"/><circle cx="448" cy="338" r="1.6"/><circle cx="492" cy="338" r="1.6"/><circle cx="536" cy="338" r="1.6"/><circle cx="580" cy="338" r="1.6"/><circle cx="624" cy="338" r="1.6"/><circle cx="668" cy="338" r="1.6"/><circle cx="712" cy="338" r="1.6"/><circle cx="756" cy="338" r="1.6"/><circle cx="800" cy="338" r="1.6"/><circle cx="844" cy="338" r="1.6"/><circle cx="888" cy="338" r="1.6"/><circle cx="932" cy="338" r="1.6"/><circle cx="976" cy="338" r="1.6"/><circle cx="1020" cy="338" r="1.6"/><circle cx="1064" cy="338" r="1.6"/><circle cx="1108" cy="338" r="1.6"/><circle cx="1152" cy="338" r="1.6"/><circle cx="1196" cy="338" r="1.6"/><circle cx="1240" cy="338" r="1.6"/>
-<circle cx="140" cy="372" r="1.6"/><circle cx="184" cy="372" r="1.6"/><circle cx="228" cy="372" r="1.6"/><circle cx="272" cy="372" r="1.6"/><circle cx="316" cy="372" r="1.6"/><circle cx="360" cy="372" r="1.6"/><circle cx="404" cy="372" r="1.6"/><circle cx="448" cy="372" r="1.6"/><circle cx="492" cy="372" r="1.6"/><circle cx="536" cy="372" r="1.6"/><circle cx="580" cy="372" r="1.6"/><circle cx="624" cy="372" r="1.6"/><circle cx="668" cy="372" r="1.6"/><circle cx="712" cy="372" r="1.6"/><circle cx="756" cy="372" r="1.6"/><circle cx="800" cy="372" r="1.6"/><circle cx="844" cy="372" r="1.6"/><circle cx="888" cy="372" r="1.6"/><circle cx="932" cy="372" r="1.6"/><circle cx="976" cy="372" r="1.6"/><circle cx="1020" cy="372" r="1.6"/><circle cx="1064" cy="372" r="1.6"/><circle cx="1108" cy="372" r="1.6"/><circle cx="1152" cy="372" r="1.6"/><circle cx="1196" cy="372" r="1.6"/><circle cx="1240" cy="372" r="1.6"/>
-<circle cx="140" cy="406" r="1.6"/><circle cx="184" cy="406" r="1.6"/><circle cx="228" cy="406" r="1.6"/><circle cx="272" cy="406" r="1.6"/><circle cx="316" cy="406" r="1.6"/><circle cx="360" cy="406" r="1.6"/><circle cx="404" cy="406" r="1.6"/><circle cx="448" cy="406" r="1.6"/><circle cx="492" cy="406" r="1.6"/><circle cx="536" cy="406" r="1.6"/><circle cx="580" cy="406" r="1.6"/><circle cx="624" cy="406" r="1.6"/><circle cx="668" cy="406" r="1.6"/><circle cx="712" cy="406" r="1.6"/><circle cx="756" cy="406" r="1.6"/><circle cx="800" cy="406" r="1.6"/><circle cx="844" cy="406" r="1.6"/><circle cx="888" cy="406" r="1.6"/><circle cx="932" cy="406" r="1.6"/><circle cx="976" cy="406" r="1.6"/><circle cx="1020" cy="406" r="1.6"/><circle cx="1064" cy="406" r="1.6"/><circle cx="1108" cy="406" r="1.6"/><circle cx="1152" cy="406" r="1.6"/><circle cx="1196" cy="406" r="1.6"/><circle cx="1240" cy="406" r="1.6"/>
-<circle cx="140" cy="440" r="1.6"/><circle cx="184" cy="440" r="1.6"/><circle cx="228" cy="440" r="1.6"/><circle cx="272" cy="440" r="1.6"/><circle cx="316" cy="440" r="1.6"/><circle cx="360" cy="440" r="1.6"/><circle cx="404" cy="440" r="1.6"/><circle cx="448" cy="440" r="1.6"/><circle cx="492" cy="440" r="1.6"/><circle cx="536" cy="440" r="1.6"/><circle cx="580" cy="440" r="1.6"/><circle cx="624" cy="440" r="1.6"/><circle cx="668" cy="440" r="1.6"/><circle cx="712" cy="440" r="1.6"/><circle cx="756" cy="440" r="1.6"/><circle cx="800" cy="440" r="1.6"/><circle cx="844" cy="440" r="1.6"/><circle cx="888" cy="440" r="1.6"/><circle cx="932" cy="440" r="1.6"/><circle cx="976" cy="440" r="1.6"/><circle cx="1020" cy="440" r="1.6"/><circle cx="1064" cy="440" r="1.6"/><circle cx="1108" cy="440" r="1.6"/><circle cx="1152" cy="440" r="1.6"/><circle cx="1196" cy="440" r="1.6"/><circle cx="1240" cy="440" r="1.6"/>
-<circle cx="140" cy="474" r="1.6"/><circle cx="184" cy="474" r="1.6"/><circle cx="228" cy="474" r="1.6"/><circle cx="272" cy="474" r="1.6"/><circle cx="316" cy="474" r="1.6"/><circle cx="360" cy="474" r="1.6"/><circle cx="404" cy="474" r="1.6"/><circle cx="448" cy="474" r="1.6"/><circle cx="492" cy="474" r="1.6"/><circle cx="536" cy="474" r="1.6"/><circle cx="580" cy="474" r="1.6"/><circle cx="624" cy="474" r="1.6"/><circle cx="668" cy="474" r="1.6"/><circle cx="712" cy="474" r="1.6"/><circle cx="756" cy="474" r="1.6"/><circle cx="800" cy="474" r="1.6"/><circle cx="844" cy="474" r="1.6"/><circle cx="888" cy="474" r="1.6"/><circle cx="932" cy="474" r="1.6"/><circle cx="976" cy="474" r="1.6"/><circle cx="1020" cy="474" r="1.6"/><circle cx="1064" cy="474" r="1.6"/><circle cx="1108" cy="474" r="1.6"/><circle cx="1152" cy="474" r="1.6"/><circle cx="1196" cy="474" r="1.6"/><circle cx="1240" cy="474" r="1.6"/>
-<circle cx="140" cy="508" r="1.6"/><circle cx="184" cy="508" r="1.6"/><circle cx="228" cy="508" r="1.6"/><circle cx="272" cy="508" r="1.6"/><circle cx="316" cy="508" r="1.6"/><circle cx="360" cy="508" r="1.6"/><circle cx="404" cy="508" r="1.6"/><circle cx="448" cy="508" r="1.6"/><circle cx="492" cy="508" r="1.6"/><circle cx="536" cy="508" r="1.6"/><circle cx="580" cy="508" r="1.6"/><circle cx="624" cy="508" r="1.6"/><circle cx="668" cy="508" r="1.6"/><circle cx="712" cy="508" r="1.6"/><circle cx="756" cy="508" r="1.6"/><circle cx="800" cy="508" r="1.6"/><circle cx="844" cy="508" r="1.6"/><circle cx="888" cy="508" r="1.6"/><circle cx="932" cy="508" r="1.6"/><circle cx="976" cy="508" r="1.6"/><circle cx="1020" cy="508" r="1.6"/><circle cx="1064" cy="508" r="1.6"/><circle cx="1108" cy="508" r="1.6"/><circle cx="1152" cy="508" r="1.6"/><circle cx="1196" cy="508" r="1.6"/><circle cx="1240" cy="508" r="1.6"/>
-<circle cx="140" cy="542" r="1.6"/><circle cx="184" cy="542" r="1.6"/><circle cx="228" cy="542" r="1.6"/><circle cx="272" cy="542" r="1.6"/><circle cx="316" cy="542" r="1.6"/><circle cx="360" cy="542" r="1.6"/><circle cx="404" cy="542" r="1.6"/><circle cx="448" cy="542" r="1.6"/><circle cx="492" cy="542" r="1.6"/><circle cx="536" cy="542" r="1.6"/><circle cx="580" cy="542" r="1.6"/><circle cx="624" cy="542" r="1.6"/><circle cx="668" cy="542" r="1.6"/><circle cx="712" cy="542" r="1.6"/><circle cx="756" cy="542" r="1.6"/><circle cx="800" cy="542" r="1.6"/><circle cx="844" cy="542" r="1.6"/><circle cx="888" cy="542" r="1.6"/><circle cx="932" cy="542" r="1.6"/><circle cx="976" cy="542" r="1.6"/><circle cx="1020" cy="542" r="1.6"/><circle cx="1064" cy="542" r="1.6"/><circle cx="1108" cy="542" r="1.6"/><circle cx="1152" cy="542" r="1.6"/><circle cx="1196" cy="542" r="1.6"/><circle cx="1240" cy="542" r="1.6"/>
+<circle cx="140" cy="182" r="1.6"/><circle cx="184" cy="182" r="1.6"/><circle cx="228" cy="182" r="1.6"/><circle cx="272" cy="182" r="1.6"/><circle cx="316" cy="182" r="1.6"/><circle cx="360" cy="182" r="1.6"/><circle cx="404" cy="182" r="1.6"/><circle cx="448" cy="182" r="1.6"/><circle cx="492" cy="182" r="1.6"/><circle cx="536" cy="182" r="1.6"/><circle cx="580" cy="182" r="1.6"/><circle cx="624" cy="182" r="1.6"/><circle cx="668" cy="182" r="1.6"/><circle cx="712" cy="182" r="1.6"/><circle cx="756" cy="182" r="1.6"/><circle cx="800" cy="182" r="1.6"/><circle cx="844" cy="182" r="1.6"/><circle cx="888" cy="182" r="1.6"/><circle cx="932" cy="182" r="1.6"/><circle cx="976" cy="182" r="1.6"/><circle cx="1020" cy="182" r="1.6"/><circle cx="1064" cy="182" r="1.6"/><circle cx="1108" cy="182" r="1.6"/><circle cx="1152" cy="182" r="1.6"/><circle cx="1196" cy="182" r="1.6"/><circle cx="1240" cy="182" r="1.6"/>
+<circle cx="140" cy="216" r="1.6"/><circle cx="184" cy="216" r="1.6"/><circle cx="228" cy="216" r="1.6"/><circle cx="272" cy="216" r="1.6"/><circle cx="316" cy="216" r="1.6"/><circle cx="360" cy="216" r="1.6"/><circle cx="404" cy="216" r="1.6"/><circle cx="448" cy="216" r="1.6"/><circle cx="492" cy="216" r="1.6"/><circle cx="536" cy="216" r="1.6"/><circle cx="580" cy="216" r="1.6"/><circle cx="624" cy="216" r="1.6"/><circle cx="668" cy="216" r="1.6"/><circle cx="712" cy="216" r="1.6"/><circle cx="756" cy="216" r="1.6"/><circle cx="800" cy="216" r="1.6"/><circle cx="844" cy="216" r="1.6"/><circle cx="888" cy="216" r="1.6"/><circle cx="932" cy="216" r="1.6"/><circle cx="976" cy="216" r="1.6"/><circle cx="1020" cy="216" r="1.6"/><circle cx="1064" cy="216" r="1.6"/><circle cx="1108" cy="216" r="1.6"/><circle cx="1152" cy="216" r="1.6"/><circle cx="1196" cy="216" r="1.6"/><circle cx="1240" cy="216" r="1.6"/>
+<circle cx="140" cy="250" r="1.6"/><circle cx="184" cy="250" r="1.6"/><circle cx="228" cy="250" r="1.6"/><circle cx="272" cy="250" r="1.6"/><circle cx="316" cy="250" r="1.6"/><circle cx="360" cy="250" r="1.6"/><circle cx="404" cy="250" r="1.6"/><circle cx="448" cy="250" r="1.6"/><circle cx="492" cy="250" r="1.6"/><circle cx="536" cy="250" r="1.6"/><circle cx="580" cy="250" r="1.6"/><circle cx="624" cy="250" r="1.6"/><circle cx="668" cy="250" r="1.6"/><circle cx="712" cy="250" r="1.6"/><circle cx="756" cy="250" r="1.6"/><circle cx="800" cy="250" r="1.6"/><circle cx="844" cy="250" r="1.6"/><circle cx="888" cy="250" r="1.6"/><circle cx="932" cy="250" r="1.6"/><circle cx="976" cy="250" r="1.6"/><circle cx="1020" cy="250" r="1.6"/><circle cx="1064" cy="250" r="1.6"/><circle cx="1108" cy="250" r="1.6"/><circle cx="1152" cy="250" r="1.6"/><circle cx="1196" cy="250" r="1.6"/><circle cx="1240" cy="250" r="1.6"/>
+<circle cx="140" cy="284" r="1.6"/><circle cx="184" cy="284" r="1.6"/><circle cx="228" cy="284" r="1.6"/><circle cx="272" cy="284" r="1.6"/><circle cx="316" cy="284" r="1.6"/><circle cx="360" cy="284" r="1.6"/><circle cx="404" cy="284" r="1.6"/><circle cx="448" cy="284" r="1.6"/><circle cx="492" cy="284" r="1.6"/><circle cx="536" cy="284" r="1.6"/><circle cx="580" cy="284" r="1.6"/><circle cx="624" cy="284" r="1.6"/><circle cx="668" cy="284" r="1.6"/><circle cx="712" cy="284" r="1.6"/><circle cx="756" cy="284" r="1.6"/><circle cx="800" cy="284" r="1.6"/><circle cx="844" cy="284" r="1.6"/><circle cx="888" cy="284" r="1.6"/><circle cx="932" cy="284" r="1.6"/><circle cx="976" cy="284" r="1.6"/><circle cx="1020" cy="284" r="1.6"/><circle cx="1064" cy="284" r="1.6"/><circle cx="1108" cy="284" r="1.6"/><circle cx="1152" cy="284" r="1.6"/><circle cx="1196" cy="284" r="1.6"/><circle cx="1240" cy="284" r="1.6"/>
+<circle cx="140" cy="318" r="1.6"/><circle cx="184" cy="318" r="1.6"/><circle cx="228" cy="318" r="1.6"/><circle cx="272" cy="318" r="1.6"/><circle cx="316" cy="318" r="1.6"/><circle cx="360" cy="318" r="1.6"/><circle cx="404" cy="318" r="1.6"/><circle cx="448" cy="318" r="1.6"/><circle cx="492" cy="318" r="1.6"/><circle cx="536" cy="318" r="1.6"/><circle cx="580" cy="318" r="1.6"/><circle cx="624" cy="318" r="1.6"/><circle cx="668" cy="318" r="1.6"/><circle cx="712" cy="318" r="1.6"/><circle cx="756" cy="318" r="1.6"/><circle cx="800" cy="318" r="1.6"/><circle cx="844" cy="318" r="1.6"/><circle cx="888" cy="318" r="1.6"/><circle cx="932" cy="318" r="1.6"/><circle cx="976" cy="318" r="1.6"/><circle cx="1020" cy="318" r="1.6"/><circle cx="1064" cy="318" r="1.6"/><circle cx="1108" cy="318" r="1.6"/><circle cx="1152" cy="318" r="1.6"/><circle cx="1196" cy="318" r="1.6"/><circle cx="1240" cy="318" r="1.6"/>
+<circle cx="140" cy="352" r="1.6"/><circle cx="184" cy="352" r="1.6"/><circle cx="228" cy="352" r="1.6"/><circle cx="272" cy="352" r="1.6"/><circle cx="316" cy="352" r="1.6"/><circle cx="360" cy="352" r="1.6"/><circle cx="404" cy="352" r="1.6"/><circle cx="448" cy="352" r="1.6"/><circle cx="492" cy="352" r="1.6"/><circle cx="536" cy="352" r="1.6"/><circle cx="580" cy="352" r="1.6"/><circle cx="624" cy="352" r="1.6"/><circle cx="668" cy="352" r="1.6"/><circle cx="712" cy="352" r="1.6"/><circle cx="756" cy="352" r="1.6"/><circle cx="800" cy="352" r="1.6"/><circle cx="844" cy="352" r="1.6"/><circle cx="888" cy="352" r="1.6"/><circle cx="932" cy="352" r="1.6"/><circle cx="976" cy="352" r="1.6"/><circle cx="1020" cy="352" r="1.6"/><circle cx="1064" cy="352" r="1.6"/><circle cx="1108" cy="352" r="1.6"/><circle cx="1152" cy="352" r="1.6"/><circle cx="1196" cy="352" r="1.6"/><circle cx="1240" cy="352" r="1.6"/>
+<circle cx="140" cy="386" r="1.6"/><circle cx="184" cy="386" r="1.6"/><circle cx="228" cy="386" r="1.6"/><circle cx="272" cy="386" r="1.6"/><circle cx="316" cy="386" r="1.6"/><circle cx="360" cy="386" r="1.6"/><circle cx="404" cy="386" r="1.6"/><circle cx="448" cy="386" r="1.6"/><circle cx="492" cy="386" r="1.6"/><circle cx="536" cy="386" r="1.6"/><circle cx="580" cy="386" r="1.6"/><circle cx="624" cy="386" r="1.6"/><circle cx="668" cy="386" r="1.6"/><circle cx="712" cy="386" r="1.6"/><circle cx="756" cy="386" r="1.6"/><circle cx="800" cy="386" r="1.6"/><circle cx="844" cy="386" r="1.6"/><circle cx="888" cy="386" r="1.6"/><circle cx="932" cy="386" r="1.6"/><circle cx="976" cy="386" r="1.6"/><circle cx="1020" cy="386" r="1.6"/><circle cx="1064" cy="386" r="1.6"/><circle cx="1108" cy="386" r="1.6"/><circle cx="1152" cy="386" r="1.6"/><circle cx="1196" cy="386" r="1.6"/><circle cx="1240" cy="386" r="1.6"/>
+<circle cx="140" cy="420" r="1.6"/><circle cx="184" cy="420" r="1.6"/><circle cx="228" cy="420" r="1.6"/><circle cx="272" cy="420" r="1.6"/><circle cx="316" cy="420" r="1.6"/><circle cx="360" cy="420" r="1.6"/><circle cx="404" cy="420" r="1.6"/><circle cx="448" cy="420" r="1.6"/><circle cx="492" cy="420" r="1.6"/><circle cx="536" cy="420" r="1.6"/><circle cx="580" cy="420" r="1.6"/><circle cx="624" cy="420" r="1.6"/><circle cx="668" cy="420" r="1.6"/><circle cx="712" cy="420" r="1.6"/><circle cx="756" cy="420" r="1.6"/><circle cx="800" cy="420" r="1.6"/><circle cx="844" cy="420" r="1.6"/><circle cx="888" cy="420" r="1.6"/><circle cx="932" cy="420" r="1.6"/><circle cx="976" cy="420" r="1.6"/><circle cx="1020" cy="420" r="1.6"/><circle cx="1064" cy="420" r="1.6"/><circle cx="1108" cy="420" r="1.6"/><circle cx="1152" cy="420" r="1.6"/><circle cx="1196" cy="420" r="1.6"/><circle cx="1240" cy="420" r="1.6"/>
+<circle cx="140" cy="454" r="1.6"/><circle cx="184" cy="454" r="1.6"/><circle cx="228" cy="454" r="1.6"/><circle cx="272" cy="454" r="1.6"/><circle cx="316" cy="454" r="1.6"/><circle cx="360" cy="454" r="1.6"/><circle cx="404" cy="454" r="1.6"/><circle cx="448" cy="454" r="1.6"/><circle cx="492" cy="454" r="1.6"/><circle cx="536" cy="454" r="1.6"/><circle cx="580" cy="454" r="1.6"/><circle cx="624" cy="454" r="1.6"/><circle cx="668" cy="454" r="1.6"/><circle cx="712" cy="454" r="1.6"/><circle cx="756" cy="454" r="1.6"/><circle cx="800" cy="454" r="1.6"/><circle cx="844" cy="454" r="1.6"/><circle cx="888" cy="454" r="1.6"/><circle cx="932" cy="454" r="1.6"/><circle cx="976" cy="454" r="1.6"/><circle cx="1020" cy="454" r="1.6"/><circle cx="1064" cy="454" r="1.6"/><circle cx="1108" cy="454" r="1.6"/><circle cx="1152" cy="454" r="1.6"/><circle cx="1196" cy="454" r="1.6"/><circle cx="1240" cy="454" r="1.6"/>
+<circle cx="140" cy="488" r="1.6"/><circle cx="184" cy="488" r="1.6"/><circle cx="228" cy="488" r="1.6"/><circle cx="272" cy="488" r="1.6"/><circle cx="316" cy="488" r="1.6"/><circle cx="360" cy="488" r="1.6"/><circle cx="404" cy="488" r="1.6"/><circle cx="448" cy="488" r="1.6"/><circle cx="492" cy="488" r="1.6"/><circle cx="536" cy="488" r="1.6"/><circle cx="580" cy="488" r="1.6"/><circle cx="624" cy="488" r="1.6"/><circle cx="668" cy="488" r="1.6"/><circle cx="712" cy="488" r="1.6"/><circle cx="756" cy="488" r="1.6"/><circle cx="800" cy="488" r="1.6"/><circle cx="844" cy="488" r="1.6"/><circle cx="888" cy="488" r="1.6"/><circle cx="932" cy="488" r="1.6"/><circle cx="976" cy="488" r="1.6"/><circle cx="1020" cy="488" r="1.6"/><circle cx="1064" cy="488" r="1.6"/><circle cx="1108" cy="488" r="1.6"/><circle cx="1152" cy="488" r="1.6"/><circle cx="1196" cy="488" r="1.6"/><circle cx="1240" cy="488" r="1.6"/>
+<circle cx="140" cy="522" r="1.6"/><circle cx="184" cy="522" r="1.6"/><circle cx="228" cy="522" r="1.6"/><circle cx="272" cy="522" r="1.6"/><circle cx="316" cy="522" r="1.6"/><circle cx="360" cy="522" r="1.6"/><circle cx="404" cy="522" r="1.6"/><circle cx="448" cy="522" r="1.6"/><circle cx="492" cy="522" r="1.6"/><circle cx="536" cy="522" r="1.6"/><circle cx="580" cy="522" r="1.6"/><circle cx="624" cy="522" r="1.6"/><circle cx="668" cy="522" r="1.6"/><circle cx="712" cy="522" r="1.6"/><circle cx="756" cy="522" r="1.6"/><circle cx="800" cy="522" r="1.6"/><circle cx="844" cy="522" r="1.6"/><circle cx="888" cy="522" r="1.6"/><circle cx="932" cy="522" r="1.6"/><circle cx="976" cy="522" r="1.6"/><circle cx="1020" cy="522" r="1.6"/><circle cx="1064" cy="522" r="1.6"/><circle cx="1108" cy="522" r="1.6"/><circle cx="1152" cy="522" r="1.6"/><circle cx="1196" cy="522" r="1.6"/><circle cx="1240" cy="522" r="1.6"/>
   </g>
 
+  <circle cx="692" cy="292" r="250" fill="url(#centre)"/>
+  <text x="692" y="258" font-size="21" font-weight="700" fill="#ffffff" fill-opacity="0.95" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Good evening — collect the loose pieces.</text>
+  <text x="692" y="284" font-size="12.5" fill="#ffffff" fill-opacity="0.45" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">14 notes · 1 archived</text>
+  <rect x="442" y="304" width="500" height="46" rx="14" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1"/>
+  <text x="466" y="333" font-size="13" fill="#ffffff" fill-opacity="0.42" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Jot an idea, or paste a link</text>
+  <rect x="906" y="312" width="30" height="30" rx="9" fill="#4d7cfe"/>
+  <text x="921" y="332" font-size="13" fill="#ffffff" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">↵</text>
   
-  <text x="128" y="72" font-size="19" font-weight="700" fill="#ffffff" fill-opacity="0.95" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Sticky Wall</text>
-  <text x="128" y="94" font-size="11.5" fill="#ffffff" fill-opacity="0.44" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Ideas, before they evaporate.</text>
-  <rect x="128" y="112" width="296" height="34" rx="10" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
-  <circle cx="148" cy="127" r="5.5" fill="none" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.6"/>
-  <path d="M152.4 131.4l4.4 4.4" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.6" stroke-linecap="round"/>
-  <text x="166" y="133" font-size="12" fill="#ffffff" fill-opacity="0.36" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Search notes…</text>
-  
-  <rect x="436" y="112" width="68" height="34" rx="17" fill="#ffffff" fill-opacity="0.92"/>
-  <text x="470" y="134" font-size="12" font-weight="650" fill="#191b21" fill-opacity="1" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">All</text>
-  <rect x="512" y="112" width="68" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
-  <text x="546" y="134" font-size="12" font-weight="500" fill="#ffffff" fill-opacity="0.58" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Pinned</text>
-  <rect x="588" y="112" width="68" height="34" rx="17" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
-  <text x="622" y="134" font-size="12" font-weight="500" fill="#ffffff" fill-opacity="0.58" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Archived</text>
-  <rect x="1080" y="112" width="72" height="34" rx="10" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>
-  <text x="1116" y="134" font-size="12" font-weight="500" fill="#ffffff" fill-opacity="0.68" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Tidy</text>
-  <rect x="1162" y="112" width="90" height="34" rx="10" fill="#4d7cfe"/>
-  <text x="1207" y="134" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">+ New</text>
-  <circle cx="692" cy="378" r="286" fill="url(#centre)"/>
-  
-  <g transform="translate(170 200) rotate(-3.4 107 86)">
-    <rect x="0" y="0" width="214" height="172" rx="14" fill="#fdf7dc" stroke="#ecdc9e" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(148 122) rotate(-3.4 97 71)">
+    <rect x="0" y="0" width="194" height="142" rx="14" fill="#fdf7dc" stroke="#ecdc9e" stroke-width="1.5" filter="url(#cardShadow)"/>
     
     <rect x="0" y="16" width="3" height="72" rx="1.5" fill="#e0b53a"/>
     <circle cx="20" cy="24" r="4" fill="#e0b53a" fill-opacity="1"/>
-    <text x="198" y="28" font-size="10.5" font-weight="600" fill="#4a3d12" fill-opacity="0.5" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">★ pinned</text>
+    <text x="178" y="28" font-size="10.5" font-weight="600" fill="#4a3d12" fill-opacity="0.5" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">★ pinned</text>
     <text x="18" y="52" font-size="17" font-weight="700" fill="#4a3d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Ship it small</text>
     <text x="18" y="78" font-size="13" font-weight="650" fill="#4a3d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">One page, one idea.</text>
     
@@ -91,14 +80,14 @@
     <rect x="76" y="138" width="52" height="21" rx="10.5" fill="#e0b53a"/>
     <text x="102" y="152.525" font-size="11.5" font-weight="500" fill="#8a6a0d" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">#today</text>
   </g>
-  <g transform="translate(420 235) rotate(2.6 89 52)">
-    <rect x="0" y="0" width="178" height="104" rx="14" fill="#efe9fd" stroke="#d6c9f2" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(372 136) rotate(2.6 77 46)">
+    <rect x="0" y="0" width="154" height="92" rx="14" fill="#efe9fd" stroke="#d6c9f2" stroke-width="1.5" filter="url(#cardShadow)"/>
     
-    <rect x="16" y="20" width="2.5" height="64" rx="1.25" fill="#9b81e0"/>
-    <text x="30" y="57" font-size="12.5" font-style="italic" fill="#36264f" fill-opacity="0.84" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Tools should disappear.</text>
+    <rect x="16" y="20" width="2.5" height="52" rx="1.25" fill="#9b81e0"/>
+    <text x="30" y="51" font-size="12.5" font-style="italic" fill="#36264f" fill-opacity="0.84" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Tools should disappear.</text>
   </g>
-  <g transform="translate(620 228) rotate(-2.2 93 63)">
-    <rect x="0" y="0" width="186" height="126" rx="14" fill="#e7f6ea" stroke="#c3e5cd" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(560 120) rotate(-2.2 79 52)">
+    <rect x="0" y="0" width="158" height="104" rx="14" fill="#e7f6ea" stroke="#c3e5cd" stroke-width="1.5" filter="url(#cardShadow)"/>
     
     <text x="18" y="36" font-size="15" font-weight="650" fill="#1d3f27" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">A quiet corner</text>
     
@@ -108,18 +97,18 @@
     <rect x="18" y="84" width="13" height="13" rx="3" fill="none" stroke="#1d3f27" stroke-opacity="0.4" stroke-width="1.2"/>
     
     <text x="40" y="95" font-size="12.5" fill="#1d3f27" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Review</text>
-    <text x="170" y="112" font-size="10.5" fill="#1d3f27" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
+    <text x="142" y="90" font-size="10.5" fill="#1d3f27" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
   </g>
-  <g transform="translate(820 232) rotate(3.1 83 59)">
-    <rect x="0" y="0" width="166" height="118" rx="14" fill="#fdeee0" stroke="#f1d3b4" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(768 128) rotate(3.1 73 50)">
+    <rect x="0" y="0" width="146" height="100" rx="14" fill="#fdeee0" stroke="#f1d3b4" stroke-width="1.5" filter="url(#cardShadow)"/>
     
     <text x="18" y="36" font-size="15" font-weight="650" fill="#4f2d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Morning pages</text>
     
     <text x="18" y="60" font-size="12.5" font-weight="400" fill="#4f2d12" fill-opacity="0.84" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Three lines</text>
     <text x="18" y="79" font-size="12.5" font-weight="400" fill="#4f2d12" fill-opacity="0.84" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">before coffee.</text>
   </g>
-  <g transform="translate(1010 205) rotate(-2.8 98 75)">
-    <rect x="0" y="0" width="196" height="150" rx="14" fill="#fde9ef" stroke="#f2c9d6" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(958 120) rotate(-2.8 86 65)">
+    <rect x="0" y="0" width="172" height="130" rx="14" fill="#fde9ef" stroke="#f2c9d6" stroke-width="1.5" filter="url(#cardShadow)"/>
     
     <text x="18" y="36" font-size="15" font-weight="650" fill="#5a2437" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Reading list</text>
     
@@ -129,49 +118,82 @@
     <text x="34" y="93" font-size="12.5" fill="#5a2437" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Ship on Friday</text>
     <circle cx="22" cy="116" r="3.2" fill="#e78aa8" fill-opacity="1"/>
     <text x="34" y="120" font-size="12.5" fill="#5a2437" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Tell one person</text>
-    <text x="180" y="136" font-size="10.5" fill="#5a2437" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
+    <text x="156" y="116" font-size="10.5" fill="#5a2437" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
   </g>
-  <g transform="translate(420 400) rotate(-1.8 88 62)">
-    <rect x="0" y="0" width="176" height="124" rx="14" fill="#fdf7dc" stroke="#ecdc9e" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(172 418) rotate(-1.8 79 52)">
+    <rect x="0" y="0" width="158" height="104" rx="14" fill="#fdf7dc" stroke="#ecdc9e" stroke-width="1.5" filter="url(#cardShadow)"/>
     
     <text x="18" y="34" font-size="15" font-weight="650" fill="#4a3d12" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Sprint</text>
     <text x="18" y="64" font-size="11.5" font-weight="650" fill="#4a3d12" fill-opacity="0.9" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Plan</text>
     <text x="92" y="64" font-size="11.5" font-weight="650" fill="#4a3d12" fill-opacity="0.9" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Days</text>
-    <line x1="16" y1="72" x2="160" y2="72" stroke="#4a3d12" stroke-opacity="0.3" stroke-width="1"/>
+    <line x1="16" y1="72" x2="142" y2="72" stroke="#4a3d12" stroke-opacity="0.3" stroke-width="1"/>
     <text x="18" y="92" font-size="11.5" fill="#4a3d12" fill-opacity="0.78" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Write</text>
     <text x="92" y="92" font-size="11.5" fill="#4a3d12" fill-opacity="0.78" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">2</text>
   </g>
-  <g transform="translate(620 402) rotate(2.2 84 59)">
-    <rect x="0" y="0" width="168" height="118" rx="14" fill="#fde9ef" stroke="#f2c9d6" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(368 424) rotate(2.2 74 48)">
+    <rect x="0" y="0" width="148" height="96" rx="14" fill="#fde9ef" stroke="#f2c9d6" stroke-width="1.5" filter="url(#cardShadow)"/>
     
     <text x="18" y="36" font-size="15" font-weight="650" fill="#5a2437" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Slow is smooth</text>
     
     <text x="18" y="62" font-size="12.5" font-weight="400" fill="#5a2437" fill-opacity="0.8" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Nothing here</text>
     <text x="18" y="81" font-size="12.5" font-weight="400" fill="#5a2437" fill-opacity="0.8" text-anchor="start" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">is urgent.</text>
-    <text x="152" y="104" font-size="10.5" fill="#5a2437" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
+    <text x="132" y="82" font-size="10.5" fill="#5a2437" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
   </g>
-  <g transform="translate(820 398) rotate(-2.4 104 66)">
-    <rect x="0" y="0" width="208" height="132" rx="14" fill="#e6f1fd" stroke="#c2daf1" stroke-width="1.5" filter="url(#cardShadow)"/>
+  <g transform="translate(556 420) rotate(-2.4 89 54)">
+    <rect x="0" y="0" width="178" height="108" rx="14" fill="#e6f1fd" stroke="#c2daf1" stroke-width="1.5" filter="url(#cardShadow)"/>
     
     <text x="18" y="34" font-size="15" font-weight="650" fill="#1b3550" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Ship notes</text>
-    <text x="192" y="34" font-size="10.5" fill="#1b3550" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
-    <rect x="14" y="48" width="180" height="56" rx="8" fill="#1b3550" fill-opacity="0.09" stroke="#1b3550" stroke-opacity="0.16" stroke-width="1"/>
+    <text x="162" y="34" font-size="10.5" fill="#1b3550" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
+    <rect x="14" y="48" width="150" height="56" rx="8" fill="#1b3550" fill-opacity="0.09" stroke="#1b3550" stroke-opacity="0.16" stroke-width="1"/>
     
     <text x="26" y="70" font-size="11.5" font-weight="500" fill="#1b3550" fill-opacity="0.88" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">pnpm build</text>
     <text x="26" y="90" font-size="11.5" font-weight="500" fill="#1b3550" fill-opacity="0.88" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">then drag me</text>
   </g>
+  <g transform="translate(776 424) rotate(1.6 79 50)">
+    <rect x="0" y="0" width="158" height="100" rx="14" fill="#e7f6ea" stroke="#c3e5cd" stroke-width="1.5" filter="url(#cardShadow)"/>
+    
+    <text x="18" y="36" font-size="15" font-weight="650" fill="#1d3f27" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">A quiet corner</text>
+    
+    <rect x="18" y="54" width="13" height="13" rx="3" fill="#55b874" stroke="none" stroke-opacity="0.4" stroke-width="1.2"/>
+    <path d="M21 60 l2.6 2.6 l4.6 -5.2" stroke="#2c7a47" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="40" y="65" font-size="12.5" fill="#1d3f27" fill-opacity="0.55" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Draft</text>
+    <rect x="18" y="84" width="13" height="13" rx="3" fill="none" stroke="#1d3f27" stroke-opacity="0.4" stroke-width="1.2"/>
+    
+    <text x="40" y="95" font-size="12.5" fill="#1d3f27" fill-opacity="0.86" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Review</text>
+    <text x="142" y="86" font-size="10.5" fill="#1d3f27" fill-opacity="0.42" text-anchor="end" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">3d</text>
+  </g>
 
   <!-- Drag cue: the dashed drop target and a pointer on the hero card's corner. -->
-  <rect x="178" y="208" width="214" height="172" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1.4" stroke-dasharray="7 7" transform="rotate(-3.4 285 294)"/>
-  <g transform="translate(392 356)">
+  <rect x="156" y="130" width="194" height="142" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1.4" stroke-dasharray="7 7" transform="rotate(-3.4 253 201)"/>
+  <g transform="translate(316 268)">
     <path d="M0 0v20l5.2-5.2 3.6 8.4 4.2-1.8-3.6-8.2 7-.2z" fill="#ffffff" fill-opacity="0.92" stroke="#191c22" stroke-width="1.4" stroke-linejoin="round"/>
     <rect x="15" y="18" width="54" height="20" rx="10" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1"/>
     <text x="42" y="32" font-size="10.5" fill="#ffffff" fill-opacity="0.78" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">drag</text>
   </g>
 
   
-  <rect x="128" y="522" width="128" height="32" rx="16" fill="#ffffff" fill-opacity="0.09" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1"/>
-  <text x="150" y="543" font-size="13" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">−</text>
-  <text x="192" y="542" font-size="11" fill="#ffffff" fill-opacity="0.52" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">100%</text>
-  <text x="234" y="543" font-size="13" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">+</text>
+  <rect x="268" y="537" width="744" height="44" rx="15" fill="#0f1115" fill-opacity="0.9" stroke="#ffffff" stroke-opacity="0.13" stroke-width="1"/>
+  <rect x="282" y="544" width="150" height="30" rx="9" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1"/>
+  <circle cx="298" cy="556" r="5.2" fill="none" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.5"/>
+  <path d="M302 560 l3.6 3.6" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="312" y="564" font-size="11.5" fill="#ffffff" fill-opacity="0.34" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Search notes…</text>
+  
+    <rect x="444" y="546" width="54" height="26" rx="13" fill="#ffffff" fill-opacity="0.92"/>
+    <text x="471" y="564" font-size="11.5" font-weight="600" fill="#14161b" fill-opacity="1" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">All</text>
+    <rect x="503" y="546" width="90" height="26" rx="13" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="548" y="564" font-size="11.5" font-weight="500" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Pinned</text>
+    <rect x="598" y="546" width="114" height="26" rx="13" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="655" y="564" font-size="11.5" font-weight="500" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Archived</text>
+  <line x1="723" y1="549" x2="723" y2="569" stroke="#ffffff" stroke-opacity="0.13" stroke-width="1"/>
+  
+    <rect x="735" y="546" width="88" height="26" rx="13" fill="#ffffff" fill-opacity="0.92"/>
+    <text x="779" y="564" font-size="11.5" font-weight="600" fill="#14161b" fill-opacity="1" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Canvas</text>
+    <rect x="828" y="546" width="64" height="26" rx="13" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="860" y="564" font-size="11.5" font-weight="500" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Grid</text>
+    <rect x="897" y="546" width="64" height="26" rx="13" fill="#ffffff" fill-opacity="0.06"/>
+    <text x="929" y="564" font-size="11.5" font-weight="500" fill="#ffffff" fill-opacity="0.6" text-anchor="middle" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">List</text>
+  <text x="974" y="564" font-size="11" fill="#ffffff" fill-opacity="0.36" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">100%</text>
+  <text x="1012" y="564" font-size="11" fill="#ffffff" fill-opacity="0.36" font-family="Inter, 'Noto Sans SC', system-ui, sans-serif">Tidy</text>
+  <circle cx="986" cy="559" r="14" fill="#4d7cfe"/>
+  <path d="M986 552.5 v13 M979.5 559 h13" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>
 </svg>

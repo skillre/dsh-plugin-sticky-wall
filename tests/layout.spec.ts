@@ -10,7 +10,7 @@ import {
   previewWidth,
   sameLayout,
 } from '../src/layout.js'
-import { LAYOUT_LIMITS, LIMITS, WIDTH_PX, type Note, type NoteLayout } from '../src/types.js'
+import { CENTRE_RADIUS, LAYOUT_LIMITS, LIMITS, WIDTH_PX, type Note, type NoteLayout } from '../src/types.js'
 
 /**
  * Free-canvas geometry tests.
@@ -164,7 +164,11 @@ describe('tidy arrangement', () => {
     // A shelf packer grew one dimension: a 300-card wall became a kilometre-tall
     // column. A phyllotaxis disc stays roughly square at every size, which is
     // what lets the camera frame it by zooming instead of by scrolling.
-    for (const count of [12, 60, 300]) {
+    //
+    // Measured at 60+ cards: a small wall is an ARC around the reserved middle,
+    // so its bounding box is legitimately narrow. From 60 up the ring closes and
+    // the shape is what the framing depends on.
+    for (const count of [60, 150, 300]) {
       const notes = Array.from({ length: count }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
       const planned = arrangeLayouts(notes)
       const xs = [...planned.values()].map((layout) => layout.x)
@@ -175,6 +179,33 @@ describe('tidy arrangement', () => {
       expect(ratio).toBeGreaterThan(0.7)
       expect(ratio).toBeLessThan(1.4)
     }
+  })
+
+  it('leaves the middle of the wall clear for the centrepiece', () => {
+    // The centre holds the greeting, the tally and the quick-capture field. A
+    // card packed there would sit on top of the wall's own controls.
+    for (const count of [3, 12, 60]) {
+      const notes = Array.from({ length: count }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
+      const planned = arrangeLayouts(notes)
+      for (const layout of planned.values()) {
+        const centreX = layout.x + WIDTH_PX[layout.width] / 2
+        const centreY = layout.y + estimateHeight({ ...makeNote(), layout }, layout.width) / 2
+        // No card's centre may fall inside the reserved disc.
+        expect(Math.hypot(centreX, centreY)).toBeGreaterThan(CENTRE_RADIUS - 1)
+      }
+    }
+  })
+
+  it('honours an explicit centre radius and defaults to the shipped one', () => {
+    const notes = Array.from({ length: 8 }, (_, index) => makeNote({ id: `n${index}` }))
+    const defaulted = arrangeLayouts(notes)
+    const explicit = arrangeLayouts(notes, { centreRadius: CENTRE_RADIUS })
+    expect([...defaulted.entries()]).toEqual([...explicit.entries()])
+    // A larger reserve pushes every card further out.
+    const wide = arrangeLayouts(notes, { centreRadius: 600 })
+    const minRadius = (planned: Map<string, { x: number; y: number }>): number =>
+      Math.min(...[...planned.values()].map((layout) => Math.hypot(layout.x, layout.y)))
+    expect(minRadius(wide)).toBeGreaterThan(minRadius(defaulted))
   })
 
   it('counts CJK text at two columns so a Chinese wall does not pack too tightly', () => {

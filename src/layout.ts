@@ -21,7 +21,7 @@
  * value the Host persists and the value the Client previews.
  */
 
-import { LAYOUT_LIMITS, WIDTHS, WIDTH_PX, type Note, type NoteLayout, type NoteWidth } from './types.js'
+import { CENTRE_RADIUS, LAYOUT_LIMITS, WIDTHS, WIDTH_PX, type Note, type NoteLayout, type NoteWidth } from './types.js'
 
 /** Golden angle: the phyllotaxis constant that keeps a spiral from lining up. */
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
@@ -179,7 +179,9 @@ export function layoutOf(note: Note, index: number): NoteLayout {
  */
 export function previewLayout(note: Note, index: number): NoteLayout {
   const width = previewWidth(note.id)
-  const radius = PREVIEW_STEP * Math.sqrt(Math.max(0, index))
+  // The derived wall leaves the same clear middle as the tidy pass: the centre
+  // is the wall's centrepiece, not another place for a card.
+  const radius = PREVIEW_STEP * Math.sqrt(Math.max(0, index) + (CENTRE_RADIUS / PREVIEW_STEP) ** 2)
   const theta = index * GOLDEN_ANGLE + (unit(`${note.id}:pa`) - 0.5) * 0.55
   return clampLayout({
     x: Math.cos(theta) * radius - WIDTH_PX[width] / 2,
@@ -202,6 +204,21 @@ export function rotatedExtent(width: number, height: number, rotate: number): { 
   const cos = Math.cos(radians)
   const sin = Math.sin(radians)
   return { width: width * cos + height * sin, height: height * cos + width * sin }
+}
+
+/**
+ * Distance from the world origin to the nearest point of one footprint.
+ *
+ * The tidy pass keeps the wall's middle clear for the centrepiece, and "clear"
+ * has to mean the card's EDGE: measuring from the centre let a wide card reach
+ * over the capture field by half its own width.
+ */
+function nearestEdgeRadius(box: Box): number {
+  const centreX = box.x + box.width / 2
+  const centreY = box.y + box.height / 2
+  const dx = Math.max(0, Math.abs(centreX) - box.width / 2)
+  const dy = Math.max(0, Math.abs(centreY) - box.height / 2)
+  return Math.hypot(dx, dy)
 }
 
 /** One axis-aligned footprint on the wall, in world pixels. */
@@ -273,7 +290,7 @@ function remember(box: Box, grid: Map<string, Box[]>): void {
  * move. Notes already at exactly that layout are omitted by the caller, so
  * pressing tidy on an already-tidy wall writes nothing.
  */
-export function arrangeLayouts(notes: readonly Note[]): Map<string, NoteLayout> {
+export function arrangeLayouts(notes: readonly Note[], options: { centreRadius?: number } = {}): Map<string, NoteLayout> {
   const placed = new Map<string, NoteLayout>()
   if (notes.length === 0) return placed
 
@@ -294,6 +311,16 @@ export function arrangeLayouts(notes: readonly Note[]): Map<string, NoteLayout> 
   // sparse rim. The 1.06 slack absorbs the gap the packing has to keep.
   const step = Math.max(72, Math.sqrt(totalArea / (Math.PI * items.length)) * 1.06)
 
+  // Leave a clear disc in the middle.
+  //
+  // The wall is a composition around a centre, and that centre is where the
+  // greeting and the quick-capture field live: packing a card on top of them
+  // would make the wall fight its own centrepiece. Offsetting the spiral's start
+  // index puts every card beyond `centreRadius` while keeping the same
+  // phyllotaxis density, so the ring around the middle stays evenly packed.
+  const centreRadius = Math.max(0, options.centreRadius ?? CENTRE_RADIUS)
+  const startIndex = centreRadius > 0 ? (centreRadius / step) ** 2 : 0
+
   const grid = new Map<string, Box[]>()
   let cursor = 0
   let fallbackY = 0
@@ -302,7 +329,7 @@ export function arrangeLayouts(notes: readonly Note[]): Map<string, NoteLayout> 
     const { extent } = item
     let box: Box | null = null
     for (let attempt = 0; attempt < MAX_CANDIDATES; attempt += 1) {
-      const index = cursor + attempt
+      const index = startIndex + cursor + attempt
       const jitter = (unit(`${item.note.id}:aj`) - 0.5) * 2 * TIDY_JITTER
       const radius = step * Math.sqrt(index) + jitter
       const theta = index * GOLDEN_ANGLE
@@ -312,6 +339,10 @@ export function arrangeLayouts(notes: readonly Note[]): Map<string, NoteLayout> 
         width: extent.width,
         height: extent.height,
       }
+      // The reserve is measured to the card's NEAREST EDGE, not its centre: a
+      // card whose centre clears the radius can still reach into the middle by
+      // half its own width, which is what let a wide card sit on the centrepiece.
+      if (nearestEdgeRadius(candidate) < centreRadius) continue
       if (!collides(candidate, grid)) {
         box = candidate
         cursor = index + 1
@@ -357,8 +388,24 @@ export function arrangeLayouts(notes: readonly Note[]): Map<string, NoteLayout> 
   const shiftX = sumX / placed.size
   const shiftY = sumY / placed.size
   if (Math.abs(shiftX) >= 0.05 || Math.abs(shiftY) >= 0.05) {
-    for (const [id, layout] of placed) {
-      placed.set(id, clampLayout({ ...layout, x: layout.x - shiftX, y: layout.y - shiftY }))
+    // A uniform translation cannot create an overlap, but it CAN push a card back
+    // into the reserved middle — which is exactly what happened when the shift
+    // was applied unconditionally. Shift only when the reserve survives it.
+    const safe = [...placed].every(([id, layout]) => {
+      const note = notes.find((candidate) => candidate.id === id)
+      const height = note === undefined ? 0 : estimateHeight(note, layout.width)
+      const box = {
+        x: layout.x - shiftX,
+        y: layout.y - shiftY,
+        width: WIDTH_PX[layout.width],
+        height,
+      }
+      return nearestEdgeRadius(box) >= centreRadius - 0.5
+    })
+    if (safe) {
+      for (const [id, layout] of placed) {
+        placed.set(id, clampLayout({ ...layout, x: layout.x - shiftX, y: layout.y - shiftY }))
+      }
     }
   }
   return placed

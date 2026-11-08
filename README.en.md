@@ -17,10 +17,12 @@ Non-goals: task management (no scheduling, assignment or reminders), collaborati
 - **Sidebar entry** — a "Notes" glyph in `sidebar.panellist`; clicking it swaps the centre column to the wall.
 - **Free canvas** — notes are cards on a canvas, not list rows. Position, rotation and a three-step width (small/medium/large) are note data owned by the Host, so the same wall opens with the same arrangement in another window.
 - **Drag to place** — press anywhere on a card and drag; the drop lands on the new position immediately and then writes it to the Host, so the card never snaps back first. A drag does **not** bump `updatedAt`, so tidying your desk never reshuffles a "by updated" sort.
-- **A wall with a middle** — "Tidy" packs every note into a **phyllotaxis disc centred on the world origin**, and the camera opens looking at the wall's centre of mass instead of a top-left corner.
+- **A wall with a middle** — "Tidy" packs every note into a **phyllotaxis ring centred on the world origin**, leaving a clear disc at the middle for the greeting and the quick-capture field; the camera opens with the whole wall framed and centred.
+- **The centre is the entry point** — the middle of the wall is a always-available capture field: type a line, press Enter, and it becomes a note without opening the form.
 - **One-click tidy** — "Tidy" repacks deterministically and collision-checks every card against the ones already placed, so the same wall always yields the same arrangement and cards never overlap.
 - **Three views** — canvas (default, free placement), grid (responsive masonry for reading long notes) and list (one line per note for finding one by title).
-- **Camera** — drag empty paper to pan, scroll to pan, `⌘/Ctrl + wheel` to zoom around the pointer (0.35×–2×), plus the floating `− / percent / + / reset` control. Opening the wall and pressing reset both frame the whole wall in view.
+- **Full-window canvas** — the wall fills the entire window: no title row and no toolbar row. Every control lives in one **floating dock** at the bottom (search, filters, view, sort, zoom, tidy, new).
+- **Camera** — drag empty paper to pan, scroll to pan, `⌘/Ctrl + wheel` to zoom around the pointer (0.35×–2×), plus `− / percent / + / reset / tidy` in the dock. Opening the wall and pressing reset both frame the whole wall and centre it.
 - **Markdown bodies** — headings, paragraphs, bold/italic/strikethrough, `code`, code blocks, ordered and unordered lists, `- [ ]` checkboxes, quotes, rules, tables and http(s)/mailto links. The composer has a "Preview" toggle.
 - **Quick capture** — "New" opens a note sheet with an optional title, required body, tags, six pastel colors and a width preset.
 - **Pin and archive** — pinned notes carry a coloured left rail and a star; archived notes hide by default, the "Archive" filter fetches them on its own, and "Clear archive" is a permanent delete.
@@ -130,6 +132,7 @@ The install path was verified end to end: derive the spec from the live index, i
 - Card width has only **three presets** (small/medium/large); there is no arbitrary resize. A drag keeps the card's existing tilt.
 - Tidy is O(n) spiral placement plus a spatial-grid collision check; the wall holds at most 400 notes, and a wall larger than the viewport needs panning or zooming out.
 - The canvas is a flat plane: no grouping, layers, connectors or snap alignment, and no rotation gesture beyond the stored tilt.
+- Auto-framing has a legibility floor (50%): a large wall is centred rather than crammed entirely into view, so panning is expected. The middle is reserved space — tidy never places a card under the greeting or the capture field.
 - Placement is owned by the Host, but two windows open on the same wall each render their own snapshot and do not live-push the other's drags.
 - Archived notes do not occupy a `maxNotes` slot, but restoring them does; a restore at the cap is rejected instead of silently overshooting.
 - "Clear archive" is a permanent, irreversible delete.

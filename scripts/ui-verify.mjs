@@ -187,20 +187,26 @@ try {
     return {
       current: current ? current.getAttribute('aria-label') : null,
       wall: !!document.querySelector('.skw-page'),
-      title: document.querySelector('.skw-title')?.textContent ?? null,
-      subtitle: document.querySelector('.skw-subtitle')?.textContent ?? null,
+      greeting: document.querySelector('.skw-centre-hello')?.textContent ?? null,
+      tally: document.querySelector('.skw-centre-tally')?.textContent ?? null,
+      capture: !!document.querySelector('.skw-capture'),
+      dock: !!document.querySelector('.skw-dock'),
       notes: document.querySelectorAll('.skw-note').length,
     };
   })()`)
   record('sidebar-entry-selects-panel', { ok: mounted.current === '便签墙', detail: `aria-current=${mounted.current}` })
-  record('wall-page-mounted', { ok: mounted.wall === true, detail: `title=${mounted.title}` })
+  record('wall-page-mounted', { ok: mounted.wall === true, detail: `dock=${mounted.dock} capture=${mounted.capture}` })
   record('welcome-note-seeded', { ok: mounted.notes >= 1, detail: `${mounted.notes} note card(s)` })
-  record('zh-copy', { ok: mounted.title === '便签墙' && typeof mounted.subtitle === 'string', detail: mounted.subtitle })
+  record('zh-copy', {
+    ok: typeof mounted.greeting === 'string' && mounted.greeting.length > 0 &&
+      typeof mounted.tally === 'string' && mounted.tally.includes('张便签'),
+    detail: `${mounted.greeting} / ${mounted.tally}`,
+  })
 
   const wallShot = await page.shot('sticky-wall-zh.png')
 
   // 3. Create a note through the real composer: open, type, save.
-  const newButton = await page.evaluate(BUTTON_NAMED('+ 新建'))
+  const newButton = await page.evaluate(BUTTON_NAMED('新建'))
   if (!newButton) throw new Error('the New button is missing')
   await page.click(newButton.x, newButton.y)
   await page.wait(500)
@@ -376,7 +382,7 @@ try {
   // gives a non-overlapping wall, which is also the order a user works in.
   const beforeTidy = await page.evaluate(`(() => [...document.querySelectorAll('.skw-note')].map((n) => n.style.left + ',' + n.style.top))()`)
   await page.evaluate(`(() => {
-    const tidy = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '整理');
+    const tidy = [...document.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') || '') === '整理');
     tidy?.click();
     return !!tidy;
   })()`)
@@ -461,8 +467,15 @@ try {
     const rect = card.getBoundingClientRect();
     // Press on the body, below the action row: a press that lands on one of the
     // top-row buttons is stopped by stopPropagation and never starts a drag.
+    //
+    // The canvas is now full-height with a floating dock over its bottom edge, so
+    // the press point must also stay clear of the dock — a card near the bottom
+    // of the wall is legitimately underneath it.
+    const dock = document.querySelector('.skw-dock')?.getBoundingClientRect();
+    const ceiling = dock ? dock.top - 12 : Number.POSITIVE_INFINITY;
     const x = rect.x + rect.width / 2;
-    const y = rect.y + rect.height * 0.62;
+    let y = rect.y + rect.height * 0.62;
+    if (y > ceiling) y = Math.min(rect.y + rect.height - 6, ceiling);
     const hit = document.elementFromPoint(x, y);
     return {
       x, y,
@@ -587,7 +600,9 @@ try {
 
   // Reset puts the camera back on the wall's middle at 100%.
   await page.evaluate(`(() => {
-    const reset = [...document.querySelectorAll('.skw-camera-btn')].pop();
+    // Select by accessible name: the zoom group also holds the tidy button, so
+    // "the last camera button" is no longer the reset control.
+    const reset = [...document.querySelectorAll('.skw-camera-btn')].find((b) => b.getAttribute('aria-label') === '重置视图');
     reset?.click();
     return !!reset;
   })()`)
@@ -634,7 +649,7 @@ try {
   ]
   for (const [title, body, colour] of SEEDS) {
     await page.evaluate(`(() => {
-      const open = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '+ 新建');
+      const open = [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === '新建');
       open?.click();
       return !!open;
     })()`)
@@ -671,7 +686,7 @@ try {
   await page.wait(1200)
   const seeded = await page.evaluate(`(() => document.querySelectorAll('.skw-note').length)()`)
   await page.evaluate(`(() => {
-    const tidy = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '整理');
+    const tidy = [...document.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') || '') === '整理');
     tidy?.click();
     return !!tidy;
   })()`)
@@ -701,15 +716,122 @@ try {
       ratio: (right - left) / (bottom - top),
       fits: left >= viewport.left - 2 && right <= viewport.right + 2 && top >= viewport.top - 2 && bottom <= viewport.bottom + 2,
       zoom: document.querySelector('.skw-camera-value')?.textContent ?? null,
+      zoomPercent: Number.parseInt(document.querySelector('.skw-camera-value')?.textContent ?? '0', 10),
     };
   })()`)
   record('canvas-large-wall-is-a-centred-disc', {
-    ok: bigWall.cards >= 10 && bigWall.overlaps === 0 && bigWall.fits === true &&
+    // A readable floor means a big wall may not fit entirely; what must hold is
+    // that it is CENTRED, legible and free of overlaps.
+    ok: bigWall.cards >= 10 && bigWall.overlaps === 0 &&
       Math.abs(bigWall.offsetX) < 340 && Math.abs(bigWall.offsetY) < 340 &&
-      bigWall.ratio > 0.5 && bigWall.ratio < 2,
+      bigWall.ratio > 0.5 && bigWall.ratio < 2 && bigWall.zoomPercent >= 50,
     detail: `${bigWall.cards} cards (seeded ${seeded}), overlaps=${bigWall.overlaps}, offset=(${Math.round(bigWall.offsetX)},${Math.round(bigWall.offsetY)}), ratio=${bigWall.ratio.toFixed(2)}, zoom=${bigWall.zoom}, fits=${bigWall.fits}`,
   })
   const bigShot = await page.shot('sticky-wall-canvas-many.png')
+
+  // 8d. The centrepiece: it must sit at the middle of the VIEWPORT (not of the
+  // world), stay clear of every card, and survive a pan without moving.
+  const centrepiece = await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas').getBoundingClientRect();
+    const centre = document.querySelector('.skw-centre');
+    if (!centre) return { ok: false, reason: 'centre missing' };
+    const box = centre.getBoundingClientRect();
+    const capture = document.querySelector('.skw-capture').getBoundingClientRect();
+    const cards = [...document.querySelectorAll('.skw-canvas .skw-note')].map((node) => node.getBoundingClientRect());
+    // Does any card overlap the capture field?
+    const captureHits = cards.filter((r) =>
+      r.left < capture.right && capture.left < r.right && r.top < capture.bottom && capture.top < r.bottom).length;
+    return {
+      ok: true,
+      offsetX: (box.left + box.right) / 2 - (viewport.left + viewport.width / 2),
+      offsetY: (box.top + box.bottom) / 2 - (viewport.top + viewport.height / 2),
+      captureHits,
+      cards: cards.length,
+      greeting: document.querySelector('.skw-centre-hello')?.textContent ?? null,
+      tally: document.querySelector('.skw-centre-tally')?.textContent ?? null,
+    };
+  })()`)
+  record('canvas-centrepiece-is-at-the-middle', {
+    ok: centrepiece.ok && Math.abs(centrepiece.offsetX) < 40 && Math.abs(centrepiece.offsetY) < 60,
+    detail: `offset=(${Math.round(centrepiece.offsetX)},${Math.round(centrepiece.offsetY)})`,
+  })
+  record('canvas-tidy-keeps-the-centre-clear', {
+    ok: centrepiece.ok && centrepiece.captureHits === 0,
+    detail: `${centrepiece.cards} cards, ${centrepiece.captureHits} overlapping the capture field`,
+  })
+
+  // Panning must not move the centrepiece: it is screen space, not world space.
+  const beforePanCentre = await page.evaluate(`(() => {
+    const box = document.querySelector('.skw-centre').getBoundingClientRect();
+    return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+  })()`)
+  const panStart = await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas').getBoundingClientRect();
+    return { x: viewport.left + 30, y: viewport.top + viewport.height / 2 };
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: panStart.x, y: panStart.y, button: 'none', buttons: 0 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: panStart.x, y: panStart.y, button: 'left', buttons: 1, clickCount: 1 })
+  for (let step = 1; step <= 4; step += 1) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: panStart.x + step * 30, y: panStart.y + step * 18, button: 'left', buttons: 1 })
+  }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: panStart.x + 120, y: panStart.y + 72, button: 'left', buttons: 0, clickCount: 1 })
+  await page.wait(400)
+  const afterPanCentre = await page.evaluate(`(() => {
+    const box = document.querySelector('.skw-centre').getBoundingClientRect();
+    return { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+  })()`)
+  record('canvas-centrepiece-stays-put-while-panning', {
+    ok: Math.abs(afterPanCentre.x - beforePanCentre.x) < 1 && Math.abs(afterPanCentre.y - beforePanCentre.y) < 1,
+    detail: `(${beforePanCentre.x.toFixed(0)},${beforePanCentre.y.toFixed(0)}) -> (${afterPanCentre.x.toFixed(0)},${afterPanCentre.y.toFixed(0)})`,
+  })
+
+  // Quick capture: type into the centre field and submit it.
+  const captureBefore = await page.evaluate(`(() => document.querySelectorAll('.skw-note').length)()`)
+  await page.evaluate(`(() => {
+    const input = document.querySelector('.skw-capture-input');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(input, '圆心快速记录');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`)
+  await page.wait(200)
+  await page.evaluate(`(() => {
+    const go = document.querySelector('.skw-capture-go');
+    go?.click();
+    return !!go;
+  })()`)
+  await page.wait(1400)
+  const captureAfter = await page.evaluate(`(() => ({
+    notes: document.querySelectorAll('.skw-note').length,
+    field: document.querySelector('.skw-capture-input')?.value ?? null,
+    has: [...document.querySelectorAll('.skw-note')].some((n) => n.innerText.includes('圆心快速记录')),
+  }))()`)
+  record('centre-capture-creates-a-note', {
+    ok: captureAfter.notes === captureBefore + 1 && captureAfter.has === true && captureAfter.field === '',
+    detail: `${captureBefore} -> ${captureAfter.notes} notes, field cleared=${captureAfter.field === ''}`,
+  })
+
+  // The dock must be a single floating row over the canvas, and the canvas must
+  // occupy the whole page (no header/toolbar rows eating vertical space).
+  const layoutState = await page.evaluate(`(() => {
+    const page = document.querySelector('.skw-page').getBoundingClientRect();
+    const canvas = document.querySelector('.skw-canvas').getBoundingClientRect();
+    const dock = document.querySelector('.skw-dock').getBoundingClientRect();
+    return {
+      head: !!document.querySelector('.skw-head'),
+      toolbar: !!document.querySelector('.skw-toolbar'),
+      canvasRatio: canvas.height / page.height,
+      dockInsideCanvas: dock.top > canvas.top && dock.bottom <= canvas.bottom + 1,
+      dockCentred: Math.abs((dock.left + dock.right) / 2 - (canvas.left + canvas.right) / 2) < 3,
+      dockHeight: dock.height,
+      dockRows: new Set([...document.querySelectorAll('.skw-dock > *')].map((n) => Math.round(n.getBoundingClientRect().top))).size,
+    };
+  })()`)
+  record('canvas-fills-the-page-with-a-floating-dock', {
+    ok: !layoutState.head && !layoutState.toolbar && layoutState.canvasRatio > 0.95 &&
+      layoutState.dockInsideCanvas && layoutState.dockCentred && layoutState.dockHeight < 90,
+    detail: `canvas=${(layoutState.canvasRatio * 100).toFixed(1)}% of page, dock ${Math.round(layoutState.dockHeight)}px tall, centred=${layoutState.dockCentred}`,
+  })
   record('canvas-large-wall-screenshot', { ok: true, detail: bigShot })
 
   // 9. Markdown renders on the card instead of showing literal markers.  // 9. Markdown renders on the card instead of showing literal markers. The
@@ -736,7 +858,7 @@ try {
   // 10. View modes: grid and list render the same note set, and the canvas
   // camera only exists in canvas view.
   const gridView = await page.evaluate(`(() => {
-    const button = [...document.querySelectorAll('.skw-view-seg button')][1];
+    const button = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '网格');
     button?.click();
     return !!button;
   })()`)
@@ -744,11 +866,11 @@ try {
   const gridState = await page.evaluate(`(() => ({
     grid: !!document.querySelector('.skw-grid'),
     cards: document.querySelectorAll('.skw-note').length,
-    camera: !!document.querySelector('.skw-cameras'),
+    camera: !!document.querySelector('.skw-dock-zoom'),
   }))()`)
   record('grid-view-renders-notes', { ok: gridView && gridState.grid && gridState.cards > 0, detail: `cards=${gridState.cards}` })
   await page.evaluate(`(() => {
-    const button = [...document.querySelectorAll('.skw-view-seg button')][2];
+    const button = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '列表');
     button?.click();
     return true;
   })()`)
@@ -759,7 +881,7 @@ try {
   }))()`)
   record('list-view-renders-rows', { ok: listState.list && listState.rows > 0, detail: `rows=${listState.rows}` })
   await page.evaluate(`(() => {
-    const button = [...document.querySelectorAll('.skw-view-seg button')][0];
+    const button = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '画布');
     button?.click();
     return true;
   })()`)

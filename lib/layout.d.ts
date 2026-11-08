@@ -80,6 +80,8 @@ export declare function rotatedExtent(width: number, height: number, rotate: num
  * move. Notes already at exactly that layout are omitted by the caller, so
  * pressing tidy on an already-tidy wall writes nothing.
  */
-export declare function arrangeLayouts(notes: readonly Note[]): Map<string, NoteLayout>;
+export declare function arrangeLayouts(notes: readonly Note[], options?: {
+    centreRadius?: number;
+}): Map<string, NoteLayout>;
 /** Normalize a submitted width preset, defaulting to the middle size. */
 export declare function normalizeWidth(raw: unknown): NoteWidth;

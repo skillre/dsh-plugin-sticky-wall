@@ -67,6 +67,16 @@ export const WIDTH_PX: Readonly<Record<NoteWidth, number>> = Object.freeze({
   lg: 276,
 })
 
+/**
+ * Radius of the clear disc the tidy pass leaves at the wall's centre, in world
+ * pixels at zoom 1.
+ *
+ * The centre of the wall is its centrepiece: the greeting, the running tally and
+ * the quick-capture field live there. Packing a card on top of them would make
+ * the wall fight its own middle, so tidy starts every card outside this radius.
+ */
+export const CENTRE_RADIUS = 300
+
 /** Bounds of the free canvas: a note may sit anywhere inside this square. */
 export const LAYOUT_LIMITS = Object.freeze({
   /** Absolute value of x and y, in world pixels. */

@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- Make the middle of the wall the point, and give the canvas the whole window.
+  
+  The wall was a board you scrolled around with a toolbar above it. It is now a
+  composition with a centre: everything is framed around the middle, and the middle
+  is where you write.
+  
+  - **Tidy leaves a hole in the middle.** The phyllotaxis packing now reserves a
+    clear disc (`CENTRE_RADIUS`) at the world origin for the centrepiece, measured
+    to each card's nearest **edge** rather than its centre — measuring from the
+    centre let a wide card reach over the capture field by half its own width. The
+    re-centring shift is applied only when it preserves that reserve, because an
+    unconditional shift pushed cards back into the middle.
+  - **The middle is the entry point.** The wall's centre holds a time-aware
+    greeting, a running tally and an always-available quick-capture field: type a
+    line, press Enter, and it becomes a note without opening the form. It is a
+    screen-space overlay, not part of the transformed world, so it stays put while
+    the wall pans and zooms.
+  - **The canvas fills the window.** The title row and the toolbar row are gone.
+    Every control — search, filters, view, sort, zoom, tidy, new — lives in one
+    floating dock along the bottom, kept to a single row so it never eats the wall
+    it floats above.
+  - **Auto-framing measures instead of estimating.** The camera now reads the
+    rendered card boxes from the DOM, so framing is exact instead of off by
+    whatever the layout data guessed wrong. It is capped at 100% and floored at
+    50%: a wall that cannot fit legibly is centred and readable, not crammed into
+    unreadable confetti. Tidy re-frames one animation frame after its reconcile,
+    so it frames the wall it actually produced.
+  - **Cards render at the height the Host estimated.** The packer's collision
+    geometry is only true if the rendered box is the box it checked; canvas cards
+    now carry that height inline, which removes the residual overlap a code block's
+    padding could cause.
+  - **Zoom and reset are exact.** Reset no longer sets 100% before fitting, so the
+    readout and the transform never disagree.
+  
+  Verified in the real DSH Web UI: 36/36 assertions, including a centred
+  centrepiece that survives panning, a 14-note wall tidying to a centred ring with
+  zero overlaps, and quick capture creating a note from the middle of the wall.
+
 ## 0.3.0
 
 ### Minor Changes

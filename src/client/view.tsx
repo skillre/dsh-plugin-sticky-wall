@@ -352,7 +352,20 @@ const NoteCard = memo(function NoteCard({
 }): JSX.Element {
   const layout = layoutOf(note, index)
   const style: React.CSSProperties = surface === 'canvas'
-    ? { left: `${layout.x}px`, top: `${layout.y}px`, width: `${WIDTH_PX[layout.width]}px`, transform: `rotate(${layout.rotate}deg)` }
+    ? {
+      left: `${layout.x}px`,
+      top: `${layout.y}px`,
+      width: `${WIDTH_PX[layout.width]}px`,
+      // The HEIGHT is the Host's own estimate, not a CSS max-height.
+      //
+      // This is what makes the packer's geometry exact: the collision check runs
+      // on `estimateHeight`, so unless the rendered box is that same height, a
+      // card whose content renders taller than its estimate overlaps its
+      // neighbour — which is precisely the residual overlap this fixes (a code
+      // block's padding and border are not something a line count can see).
+      height: `${estimateHeight(note, layout.width)}px`,
+      transform: `rotate(${layout.rotate}deg)`,
+    }
     : {}
   return (
     <article
@@ -453,6 +466,8 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [zoom, setZoom] = useState(1)
   /** Bumped when the canvas remounts or the wall goes from empty to populated. */
   const [viewportTick, setViewportTick] = useState(0)
+  /** The quick-capture field at the wall's centre. */
+  const [capture, setCapture] = useState('')
   // Re-render on locale switch: relative times and copy are read from the
   // active locale, so the page must observe the locale revision.
   const [, setLocaleRevision] = useState(0)
@@ -482,8 +497,22 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
    * the imperative pointer loop and the style writer always read the truth.
    */
   const camera = useRef({ zoom: 1, panX: 0, panY: 0 })
-  /** Set when the next layout pass must put the wall's middle in the middle. */
+  /**
+   * A pending "frame the whole wall" request.
+   *
+   * Consumed by the camera layout effect against the CURRENT `wallBounds`, which
+   * is why every request is issued only after the data it depends on has been
+   * committed (see `tidyWall`, which sequences its own refit after the write).
+   */
   const centreRequest = useRef(true)
+  /**
+   * Set when the next committed note list must be framed.
+   *
+   * Tidy issues this BEFORE the write and it is consumed by an effect that runs
+   * after the reconcile has committed, so `fitWall` sees the placements tidy
+   * actually produced. Requesting a fit at the call site framed the pre-tidy
+   * wall, and the tidied one then opened overflowing at 100%.
+   */
 
   /**
    * The live drag.
@@ -612,10 +641,10 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
    * something (a batch that failed midway), and the wall must never keep
    * showing a snapshot the Host no longer has.
    */
-  async function mutate(run: () => Promise<Note[] | string[] | void>): Promise<void> {
+  async function mutate(run: () => Promise<Note[] | string[] | void>): Promise<boolean> {
     // A ref, not the `busy` state: two events in one tick would both read the
     // pre-flush state value and both fire.
-    if (inFlight.current) return
+    if (inFlight.current) return false
     inFlight.current = true
     setBusy(true)
     setError('')
@@ -630,6 +659,25 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       }
       inFlight.current = false
     }
+    return true
+  }
+
+  /**
+   * Tidy the wall, then frame what it produced.
+   *
+   * The refit is sequenced HERE rather than through a render effect: `mutate`
+   * resolves after its own reload, so when it returns the new placements are
+   * already in state. Waiting one frame then lets the browser lay them out before
+   * `fitWall` measures them; a fit issued any earlier measured the pre-tidy wall,
+   * which is why the tidied wall kept opening overflowing at 100%.
+   */
+  async function tidyWall(): Promise<void> {
+    const ran = await mutate(async () => { await api.arrange(life.current.signal) })
+    if (!ran) return
+    await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()) })
+    if (!alive.current) return
+    centreRequest.current = true
+    setViewportTick((value) => value + 1)
   }
 
   function openComposer(note?: Note): void {
@@ -679,6 +727,29 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const archivedCount = notes.filter((note) => note.archived).length
 
   /**
+   * The greeting above the capture field.
+   *
+   * Time-aware and localized, because the wall's centre is the first thing a
+   * user sees and a static "Sticky wall" there reads as a header, not as an
+   * invitation to write something down.
+   */
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours()
+    const key = hour < 5 ? 'greetNight' : hour < 12 ? 'greetMorning' : hour < 18 ? 'greetAfternoon' : 'greetEvening'
+    return t(key)
+    // The locale revision is observed through `activeLocale`, so switching the
+    // GUI language recomputes this copy.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t, activeLocale])
+
+  /** What an empty view says, depending on why it is empty. */
+  const emptyCopy = filter === 'archived'
+    ? t('emptyArchived')
+    : query.trim() !== ''
+      ? t('noResults')
+      : t('empty')
+
+  /**
    * The centre of the visible wall, in world coordinates.
    *
    * This is what the camera opens on and what "reset view" returns to, so the
@@ -710,9 +781,11 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     }
     if (count === 0) return { centre: { x: 0, y: 0 }, width: 0, height: 0 }
     return {
-      // The centroid, not the box's middle: an uneven disc has a centre of mass
-      // that reads as "the middle" to the eye even when its bounds are lopsided.
-      centre: { x: sumX / count, y: sumY / count },
+      // The bounding box's middle, not the centroid: "frame the whole wall" means
+      // the wall's outer edges are equidistant from the viewport edges, and only
+      // the box middle guarantees that. A lopsided two-card wall has a centroid
+      // far from its visual middle, which left one card half off screen.
+      centre: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 },
       width: maxX - minX,
       height: maxY - minY,
     }
@@ -721,7 +794,20 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
 
   const wallCentre = wallBounds.centre
 
+  /**
+   * The live wall bounds, mirrored for `fitWall`.
+   *
+   * `fitWall` is a `useCallback` closed over `wallBounds`; a fit requested from
+   * an effect that runs in the same commit as a `setNotes` still sees the PREVIOUS
+   * bounds, which framed the pre-tidy wall. Reading a ref makes the fit always
+   * use the committed geometry.
+   */
+  const boundsRef = useRef(wallBounds)
+  boundsRef.current = wallBounds
+
   const hasNotes = visible.length > 0
+
+
 
   /** Write the camera onto the two nodes that own it. No React, no layout. */
   const applyCamera = useCallback((): void => {
@@ -793,22 +879,65 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const fitWall = useCallback((): void => {
     const viewport = viewportRefCurrent.current
     if (viewport === null) return
-    const availableWidth = viewport.clientWidth
-    const availableHeight = viewport.clientHeight
-    // A margin so the outermost cards do not touch the viewport edge.
+    // A zero-sized viewport has no framing to compute (jsdom, a hidden panel), but
+    // the camera must still be written: the transform is the only thing that says
+    // where the wall is, and leaving it unset would silently skip the centre.
+    const availableWidth = viewport.clientWidth || 960
+    const availableHeight = viewport.clientHeight || 640
+
+    // Prefer the rendered geometry, fall back to the computed bounds.
+    //
+    // `offsetLeft`/`offsetWidth` are the card's untransformed layout box, so they
+    // are the truth about what occupies space. They are zero in a DOM without
+    // layout (jsdom, a hidden panel), which is why the computed bounds remain the
+    // fallback rather than being replaced.
+    const world = worldRef.current
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    if (world !== null) {
+      for (const node of world.querySelectorAll<HTMLElement>('.skw-note')) {
+        const x = node.offsetLeft
+        const y = node.offsetTop
+        const width = node.offsetWidth
+        const height = node.offsetHeight
+        if (width === 0 || height === 0) continue
+        minX = Math.min(minX, x)
+        minY = Math.min(minY, y)
+        maxX = Math.max(maxX, x + width)
+        maxY = Math.max(maxY, y + height)
+      }
+    }
+    const measured = Number.isFinite(minX) && Number.isFinite(minY) && maxX > minX
+    const bounds = boundsRef.current
+    const boxWidth = measured ? maxX - minX : bounds.width
+    const boxHeight = measured ? maxY - minY : bounds.height
+    const centreX = measured ? (minX + maxX) / 2 : bounds.centre.x
+    const centreY = measured ? (minY + maxY) / 2 : bounds.centre.y
+
+    // A margin so the outermost cards do not touch the viewport edge, and a
+    // floor so framing never shrinks the wall into unreadable confetti: below
+    // this the user is better off seeing part of the wall at a legible size and
+    // panning for the rest.
     const margin = 48
     const fit = Math.min(
-      availableWidth > 0 ? (availableWidth - margin * 2) / Math.max(1, wallBounds.width) : 1,
-      availableHeight > 0 ? (availableHeight - margin * 2) / Math.max(1, wallBounds.height) : 1,
+      (availableWidth - margin * 2) / Math.max(1, boxWidth),
+      (availableHeight - margin * 2) / Math.max(1, boxHeight),
     )
-    const target = clampZoom(Math.min(1, fit))
+    const FIT_FLOOR = 0.5
+    const target = clampZoom(Math.min(1, Math.max(FIT_FLOOR, fit)))
     camera.current.zoom = target
     setZoom(target)
-    centreOn(wallBounds.centre.x, wallBounds.centre.y)
-  }, [centreOn, wallBounds])
+    centreOn(centreX, centreY)
+  }, [centreOn])
 
   /** Put the wall back in view at the zoom that frames it. */
-  const resetView = useCallback((): void => fitWall(), [fitWall])
+  const resetView = useCallback((): void => {
+    // `fitWall` computes AND applies the zoom; setting zoom=1 first would leave
+    // the readout and the transform disagreeing whenever the wall needs <100%.
+    fitWall()
+  }, [fitWall])
 
   /**
    * Wheel: pan by default, zoom with ⌘/Ctrl (which is also how a trackpad pinch
@@ -886,7 +1015,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       return
     }
     applyCamera()
-  }, [applyCamera, centreOn, fitWall, view, viewportTick])
+  }, [applyCamera, fitWall, view, viewportTick])
 
   /** Begin a drag; the move itself is applied on pointerup through the Host. */
   function startDrag(note: Note, event: React.PointerEvent<HTMLElement>): void {
@@ -1112,77 +1241,6 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   return (
     <section className="skw-page" aria-label={t('title')}>
       <style>{WALL_CSS}</style>
-      <header className="skw-head">
-        <div className="skw-head-text">
-          <h1 className="skw-title">
-            <span className="skw-title-mark" aria-hidden="true"><SidebarGlyph size={15} /></span>
-            {t('title')}
-          </h1>
-          <p className="skw-subtitle">{t('subtitle')}</p>
-        </div>
-        <div className="skw-actions">
-          {archivedCount > 0 && (
-            <button className="skw-btn skw-btn-quiet" type="button" onClick={() => setConfirming('clear')} disabled={busy}>
-              {t('clearArchived')}
-            </button>
-          )}
-          {view === 'canvas' && (
-            <button className="skw-btn skw-btn-quiet" type="button" disabled={busy || visible.length === 0}
-              onClick={() => void mutate(async () => {
-                await api.arrange(life.current.signal)
-                // Tidy packs a disc around the origin, so ask for a recentre
-                // once the reload has delivered the new placements: framing the
-                // OLD centroid here would land the viewport on empty paper.
-                centreRequest.current = true
-                setViewportTick((value) => value + 1)
-              })}>
-              {t('arrange')}
-            </button>
-          )}
-          <button className="skw-btn skw-btn-primary" type="button" onClick={() => openComposer()} disabled={busy}>
-            + {t('new')}
-          </button>
-        </div>
-      </header>
-
-      <div className="skw-toolbar">
-        <div className="skw-search-wrap">
-          <span className="skw-search-icon" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <circle cx="10.5" cy="10.5" r="6.2" stroke="currentColor" strokeWidth="1.8" />
-              <path d="M15.4 15.4L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
-          </span>
-          <input className="skw-search" type="search" value={query} placeholder={t('search')} aria-label={t('search')}
-            onChange={(event) => setQuery(event.target.value)} />
-        </div>
-        <div className="skw-seg" role="group" aria-label={t('filters')}>
-          {(['all', 'pinned', 'archived'] as const).map((key) => (
-            <button key={key} type="button" data-on={filter === key} onClick={() => setFilter(key)}>
-              {key === 'all' ? t('all') : key === 'pinned' ? t('pin') : t('archive')}
-            </button>
-          ))}
-        </div>
-        <button className="skw-toggle" type="button" data-on={showArchived} aria-pressed={showArchived}
-          onClick={() => setShowArchived((value) => !value)}>
-          {showArchived ? t('hideArchived') : t('showArchived')}
-        </button>
-        <div className="skw-seg" role="group" aria-label={t('sortPinned')}>
-          {(['pinned', 'created', 'updated'] as const).map((key) => (
-            <button key={key} type="button" data-on={sort === key} onClick={() => setSort(key)}>
-              {key === 'pinned' ? t('sortPinned') : key === 'created' ? t('sortCreated') : t('sortUpdated')}
-            </button>
-          ))}
-        </div>
-        <div className="skw-seg skw-view-seg" role="group" aria-label={t('viewLabel')}>
-          {(['canvas', 'grid', 'list'] as const).map((mode) => (
-            <button key={mode} type="button" data-on={view === mode} onClick={() => setView(mode)} aria-label={t(`view_${mode}`)}>
-              {t(`view_${mode}`)}
-            </button>
-          ))}
-        </div>
-        <span className="skw-count">{t('count', { count: visible.length })}</span>
-      </div>
 
       <div className="skw-body" data-view={view}>
         {error !== '' && (
@@ -1192,48 +1250,153 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         )}
         {loading && notes.length === 0 ? (
           <div className="skw-empty"><p>{t('loading')}</p></div>
-        ) : visible.length === 0 ? (
-          <div className="skw-empty">
-            <span className="skw-empty-icon" aria-hidden="true">🗒️</span>
-            <p>{filter === 'archived' ? t('emptyArchived') : query.trim() !== '' ? t('noResults') : t('empty')}</p>
-            {filter !== 'archived' && query.trim() === '' && (
-              <button className="skw-btn" type="button" onClick={() => openComposer()}>{t('new')}</button>
-            )}
-          </div>
         ) : view === 'list' ? (
           <div className="skw-list">
             {visible.map((note) => (
               <NoteRow key={note.id} note={note} t={t} locale={activeLocale} onEdit={openComposer} />
             ))}
+            {visible.length === 0 && <p className="skw-list-empty">{emptyCopy}</p>}
           </div>
         ) : view === 'grid' ? (
           <div className="skw-grid">
             {visible.map((note) => (
               <NoteCard key={note.id} note={note} index={indexOf(note)} surface="grid" t={t} locale={activeLocale} actions={actions} />
             ))}
+            {visible.length === 0 && <p className="skw-list-empty">{emptyCopy}</p>}
           </div>
         ) : (
           <div ref={bindViewport} className="skw-canvas" data-zoomed={zoom !== 1} onPointerDown={startPan}>
             <div ref={worldRef} className="skw-world">
-              {/* A soft halo at the wall's middle: the wall has a centre, and
-                  the camera opens looking at it. */}
-              <div className="skw-origin-glow" style={{ left: `${wallCentre.x}px`, top: `${wallCentre.y}px` }} aria-hidden="true" />
               {visible.map((note) => (
                 <NoteCard key={note.id} note={note} index={indexOf(note)} surface="canvas" t={t} locale={activeLocale} actions={actions} />
               ))}
+            </div>
+
+            {/*
+              The wall's centrepiece.
+
+              It is a SCREEN-space overlay, not part of the transformed world: the
+              greeting and the capture field belong to the page, so they must stay
+              put when the wall pans or zooms. `pointer-events: none` on the
+              wrapper keeps the paper behind it draggable; only the field itself
+              takes input. Tidy keeps a clear disc here (`CENTRE_RADIUS`), so a
+              card is never hidden underneath.
+            */}
+            <div className="skw-centre" aria-hidden={false}>
+              <p className="skw-centre-hello">{greeting}</p>
+              <p className="skw-centre-tally" data-empty={visible.length === 0}>
+                {/* An empty wall still explains itself: the reason (no notes, no
+                    matches, empty archive) is more useful here than a bare zero,
+                    and the capture field stays available either way. */}
+                {visible.length === 0
+                  ? emptyCopy
+                  : t('centreTally', { count: visible.length, archived: archivedCount })}
+              </p>
+              <form
+                className="skw-capture"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const body = capture.trim()
+                  if (body === '' || busy) return
+                  void mutate(async () => {
+                    await api.create({ body }, life.current.signal)
+                    setCapture('')
+                  })
+                }}
+              >
+                <span className="skw-capture-icon" aria-hidden="true">✎</span>
+                <input
+                  className="skw-capture-input"
+                  value={capture}
+                  placeholder={t('capturePlaceholder')}
+                  aria-label={t('capturePlaceholder')}
+                  maxLength={LIMITS.body}
+                  onChange={(event) => setCapture(event.target.value)}
+                />
+                <button className="skw-capture-go" type="submit" disabled={busy || capture.trim() === ''} aria-label={t('captureGo')}>
+                  ↵
+                </button>
+              </form>
             </div>
           </div>
         )}
       </div>
 
-      {view === 'canvas' && (
-        <div className="skw-cameras" role="group" aria-label={t('zoomLabel')}>
-          <button className="skw-camera-btn" type="button" aria-label={t('zoomOut')} onClick={() => zoomTo(zoom - 0.15)}>−</button>
-          <span className="skw-camera-value">{Math.round(zoom * 100)}%</span>
-          <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} onClick={() => zoomTo(zoom + 0.15)}>+</button>
-          <button className="skw-camera-btn" type="button" aria-label={t('zoomReset')} onClick={resetView}>⌖</button>
+      {/*
+        The floating dock.
+
+        Everything that used to be a toolbar row across the top now lives at the
+        bottom, over the canvas: the wall gets the whole window, and the controls
+        sit where the pointer already is after a drag. It is one row of quiet
+        pills, with the capture action on the right.
+      */}
+      <div className="skw-dock" role="toolbar" aria-label={t('title')}>
+        <div className="skw-dock-group">
+          <div className="skw-search-wrap">
+            <span className="skw-search-icon" aria-hidden="true">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <circle cx="10.5" cy="10.5" r="6.2" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M15.4 15.4L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <input className="skw-search" type="search" value={query} placeholder={t('search')} aria-label={t('search')}
+              onChange={(event) => setQuery(event.target.value)} />
+          </div>
         </div>
-      )}
+
+        <div className="skw-dock-group">
+          <div className="skw-seg" role="group" aria-label={t('filters')}>
+            {(['all', 'pinned', 'archived'] as const).map((key) => (
+              <button key={key} type="button" data-on={filter === key} onClick={() => setFilter(key)}>
+                {key === 'all' ? t('all') : key === 'pinned' ? t('pin') : t('archive')}
+              </button>
+            ))}
+          </div>
+          <button className="skw-toggle" type="button" data-on={showArchived} aria-pressed={showArchived}
+            onClick={() => setShowArchived((value) => !value)}>
+            {showArchived ? t('hideArchived') : t('showArchived')}
+          </button>
+        </div>
+
+        <div className="skw-dock-group">
+          <div className="skw-seg" role="group" aria-label={t('viewLabel')}>
+            {(['canvas', 'grid', 'list'] as const).map((mode) => (
+              <button key={mode} type="button" data-on={view === mode} onClick={() => setView(mode)} aria-label={t(`view_${mode}`)}>
+                {t(`view_${mode}`)}
+              </button>
+            ))}
+          </div>
+          <div className="skw-seg" role="group" aria-label={t('sortPinned')}>
+            {(['pinned', 'created', 'updated'] as const).map((key) => (
+              <button key={key} type="button" data-on={sort === key} onClick={() => setSort(key)}>
+                {key === 'pinned' ? t('sortPinned') : key === 'created' ? t('sortCreated') : t('sortUpdated')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {view === 'canvas' && (
+          <div className="skw-dock-group skw-dock-zoom" role="group" aria-label={t('zoomLabel')}>
+            <button className="skw-camera-btn" type="button" aria-label={t('zoomOut')} onClick={() => zoomTo(zoom - 0.15)}>−</button>
+            <span className="skw-camera-value">{Math.round(zoom * 100)}%</span>
+            <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} onClick={() => zoomTo(zoom + 0.15)}>+</button>
+            <button className="skw-camera-btn" type="button" aria-label={t('zoomReset')} onClick={resetView}>⌖</button>
+            <button className="skw-camera-btn" type="button" aria-label={t('arrange')} title={t('arrange')}
+              disabled={busy || visible.length === 0}
+              onClick={() => void tidyWall()}>✧</button>
+          </div>
+        )}
+
+        {archivedCount > 0 && (
+          <button className="skw-dock-quiet" type="button" onClick={() => setConfirming('clear')} disabled={busy}>
+            {t('clearArchived')}
+          </button>
+        )}
+        <span className="skw-count">{t('count', { count: visible.length })}</span>
+        <button className="skw-dock-new" type="button" onClick={() => openComposer()} disabled={busy} aria-label={t('new')}>
+          +
+        </button>
+      </div>
 
       {draft && (
         <Composer draft={draft} t={t} busy={busy} error={draftError}

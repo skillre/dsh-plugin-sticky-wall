@@ -13,22 +13,11 @@ export const WALL_CSS = `
 .skw-page {
   position: relative; height: 100%; display: flex; flex-direction: column;
   background-color: var(--dsw-alias-bg-base);
-  /* A barely-there dot grid reads as paper without competing with the notes. */
-  background-image: radial-gradient(circle at 1px 1px, var(--dsw-alias-border-l1) 1px, transparent 0);
-  background-size: 18px 18px;
   color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 20px;
   overflow: hidden; -webkit-font-smoothing: antialiased;
 }
 .skw-page *, .skw-page *::before, .skw-page *::after { box-sizing: border-box; }
 .skw-page button { font: inherit; }
-.skw-head { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 12px; padding: 18px 22px 14px; }
-.skw-head-text { min-width: 0; flex: 1; }
-.skw-title { margin: 0; font-size: 19px; line-height: 27px; font-weight: 650; letter-spacing: -.2px; display: flex; align-items: center; gap: 9px; }
-/* The title mark echoes the sidebar glyph in the brand color, so the page and
-   the sidebar entry read as the same object. */
-.skw-title-mark { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border-radius: 8px; background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary-foreground); }
-.skw-subtitle { margin: 3px 0 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
-.skw-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .skw-btn { height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); cursor: pointer; white-space: nowrap; }
 .skw-btn:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
 .skw-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
@@ -39,28 +28,34 @@ export const WALL_CSS = `
 .skw-btn-danger { color: var(--dsw-alias-state-error-primary); border-color: transparent; background: transparent; }
 .skw-btn-danger:hover { background: var(--dsw-alias-state-error-secondary); color: var(--dsw-alias-label-primary-foreground); }
 
-.skw-toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 0 22px 14px; flex-wrap: wrap; }
-.skw-search-wrap { position: relative; flex: 1 1 240px; min-width: 160px; display: flex; align-items: center; }
-.skw-search-icon { position: absolute; left: 10px; display: flex; color: var(--dsw-alias-label-tertiary); pointer-events: none; }
-.skw-search { width: 100%; height: 32px; padding: 0 11px 0 31px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); transition: border-color .12s ease, box-shadow .12s ease; }
+.skw-dock .skw-search-wrap { position: relative; flex: 0 1 190px; min-width: 96px; display: flex; align-items: center; }
+.skw-search-icon { position: absolute; left: 9px; display: flex; color: var(--dsw-alias-label-tertiary); pointer-events: none; }
+.skw-search { width: 100%; height: 30px; padding: 0 10px 0 29px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); transition: border-color .12s ease, box-shadow .12s ease; }
 .skw-search::placeholder { color: var(--dsw-alias-label-tertiary); }
 .skw-search:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent); }
 /* Chips: one row of quiet pills, the active one filled. No boxed segments, so
    filters, sorting and the archive toggle stop reading as three boxes. */
 .skw-seg { display: inline-flex; gap: 4px; }
-.skw-seg button { height: 30px; padding: 0 12px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12.5px; transition: background .12s ease, color .12s ease; }
+.skw-seg button { height: 28px; padding: 0 9px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12.5px; transition: background .12s ease, color .12s ease; }
 .skw-seg button:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
 .skw-seg button[data-on="true"] { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font-weight: 550; }
+@media (max-width: 1180px) {
+  /* Narrow window: keep the row, drop the least-used groups' labels down a step. */
+  .skw-dock { gap: 6px; padding: 5px 6px; }
+  .skw-seg button { padding: 0 7px; font-size: 11.5px; }
+}
 .skw-seg button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
-.skw-toolbar-sep { width: 1px; height: 18px; background: var(--dsw-alias-border-l2); flex: none; }
-.skw-toggle { height: 30px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12.5px; transition: background .12s ease, color .12s ease, border-color .12s ease; }
+.skw-toggle { height: 28px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12.5px; transition: background .12s ease, color .12s ease, border-color .12s ease; }
 .skw-toggle:hover { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l4); }
 .skw-toggle[data-on="true"] { border-style: solid; border-color: var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
 .skw-toggle:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
-.skw-count { margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.skw-count { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; padding: 0 4px; }
 
-.skw-body { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; padding: 4px 22px 40px; }
+.skw-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px 22px 118px; }
 .skw-body[data-view="canvas"] { padding: 0; overflow: hidden; position: relative; }
+/* The grid and the list are scrolled under the floating dock, so their bottom
+   padding clears it instead of hiding the last row behind it. */
+.skw-list-empty { margin: 40px auto; text-align: center; color: var(--dsw-alias-label-secondary); font-size: 13px; }
 /* Masonry-style columns, not a row grid: cards keep their natural height and
    short notes no longer sit in a tall row with dead space underneath. */
 .skw-grid { column-count: 5; column-gap: 14px; }
@@ -119,9 +114,15 @@ export const WALL_CSS = `
      MAX_CARD_HEIGHT in src/layout.ts. */
   overflow: hidden;
 }
+/* The card's height is written inline from the Host's own estimate, so the
+   rendered box IS the box the packer collision-checked. These are only the
+   fallback for a card rendered without that inline height. */
 .skw-canvas .skw-note[data-width="sm"] { max-height: 236px; }
 .skw-canvas .skw-note[data-width="md"] { max-height: 288px; }
 .skw-canvas .skw-note[data-width="lg"] { max-height: 336px; }
+/* With a fixed height the body must absorb the remainder and clip, rather than
+   pushing the footer out of the card. */
+.skw-canvas .skw-note .skw-note-body { min-height: 0; overflow: hidden; }
 /* While dragging: no hover lift, no text selection, a lifted shadow, and no
    pointer events on the card's own children so the drag cannot be interrupted
    by a child capturing the pointer. Containment keeps the lifted card's paint
@@ -161,22 +162,98 @@ export const WALL_CSS = `
 .skw-row[data-color="purple"]  { --skw-note-accent: #9b81e0; }
 .skw-row[data-color="orange"]  { --skw-note-accent: #e79a4e; }
 
-/* Floating camera control, bottom-left: it belongs to the canvas, not to the
-   toolbar, so the toolbar stays about filtering and the view switch. */
-.skw-cameras {
-  position: absolute; left: 22px; bottom: 18px; z-index: 12;
-  display: inline-flex; align-items: center; gap: 2px;
-  padding: 3px; border-radius: 999px; border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-1); box-shadow: 0 4px 14px var(--dsw-alias-bg-mask-2);
+/* The floating dock.
+   One row of quiet pills across the bottom of the canvas. The wall gets the whole
+   window, and the controls sit where the pointer already is after a drag. */
+.skw-dock {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 14;
+  max-width: calc(100% - 32px); white-space: nowrap;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 10px; border-radius: 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 88%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 28px var(--dsw-alias-bg-mask-2), 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent) inset;
+  /* One row, never a wrapped stack: the dock is a floating control strip, and a
+     two-line block over the canvas eats the wall it is floating above. */
+  flex-wrap: nowrap; justify-content: center;
 }
+.skw-dock-group { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.skw-dock-group + .skw-dock-group { padding-left: 8px; border-left: 1px solid var(--dsw-alias-border-l1); }
+.skw-dock-zoom { gap: 1px; }
+.skw-dock-quiet {
+  height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--dsw-alias-label-tertiary); cursor: pointer; font-size: 11.5px; white-space: nowrap;
+}
+.skw-dock-quiet:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-dock-quiet[disabled] { opacity: .45; cursor: default; }
+/* The one filled control: creating a note is the primary action. */
+.skw-dock-new {
+  width: 32px; height: 32px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%; background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground); cursor: pointer;
+  font-size: 19px; line-height: 1; font-weight: 400; padding: 0 0 2px;
+  transition: transform .12s ease, filter .12s ease;
+}
+.skw-dock-new:hover { filter: brightness(1.08); transform: scale(1.06); }
+.skw-dock-new:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+.skw-dock-new[disabled] { opacity: .5; cursor: default; transform: none; }
 .skw-camera-btn {
   width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary);
   cursor: pointer; font-size: 13px; line-height: 1;
 }
 .skw-camera-btn:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-camera-btn[disabled] { opacity: .4; cursor: default; background: transparent; }
 .skw-camera-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
-.skw-camera-value { min-width: 38px; text-align: center; font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.skw-camera-value { min-width: 36px; text-align: center; font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+
+/* The wall's centrepiece: greeting, tally and quick capture.
+   Screen space, not world space, so it stays put when the wall pans or zooms.
+   The wrapper ignores the pointer (the paper behind it stays draggable) and only
+   the field itself takes input. */
+.skw-centre {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(560px, calc(100% - 48px)); z-index: 10;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  pointer-events: none; text-align: center;
+}
+.skw-centre-hello {
+  margin: 0; font-size: 21px; line-height: 30px; font-weight: 650; letter-spacing: -.3px;
+  color: var(--dsw-alias-label-primary);
+}
+.skw-centre-tally {
+  margin: 0 0 6px; font-size: 12.5px; line-height: 19px; color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.skw-capture {
+  pointer-events: auto; width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 8px 8px 8px 14px; border-radius: 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px var(--dsw-alias-bg-mask-2);
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+.skw-capture:focus-within {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-border-l2));
+  box-shadow: 0 8px 24px var(--dsw-alias-bg-mask-2), 0 0 0 3px color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent);
+}
+.skw-capture-icon { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 1; }
+.skw-capture-input {
+  flex: 1; min-width: 0; height: 26px; border: 0; background: transparent;
+  color: var(--dsw-alias-label-primary); font-size: 13px; line-height: 26px;
+}
+.skw-capture-input:focus-visible { outline: none; }
+.skw-capture-input::placeholder { color: var(--dsw-alias-label-tertiary); }
+.skw-capture-go {
+  width: 30px; height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 9px; background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-foreground); cursor: pointer; font-size: 13px; line-height: 1;
+}
+.skw-capture-go[disabled] { opacity: .35; cursor: default; }
+.skw-capture-go:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+
 .skw-empty { margin: 64px auto 0; max-width: 380px; text-align: center; color: var(--dsw-alias-label-secondary); }
 .skw-empty p { margin: 0 0 14px; font-size: 13px; }
 .skw-empty-icon { font-size: 30px; line-height: 1; display: block; margin-bottom: 12px; opacity: .65; }
