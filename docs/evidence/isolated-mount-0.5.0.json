@@ -3,19 +3,19 @@
   "version": "0.5.0",
   "dsh": "0.2.2-rc.1",
   "tarball": {
-    "path": "/Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.5.0.tgz",
-    "sha256": "0eb2755f30bf234b937b50c892c66a65f1009e5c3a6928d1f2a9c9675f8d4f4b"
+    "path": "/tmp/skw-art/npm-publication/skillre-dsh-plugin-sticky-wall-0.5.0.tgz",
+    "sha256": "0048bef5e29fe07998548d17abc567069776e38930c0ba1da49c27bfc24d5e05"
   },
-  "profile": "sticky-wall-test-cbb1fab3",
+  "profile": "sticky-wall-test-ced6a7d2",
   "checks": [
     "command: dsh --version -> exit 0",
     "dsh-version",
-    "command: dsh --profile sticky-wall-test-cbb1fab3 --from-default-profile web --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-ced6a7d2 --from-default-profile web --dump-config -> exit 0",
     "profile-template-created",
-    "command: dsh plugin --profile sticky-wall-test-cbb1fab3 add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.5.0.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-k7GcgH/pnpm-store -> exit 0",
+    "command: dsh plugin --profile sticky-wall-test-ced6a7d2 add /tmp/skw-art/npm-publication/skillre-dsh-plugin-sticky-wall-0.5.0.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-Z8SbAZ/pnpm-store -> exit 0",
     "profile-tarball-install",
     "packed-dependency-and-selection",
-    "command: dsh --profile sticky-wall-test-cbb1fab3 --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-ced6a7d2 --dump-config -> exit 0",
     "dump-config",
     "packed-payload-present",
     "bounded-startup",
@@ -39,7 +39,7 @@
       "notes": 1
     },
     "create": {
-      "id": "272bf6e9-aa3d-44e9-aaa6-729a1947f3f4"
+      "id": "30d5284d-a583-4a80-acaa-ac08a136bcf4"
     },
     "move": {
       "x": 168,
@@ -49,10 +49,15 @@
     }
   },
   "cleanup": {
-    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-k7GcgH",
-    "profile": "sticky-wall-test-cbb1fab3",
+    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-Z8SbAZ",
+    "profile": "sticky-wall-test-ced6a7d2",
     "processesStopped": true,
     "rootRemoved": true,
     "verified": true
+  },
+  "artifact": {
+    "source": "CI run 42509638255 npm-publication artifact",
+    "shasum": "9459f263ce3db90956a2140684eb39465102818b",
+    "sha256": "0048bef5e29fe07998548d17abc567069776e38930c0ba1da49c27bfc24d5e05"
   }
 }
