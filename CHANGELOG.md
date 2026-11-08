@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- Ring-packed wall, a visible capture landing, and a compact dock.
+
+  - The clear area around the centrepiece is now a **rectangle** measured against each card's edge, and it stays constant in world space at every zoom (the centrepiece counter-scales below 100%). A card can no longer sit behind the capture field, and dropping one there pushes it clear.
+  - The dock keeps only the frequent actions — search, filters, three icon view buttons, zoom, tidy, new — with sort, show-archived and clear-archive in an overflow menu. One centred row that cannot overflow the page; the zoom readout is itself the reset button.
+  - Creating a note places it in the **nearest free gap** instead of leaving its placement to an index-derived spiral that grew outward. The card pops in, holds a ring for 0.9s, and the camera glides to it (zooming out only as far as it takes) when the gap is outside the viewport.
+  - Tidy packs the wall into **concentric rings** rather than a phyllotaxis first-fit spiral, which saturated at ~25% of the available area and spread fourteen cards over ~2700px. The same wall now fits in ~2300px and reads as a ring around its middle.
+  - The welcome note no longer sits inside the reserved middle, so a brand-new wall opens with the capture field clear.
+
 ## 0.4.0
 
 ### Minor Changes
