@@ -68,14 +68,29 @@ export const WIDTH_PX: Readonly<Record<NoteWidth, number>> = Object.freeze({
 })
 
 /**
- * Radius of the clear disc the tidy pass leaves at the wall's centre, in world
- * pixels at zoom 1.
+ * The clear RECTANGLE the wall leaves around its centrepiece.
  *
- * The centre of the wall is its centrepiece: the greeting, the running tally and
- * the quick-capture field live there. Packing a card on top of them would make
- * the wall fight its own middle, so tidy starts every card outside this radius.
+ * The middle of the wall is not empty space — it holds the greeting, the running
+ * tally and the quick-capture field. Those three are one stacked block, roughly
+ * twice as wide as it is tall, so a circular reserve was the wrong shape: it
+ * wasted a tall column of paper above and below the field while still letting a
+ * wide card reach in from the side.
+ *
+ * The numbers are the shipped centrepiece at zoom 1 (560px wide, ~140px tall)
+ * plus a margin, in world pixels. The Client re-derives a zoom-corrected version
+ * of this rectangle from the rendered DOM before it asks the Host to tidy, so a
+ * zoomed-out wall reserves proportionally more world space — see
+ * `WallPage.centreReserve`.
  */
-export const CENTRE_RADIUS = 300
+export const CENTRE_RESERVE = Object.freeze({ halfWidth: 330, halfHeight: 136 })
+
+/** Half-extents of a clear rectangle around the wall's centrepiece. */
+export interface CentreReserve {
+  /** Half-width in world pixels. */
+  halfWidth: number
+  /** Half-height in world pixels. */
+  halfHeight: number
+}
 
 /** Bounds of the free canvas: a note may sit anywhere inside this square. */
 export const LAYOUT_LIMITS = Object.freeze({
@@ -138,13 +153,13 @@ export interface WallSnapshot {
 /** Request kinds accepted by the Host endpoint. */
 export type WallRequest =
   | { action: 'list'; includeArchived?: boolean; sort?: NoteSort }
-  | { action: 'create'; note: NoteInput }
+  | { action: 'create'; note: NoteInput; centreReserve?: CentreReserve }
   | { action: 'update'; id: string; patch: NotePatch }
   | { action: 'archive'; ids: string[]; archived: boolean }
   | { action: 'delete'; ids: string[] }
   | { action: 'clear-archived' }
   | { action: 'move'; id: string; layout: NoteLayout }
-  | { action: 'arrange' }
+  | { action: 'arrange'; centreReserve?: CentreReserve }
 
 /** The fields a Client may submit when creating a note. */
 export interface NoteInput {

@@ -17,13 +17,15 @@
  */
 
 import { z } from 'zod'
-import { arrangeLayouts, clampLayout, normalizeWidth, sameLayout } from './layout.js'
+import { arrangeLayouts, clampLayout, findFreeLayout, normalizeReserve, normalizeWidth, sameLayout } from './layout.js'
 import {
+  CENTRE_RESERVE,
   COLORS,
   WIDTHS,
   DOMAIN_NAME,
   DOMAIN_VERSION,
   LIMITS,
+  type CentreReserve,
   type Note,
   type NoteColor,
   type NoteInput,
@@ -272,7 +274,13 @@ export class StickyWallStore {
       updatedAt: stamp,
       // The one note the plugin places itself, so a brand-new wall opens with a
       // card that is obviously meant to be dragged.
-      layout: { x: 120, y: 96, rotate: -1.6, width: 'md' },
+      //
+      // The position is chosen to be OUTSIDE the centrepiece reserve. It used to
+      // be {120, 96}, which is squarely inside the reserved rectangle: a brand-new
+      // wall therefore opened with the welcome note sitting on top of the capture
+      // field, and every overlap assertion had to special-case it. Placing it in
+      // the first ring keeps the invariant true from the very first note.
+      layout: { x: 300, y: -420, rotate: -1.6, width: 'md' },
     }
     await this.notes.put(note.id, note)
   }
@@ -289,13 +297,21 @@ export class StickyWallStore {
     return notes.sort(compareNotes(sort))
   }
 
-  /** Create one note from a Client or agent submission. */
-  async create(input: NoteInput, id?: string): Promise<Note> {
+  /**
+   * Create one note from a Client or agent submission.
+   *
+   * `options.centreReserve` is the Client's zoom-corrected version of the clear
+   * rectangle around the wall's centrepiece. It only affects a note created
+   * WITHOUT a layout: the Host places that note in the nearest free gap, which
+   * is what makes a capture from the centre field appear right next to the field
+   * instead of wherever an index-derived spiral happened to reach.
+   */
+  async create(input: NoteInput, id?: string, options: { centreReserve?: CentreReserve | undefined } = {}): Promise<Note> {
     this.assertOpen()
-    return this.mutate(() => this.createNow(input, id))
+    return this.mutate(() => this.createNow(input, id, options))
   }
 
-  private async createNow(input: NoteInput, id?: string): Promise<Note> {
+  private async createNow(input: NoteInput, id?: string, options: { centreReserve?: CentreReserve | undefined } = {}): Promise<Note> {
     const body = normalizeBody(input?.body)
     const title = normalizeTitle(input?.title)
     this.assertRoom(1)
@@ -313,6 +329,13 @@ export class StickyWallStore {
       layout: input?.layout === undefined ? null : normalizeLayout(input.layout),
     }
     if (this.notes.get(note.id) !== undefined) throw new WallError('duplicate-id', `A note with id ${JSON.stringify(note.id)} already exists.`)
+    // A note with no explicit placement gets the nearest free spot on the wall,
+    // not `null`. `null` means "derive a position from my index", and that spiral
+    // grows outward — so the user's tenth capture could land a screen away from
+    // where they were looking, which reads as the capture having failed.
+    if (note.layout === null) {
+      note.layout = findFreeLayout(note, this.list(true, 'pinned'), { centreReserve: normalizeReserve(options.centreReserve ?? CENTRE_RESERVE) })
+    }
     await this.notes.put(note.id, note)
     return note
   }
@@ -427,18 +450,18 @@ export class StickyWallStore {
    * without refetching the whole wall, and pressing tidy on an already-tidy
    * wall is a no-op instead of a write storm.
    */
-  async arrange(): Promise<Note[]> {
+  async arrange(options: { centreReserve?: CentreReserve | undefined } = {}): Promise<Note[]> {
     this.assertOpen()
-    return this.mutate(() => this.arrangeNow())
+    return this.mutate(() => this.arrangeNow(options))
   }
 
-  private async arrangeNow(): Promise<Note[]> {
+  private async arrangeNow(options: { centreReserve?: CentreReserve | undefined } = {}): Promise<Note[]> {
     // Every note, archived ones included. Packing only the live set left an
     // archived-but-visible card at its dragged position, on top of the freshly
     // tidied ones — the wall has to be tidy in every filter, not just the
     // default one.
     const current = this.list(true, 'pinned')
-    const planned = arrangeLayouts(current)
+    const planned = arrangeLayouts(current, { centreReserve: normalizeReserve(options.centreReserve ?? CENTRE_RESERVE) })
     const changed: Note[] = []
     for (const note of current) {
       const target = planned.get(note.id)

@@ -36,11 +36,11 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { LIMITS, WIDTH_PX, type Note, type NoteColor, type NoteLayout, type NotePatch, type NoteWidth } from '../types.js'
+import { CENTRE_RESERVE, LIMITS, WIDTH_PX, type CentreReserve, type Note, type NoteColor, type NoteLayout, type NotePatch, type NoteWidth } from '../types.js'
 import type { ClientApi } from './api.js'
 import { ActionError } from './api.js'
 import type { ClientLocaleLike } from './contracts.js'
-import { clampLayout, estimateHeight, layoutOf, rotatedExtent } from '../layout.js'
+import { clampLayout, estimateHeight, footprintOf, layoutOf, pushOutOfReserve, rotatedExtent } from '../layout.js'
 import { Markdown } from './markdown.jsx'
 import { SWATCHES, WALL_CSS } from './styles.js'
 import type { Translate } from './text.js'
@@ -82,6 +82,10 @@ const WIDTH_CYCLE: NoteWidth[] = ['sm', 'md', 'lg']
 const DOT_PITCH = 22
 /** Wheel pan speed for a non-zooming wheel event. */
 const WHEEL_PAN = 1
+/** How long the "bring the new card into view" camera move takes, in ms. */
+const REVEAL_MS = 340
+/** How long the arrival highlight stays on a freshly created card, in ms. */
+const ARRIVAL_MS = 900
 
 /** The sidebar glyph: a small stack of notes, sized by the sidebar slot. */
 export function SidebarGlyph({ size = 18 }: { size?: number }): JSX.Element {
@@ -342,6 +346,7 @@ const NoteCard = memo(function NoteCard({
   t,
   locale,
   actions,
+  arrived = false,
 }: {
   note: Note
   index: number
@@ -349,6 +354,8 @@ const NoteCard = memo(function NoteCard({
   t: Translate
   locale: string
   actions: CardActions
+  /** True for one beat after the note was created, to play the arrival pop. */
+  arrived?: boolean
 }): JSX.Element {
   const layout = layoutOf(note, index)
   const style: React.CSSProperties = surface === 'canvas'
@@ -375,6 +382,7 @@ const NoteCard = memo(function NoteCard({
       data-pinned={note.pinned}
       data-archived={note.archived}
       data-width={layout.width}
+      data-arrived={arrived}
       style={style}
       aria-label={note.title || note.body.slice(0, 40)}
       tabIndex={0}
@@ -468,6 +476,10 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [viewportTick, setViewportTick] = useState(0)
   /** The quick-capture field at the wall's centre. */
   const [capture, setCapture] = useState('')
+  /** The note that just arrived, so it can play its arrival animation once. */
+  const [arrivedId, setArrivedId] = useState<string | null>(null)
+  /** Whether the dock's overflow menu is open (sort, archive options). */
+  const [menuOpen, setMenuOpen] = useState(false)
   // Re-render on locale switch: relative times and copy are read from the
   // active locale, so the page must observe the locale revision.
   const [, setLocaleRevision] = useState(0)
@@ -486,6 +498,12 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
    */
   const viewportRefCurrent = useRef<HTMLDivElement | null>(null)
   const worldRef = useRef<HTMLDivElement | null>(null)
+  /** The centrepiece overlay, measured to derive the world-space reserve. */
+  const centreRef = useRef<HTMLDivElement | null>(null)
+  /** The dock's overflow menu, so a click outside it can close it. */
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  /** The dock itself, measured so the camera frames the wall above it. */
+  const dockRef = useRef<HTMLDivElement | null>(null)
   /** Detaches the wheel listener bound to the current canvas node. */
   const detachWheel = useRef<(() => void) | null>(null)
 
@@ -524,6 +542,8 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
    */
   const drag = useRef<{
     id: string
+    /** The note itself, so the drop can test its footprint against the reserve. */
+    note: Note
     pointerId: number
     /** The card element being dragged, captured once at pointerdown. */
     node: HTMLElement | null
@@ -593,6 +613,27 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     })
     return unsubscribe
   }, [locale])
+
+  // An open dock menu closes on Escape or on a press anywhere else. A menu that
+  // only closes by pressing its own trigger is a trap on a canvas: the user's
+  // next click is usually "get me back to the wall".
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const node = menuRef.current
+      if (node !== null && event.target instanceof Node && node.contains(event.target)) return
+      setMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
 
   /**
    * Refetch the wall.
@@ -672,7 +713,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
    * which is why the tidied wall kept opening overflowing at 100%.
    */
   async function tidyWall(): Promise<void> {
-    const ran = await mutate(async () => { await api.arrange(life.current.signal) })
+    const ran = await mutate(async () => { await api.arrange(life.current.signal, { centreReserve: centreReserve() }) })
     if (!ran) return
     await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()) })
     if (!alive.current) return
@@ -698,7 +739,13 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     await mutate(async () => {
       const tags = parseTags(draft.tags)
       if (draft.id === null) {
-        await api.create({ body, title: draft.title.trim(), tags, color: draft.color }, life.current.signal)
+        const note = await api.create(
+          { body, title: draft.title.trim(), tags, color: draft.color },
+          life.current.signal,
+          { centreReserve: centreReserve() },
+        )
+        arrival.current = { id: note.id, token: Date.now() }
+        setArrivedId(note.id)
       } else {
         await api.update(draft.id, { body, title: draft.title.trim(), tags, color: draft.color }, life.current.signal)
         // A width change is a placement change, so it goes through `move`
@@ -815,6 +862,16 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     const world = worldRef.current
     const viewport = viewportRefCurrent.current
     if (world !== null) world.style.transform = `translate3d(${current.panX}px, ${current.panY}px, 0) scale(${current.zoom})`
+    // The centrepiece is screen-space (it must stay at the viewport's middle), but
+    // its WORLD footprint has to stay constant or the reserve cannot be an
+    // invariant. Counter-scaling below 1 does exactly that: zoomed out, the block
+    // shrinks on screen while covering the same world rectangle. Above 1 it is
+    // capped, so a magnified wall simply gets extra margin around the field.
+    const centre = centreRef.current
+    if (centre !== null) {
+      const scale = Math.min(1, current.zoom)
+      centre.style.transform = `translate(-50%, -50%) scale(${scale})`
+    }
     if (viewport !== null) {
       // The paper's dots belong to the world, so their pitch and offset follow
       // the camera instead of staying a fixed screen texture under the cards.
@@ -823,16 +880,82 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     }
   }, [])
 
-  /** Put one world point in the middle of the viewport, at the current zoom. */
+  /** A pending animated camera move, cancelled by any direct camera write. */
+  const tween = useRef<number>(0)
+  const stopTween = useCallback((): void => {
+    if (tween.current !== 0) {
+      cancelAnimationFrame(tween.current)
+      tween.current = 0
+    }
+  }, [])
+
+  /**
+   * Animate the camera to a target, so the wall glides instead of jumping.
+   *
+   * A hard cut when a new card arrives outside the viewport is disorienting: the
+   * user cannot tell whether the wall moved or a different wall appeared. A short
+   * ease makes the relationship between "where I was" and "where the card is"
+   * legible, which is the whole point of revealing it.
+   */
+  const glideTo = useCallback((zoomTarget: number, worldX: number, worldY: number): void => {
+    const viewport = viewportRefCurrent.current
+    if (viewport === null) return
+    stopTween()
+    const from = { ...camera.current }
+    const to = {
+      zoom: clampZoom(zoomTarget),
+      panX: viewport.clientWidth / 2 - worldX * clampZoom(zoomTarget),
+      panY: viewport.clientHeight / 2 - worldY * clampZoom(zoomTarget),
+    }
+    if (typeof requestAnimationFrame !== 'function') {
+      camera.current = { ...to }
+      setZoom(to.zoom)
+      applyCamera()
+      return
+    }
+    const started = performance.now()
+    const frame = (now: number): void => {
+      const progress = Math.min(1, (now - started) / REVEAL_MS)
+      // Ease-out cubic: fast at first so the move feels responsive, settled at
+      // the end so the card does not arrive still sliding.
+      const eased = 1 - (1 - progress) ** 3
+      camera.current = {
+        zoom: from.zoom + (to.zoom - from.zoom) * eased,
+        panX: from.panX + (to.panX - from.panX) * eased,
+        panY: from.panY + (to.panY - from.panY) * eased,
+      }
+      applyCamera()
+      if (progress < 1) {
+        tween.current = requestAnimationFrame(frame)
+        return
+      }
+      tween.current = 0
+      camera.current = { ...to }
+      setZoom(to.zoom)
+      applyCamera()
+    }
+    tween.current = requestAnimationFrame(frame)
+    // The zoom readout updates once at the end: per-frame setState would re-render
+    // the whole wall during the animation.
+    setZoom(to.zoom)
+  }, [applyCamera, stopTween])
+
+  /** Put one world point in the middle of the visible area, at the current zoom. */
   const centreOn = useCallback((worldX: number, worldY: number): void => {
+    stopTween()
     const viewport = viewportRefCurrent.current
     const current = camera.current
     if (viewport !== null) {
+      // "Middle" is the middle of the VISIBLE area, not of the viewport: the dock
+      // floats over the bottom of the canvas, so centring on the raw viewport
+      // pushes the wall's bottom row under it.
+      const dock = dockRef.current
+      const bottomInset = dock === null ? 0 : dock.offsetHeight + 24
       current.panX = viewport.clientWidth / 2 - worldX * current.zoom
-      current.panY = viewport.clientHeight / 2 - worldY * current.zoom
+      current.panY = (viewport.clientHeight - bottomInset) / 2 - worldY * current.zoom
     }
     applyCamera()
-  }, [applyCamera])
+  }, [applyCamera, stopTween])
 
   /**
    * A wall that just went from empty to populated must open on its middle.
@@ -920,12 +1043,27 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     // floor so framing never shrinks the wall into unreadable confetti: below
     // this the user is better off seeing part of the wall at a legible size and
     // panning for the rest.
+    //
+    // The floor is 42%, not 50%. A 14-card wall needs roughly 2300x2000 of world
+    // and a 1160x900 canvas has ~2100x1570 usable at 50%, so a 50% floor left the
+    // wall's outer cards permanently outside the viewport — which the framing
+    // assertion caught as `fits=false`. 42% still renders 13px note text at ~11px,
+    // which is legible; the previous value was chosen before the wall was a ring
+    // and the ring is denser in one dimension than a spiral.
+    //
+    // The bottom inset is the dock's own height: it floats OVER the canvas, so
+    // framing against the raw viewport put the wall's bottom row behind it. The
+    // number is measured rather than assumed, because the dock's height changes
+    // with the locale's label lengths.
     const margin = 48
+    const dock = dockRef.current
+    const bottomInset = dock === null ? 0 : dock.offsetHeight + 24
+    const usableHeight = Math.max(120, availableHeight - margin - bottomInset)
     const fit = Math.min(
       (availableWidth - margin * 2) / Math.max(1, boxWidth),
-      (availableHeight - margin * 2) / Math.max(1, boxHeight),
+      usableHeight / Math.max(1, boxHeight),
     )
-    const FIT_FLOOR = 0.5
+    const FIT_FLOOR = 0.42
     const target = clampZoom(Math.min(1, Math.max(FIT_FLOOR, fit)))
     camera.current.zoom = target
     setZoom(target)
@@ -938,6 +1076,96 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     // the readout and the transform disagreeing whenever the wall needs <100%.
     fitWall()
   }, [fitWall])
+
+  /**
+   * The clear rectangle the wall must leave for its centrepiece, in WORLD pixels.
+   *
+   * This is deliberately ZOOM-INDEPENDENT, and that is the whole point. The first
+   * version derived it from the rendered overlay divided by the zoom, which made
+   * the reserve grow as the camera zoomed out — but placements are PERSISTED, so
+   * a card packed clear at 100% became an offender at 50%, and a single zoom-out
+   * put a card behind the capture field. A reserve that moves when the camera
+   * moves cannot be an invariant.
+   *
+   * The fixed rectangle works because the overlay is counter-scaled to match it
+   * (see `applyCamera`): at zoom 1 the centrepiece exactly fills the reserve, and
+   * zoomed out it shrinks on screen to cover the same world rectangle. So "no card
+   * in the reserve" and "no card behind the field" are the same statement at every
+   * zoom level.
+   */
+  const centreReserve = useCallback((): CentreReserve => CENTRE_RESERVE, [])
+
+  /**
+   * Bring one world box into view, zooming out only as far as it takes.
+   *
+   * Creating a card must never be a guess: if the nearest free gap is off screen,
+   * the wall glides so the card is visible, and it zooms out only when the card
+   * genuinely does not fit. A card that is already visible moves nothing, because
+   * stealing the view from someone who is reading is worse than the card being
+   * slightly off-centre.
+   */
+  const revealBox = useCallback((box: { x: number; y: number; width: number; height: number }): void => {
+    const viewport = viewportRefCurrent.current
+    if (viewport === null) return
+    const zoomNow = camera.current.zoom
+    const centreX = box.x + box.width / 2
+    const centreY = box.y + box.height / 2
+    // Where the box centre currently sits in viewport space.
+    const screenX = centreX * zoomNow + camera.current.panX
+    const screenY = centreY * zoomNow + camera.current.panY
+    const margin = 72
+    const visible =
+      screenX > margin &&
+      screenX < viewport.clientWidth - margin &&
+      screenY > margin &&
+      screenY < viewport.clientHeight - margin
+    if (visible) return
+    // Fit the card with room for its neighbours, but never magnify: a card that
+    // already fits at the current zoom just needs the camera to move.
+    const targetZoom = Math.min(
+      zoomNow,
+      Math.max(ZOOM_MIN, Math.min(
+        (viewport.clientWidth - margin * 2) / Math.max(1, box.width),
+        (viewport.clientHeight - margin * 2) / Math.max(1, box.height),
+      )),
+    )
+    glideTo(targetZoom, centreX, centreY)
+  }, [glideTo])
+
+  /** The card that just arrived, so it can be highlighted and revealed once. */
+  const arrival = useRef<{ id: string; token: number } | null>(null)
+
+  /**
+   * React to a freshly created note: highlight it, then make sure it is visible.
+   *
+   * This is the second half of "creating a note must not be a leap of faith". The
+   * Host places the card in the nearest free gap; this effect then finds the card
+   * in the committed list, marks it for the arrival animation and, if the gap is
+   * outside the current viewport, moves the camera to it.
+   */
+  useEffect(() => {
+    const pending = arrival.current
+    if (pending === null) return
+    const note = notes.find((candidate) => candidate.id === pending.id)
+    if (note === undefined) return
+    arrival.current = null
+    const layout = layoutOf(note, stableIndex.get(note.id) ?? 0)
+    // One frame so the card's DOM box exists at its final placement; measuring it
+    // synchronously here would read the pre-placement geometry.
+    const frame = requestAnimationFrame(() => {
+      if (!alive.current) return
+      revealBox(footprintOf(note, layout))
+    })
+    const timer = setTimeout(() => {
+      if (alive.current) setArrivedId((current) => (current === pending.id ? null : current))
+    }, ARRIVAL_MS)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(timer)
+    }
+    // `notes` is the trigger: the card exists only after the reconcile commits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes])
 
   /**
    * Wheel: pan by default, zoom with ⌘/Ctrl (which is also how a trackpad pinch
@@ -1032,6 +1260,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     // by a `(` on the next line parses as a call expression, not as ASI.
     drag.current = {
       id: note.id,
+      note,
       pointerId: event.pointerId,
       node,
       startX: event.clientX,
@@ -1182,7 +1411,13 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       // sits, so `rotate`/`width` come from the captured layout, not defaults.
       // Clamped with the same function the Host uses, so the card lands exactly
       // where it will be stored and never snaps after the reload.
-      const layout = clampLayout({ x: current.originX + dx, y: current.originY + dy, rotate: current.rotate, width: current.width })
+      // A dropped card may not land on the centrepiece: the reserve is a magnetic
+      // edge, not a rule that is only enforced when the wall is tidied.
+      const layout = pushOutOfReserve(
+        current.note,
+        clampLayout({ x: current.originX + dx, y: current.originY + dy, rotate: current.rotate, width: current.width }),
+        centreReserve(),
+      )
       if (node !== null) {
         node.removeAttribute('data-dragging')
         // Hand the drag offset over to `left`/`top` in the same frame: the new
@@ -1268,7 +1503,8 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
           <div ref={bindViewport} className="skw-canvas" data-zoomed={zoom !== 1} onPointerDown={startPan}>
             <div ref={worldRef} className="skw-world">
               {visible.map((note) => (
-                <NoteCard key={note.id} note={note} index={indexOf(note)} surface="canvas" t={t} locale={activeLocale} actions={actions} />
+                <NoteCard key={note.id} note={note} index={indexOf(note)} surface="canvas" t={t} locale={activeLocale}
+                  actions={actions} arrived={note.id === arrivedId} />
               ))}
             </div>
 
@@ -1282,7 +1518,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
               takes input. Tidy keeps a clear disc here (`CENTRE_RADIUS`), so a
               card is never hidden underneath.
             */}
-            <div className="skw-centre" aria-hidden={false}>
+            <div className="skw-centre" ref={centreRef} aria-hidden={false}>
               <p className="skw-centre-hello">{greeting}</p>
               <p className="skw-centre-tally" data-empty={visible.length === 0}>
                 {/* An empty wall still explains itself: the reason (no notes, no
@@ -1299,7 +1535,12 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
                   const body = capture.trim()
                   if (body === '' || busy) return
                   void mutate(async () => {
-                    await api.create({ body }, life.current.signal)
+                    // The reserve makes the Host place the card in a gap that is
+                    // genuinely free on the CURRENT view, and the arrival marker
+                    // then reveals and highlights it.
+                    const note = await api.create({ body }, life.current.signal, { centreReserve: centreReserve() })
+                    arrival.current = { id: note.id, token: Date.now() }
+                    setArrivedId(note.id)
                     setCapture('')
                   })
                 }}
@@ -1330,70 +1571,134 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         sit where the pointer already is after a drag. It is one row of quiet
         pills, with the capture action on the right.
       */}
-      <div className="skw-dock" role="toolbar" aria-label={t('title')}>
-        <div className="skw-dock-group">
-          <div className="skw-search-wrap">
-            <span className="skw-search-icon" aria-hidden="true">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                <circle cx="10.5" cy="10.5" r="6.2" stroke="currentColor" strokeWidth="1.8" />
-                <path d="M15.4 15.4L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-            </span>
-            <input className="skw-search" type="search" value={query} placeholder={t('search')} aria-label={t('search')}
-              onChange={(event) => setQuery(event.target.value)} />
-          </div>
+      {/*
+        The floating dock.
+
+        One quiet strip over the bottom of the canvas, so the wall gets the whole
+        window and the controls sit where the pointer already is after a drag.
+        It is deliberately SHORT: search, the filter that is actually in use, the
+        view switch, zoom and the primary action. Everything that is a mode rather
+        than a frequent click (sort order, the archive sweep) lives in one overflow
+        menu, because nine always-visible controls in a row read as a toolbar and
+        overflowed the page on a narrow window.
+      */}
+      <div className="skw-dock" ref={dockRef} role="toolbar" aria-label={t('title')}>
+        <div className="skw-search-wrap">
+          <span className="skw-search-icon" aria-hidden="true">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <circle cx="10.5" cy="10.5" r="6.2" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M15.4 15.4L20 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </span>
+          <input className="skw-search" type="search" value={query} placeholder={t('search')} aria-label={t('search')}
+            onChange={(event) => setQuery(event.target.value)} />
         </div>
 
-        <div className="skw-dock-group">
-          <div className="skw-seg" role="group" aria-label={t('filters')}>
-            {(['all', 'pinned', 'archived'] as const).map((key) => (
-              <button key={key} type="button" data-on={filter === key} onClick={() => setFilter(key)}>
-                {key === 'all' ? t('all') : key === 'pinned' ? t('pin') : t('archive')}
-              </button>
-            ))}
-          </div>
-          <button className="skw-toggle" type="button" data-on={showArchived} aria-pressed={showArchived}
-            onClick={() => setShowArchived((value) => !value)}>
-            {showArchived ? t('hideArchived') : t('showArchived')}
-          </button>
+        <span className="skw-dock-divider" aria-hidden="true" />
+
+        <div className="skw-seg" role="group" aria-label={t('filters')}>
+          {(['all', 'pinned', 'archived'] as const).map((key) => (
+            <button key={key} type="button" data-on={filter === key} onClick={() => setFilter(key)}
+              title={key === 'all' ? t('all') : key === 'pinned' ? t('pin') : t('archive')}>
+              {key === 'all' ? t('all') : key === 'pinned' ? t('pin') : t('archive')}
+            </button>
+          ))}
         </div>
 
-        <div className="skw-dock-group">
-          <div className="skw-seg" role="group" aria-label={t('viewLabel')}>
-            {(['canvas', 'grid', 'list'] as const).map((mode) => (
-              <button key={mode} type="button" data-on={view === mode} onClick={() => setView(mode)} aria-label={t(`view_${mode}`)}>
-                {t(`view_${mode}`)}
-              </button>
-            ))}
-          </div>
-          <div className="skw-seg" role="group" aria-label={t('sortPinned')}>
-            {(['pinned', 'created', 'updated'] as const).map((key) => (
-              <button key={key} type="button" data-on={sort === key} onClick={() => setSort(key)}>
-                {key === 'pinned' ? t('sortPinned') : key === 'created' ? t('sortCreated') : t('sortUpdated')}
-              </button>
-            ))}
-          </div>
+        <span className="skw-dock-divider" aria-hidden="true" />
+
+        {/* Icons, not words: three words of view names made this the widest group
+            in the dock, and the icons are unambiguous once the title explains them. */}
+        <div className="skw-seg skw-seg-icons" role="group" aria-label={t('viewLabel')}>
+          {(['canvas', 'grid', 'list'] as const).map((mode) => (
+            <button key={mode} type="button" data-on={view === mode} onClick={() => setView(mode)}
+              aria-label={t(`view_${mode}`)} title={t(`view_${mode}`)} aria-pressed={view === mode}>
+              {mode === 'canvas' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="3" y="4" width="8" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.7" />
+                  <rect x="13" y="7" width="8" height="6" rx="1.6" stroke="currentColor" strokeWidth="1.7" />
+                  <rect x="6" y="14" width="8" height="6" rx="1.6" stroke="currentColor" strokeWidth="1.7" />
+                </svg>
+              ) : mode === 'grid' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.7" />
+                  <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.7" />
+                  <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.7" />
+                  <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.7" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 6.5h16M4 12h16M4 17.5h11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
+          ))}
         </div>
 
         {view === 'canvas' && (
-          <div className="skw-dock-group skw-dock-zoom" role="group" aria-label={t('zoomLabel')}>
-            <button className="skw-camera-btn" type="button" aria-label={t('zoomOut')} onClick={() => zoomTo(zoom - 0.15)}>−</button>
-            <span className="skw-camera-value">{Math.round(zoom * 100)}%</span>
-            <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} onClick={() => zoomTo(zoom + 0.15)}>+</button>
-            <button className="skw-camera-btn" type="button" aria-label={t('zoomReset')} onClick={resetView}>⌖</button>
-            <button className="skw-camera-btn" type="button" aria-label={t('arrange')} title={t('arrange')}
-              disabled={busy || visible.length === 0}
-              onClick={() => void tidyWall()}>✧</button>
-          </div>
+          <>
+            <span className="skw-dock-divider" aria-hidden="true" />
+            <div className="skw-dock-zoom" role="group" aria-label={t('zoomLabel')}>
+              <button className="skw-camera-btn" type="button" aria-label={t('zoomOut')} title={t('zoomOut')}
+                onClick={() => zoomTo(zoom - 0.15)}>−</button>
+              <button className="skw-camera-value" type="button" aria-label={t('zoomReset')} title={t('zoomReset')}
+                onClick={resetView}>{Math.round(zoom * 100)}%</button>
+              <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} title={t('zoomIn')}
+                onClick={() => zoomTo(zoom + 0.15)}>+</button>
+              <button className="skw-camera-btn" type="button" aria-label={t('arrange')} title={t('arrange')}
+                disabled={busy || visible.length === 0} onClick={() => void tidyWall()}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9L12 3.5Z"
+                    stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                  <path d="M18.5 16.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
+          </>
         )}
 
-        {archivedCount > 0 && (
-          <button className="skw-dock-quiet" type="button" onClick={() => setConfirming('clear')} disabled={busy}>
-            {t('clearArchived')}
+        <span className="skw-dock-divider" aria-hidden="true" />
+
+        {/* Overflow: modes, not frequent clicks. */}
+        <div className="skw-menu-wrap" ref={menuRef}>
+          <button className="skw-camera-btn" type="button" data-on={menuOpen}
+            aria-label={t('more')} title={t('more')} aria-expanded={menuOpen} aria-haspopup="menu"
+            onClick={() => setMenuOpen((value) => !value)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="6" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="18" cy="12" r="1.6" fill="currentColor" />
+            </svg>
           </button>
-        )}
+          {menuOpen && (
+            <div className="skw-menu" role="menu" aria-label={t('more')}>
+              <div className="skw-menu-label">{t('sortLabel')}</div>
+              {(['pinned', 'created', 'updated'] as const).map((key) => (
+                <button key={key} type="button" role="menuitemradio" aria-checked={sort === key} data-on={sort === key}
+                  onClick={() => { setSort(key); setMenuOpen(false) }}>
+                  <span className="skw-menu-tick" aria-hidden="true">{sort === key ? '✓' : ''}</span>
+                  {key === 'pinned' ? t('sortPinned') : key === 'created' ? t('sortCreated') : t('sortUpdated')}
+                </button>
+              ))}
+              <div className="skw-menu-rule" role="separator" />
+              <button type="button" role="menuitemcheckbox" aria-checked={showArchived} data-on={showArchived}
+                onClick={() => setShowArchived((value) => !value)}>
+                <span className="skw-menu-tick" aria-hidden="true">{showArchived ? '✓' : ''}</span>
+                {showArchived ? t('hideArchived') : t('showArchived')}
+              </button>
+              {archivedCount > 0 && (
+                <button type="button" role="menuitem" className="skw-menu-danger"
+                  disabled={busy} onClick={() => { setMenuOpen(false); setConfirming('clear') }}>
+                  <span className="skw-menu-tick" aria-hidden="true" />
+                  {t('clearArchived')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <span className="skw-count">{t('count', { count: visible.length })}</span>
-        <button className="skw-dock-new" type="button" onClick={() => openComposer()} disabled={busy} aria-label={t('new')}>
+        <button className="skw-dock-new" type="button" onClick={() => openComposer()} disabled={busy} aria-label={t('new')} title={t('new')}>
           +
         </button>
       </div>

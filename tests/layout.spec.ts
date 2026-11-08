@@ -3,14 +3,19 @@ import {
   arrangeLayouts,
   clampLayout,
   estimateHeight,
+  findFreeLayout,
+  footprintOf,
+  intersectsReserve,
   MAX_CARD_HEIGHT,
+  noteBox,
+  normalizeReserve,
   rotatedExtent,
   layoutOf,
   previewLayout,
   previewWidth,
   sameLayout,
 } from '../src/layout.js'
-import { CENTRE_RADIUS, LAYOUT_LIMITS, LIMITS, WIDTH_PX, type Note, type NoteLayout } from '../src/types.js'
+import { CENTRE_RESERVE, LAYOUT_LIMITS, LIMITS, WIDTH_PX, type Note, type NoteLayout } from '../src/types.js'
 
 /**
  * Free-canvas geometry tests.
@@ -137,27 +142,63 @@ describe('tidy arrangement', () => {
   })
 
   it('centres the arrangement on the world origin instead of a top-left corner', () => {
-    // The camera opens on the wall's middle, so the packing must have one. An
-    // earlier version shifted everything into the positive quadrant, which put
-    // the centre of gravity far from the origin and made the opening view show
-    // a corner of empty paper.
+    // The camera opens on the wall's BOUNDING BOX centre, so that is what must sit
+    // on the origin — not merely "somewhere near the middle".
+    //
+    // This is a correctness property, not a cosmetic one: the centrepiece is a
+    // screen-space block at the viewport's middle and the packer's reserved
+    // rectangle is centred on the origin, so a box off the origin puts the capture
+    // field off its own reserve and a card legitimately ends up behind it.
     const notes = Array.from({ length: 20 }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
     const planned = arrangeLayouts(notes)
-    let sumX = 0
-    let sumY = 0
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
     for (const [id, layout] of planned) {
       expect(Math.abs(layout.x)).toBeLessThanOrEqual(LAYOUT_LIMITS.coord)
       expect(Math.abs(layout.y)).toBeLessThanOrEqual(LAYOUT_LIMITS.coord)
       const note = notes.find((candidate) => candidate.id === id)!
-      sumX += layout.x + WIDTH_PX[layout.width] / 2
-      sumY += layout.y + estimateHeight(note, layout.width) / 2
+      const box = footprintOf(note, layout)
+      minX = Math.min(minX, box.x)
+      maxX = Math.max(maxX, box.x + box.width)
+      minY = Math.min(minY, box.y)
+      maxY = Math.max(maxY, box.y + box.height)
     }
-    const centroidX = sumX / planned.size
-    const centroidY = sumY / planned.size
-    // The centroid sits on the origin: the spiral is inherently balanced, so
-    // this is a tight bound rather than "somewhere near the middle".
-    expect(Math.abs(centroidX)).toBeLessThan(60)
-    expect(Math.abs(centroidY)).toBeLessThan(60)
+    // Tight: the shift is applied exactly, so the box centre lands on the origin.
+    expect(Math.abs((minX + maxX) / 2)).toBeLessThan(2)
+    expect(Math.abs((minY + maxY) / 2)).toBeLessThan(2)
+  })
+
+  it('packs a fourteen-card wall into a ring, not a sparse scatter', () => {
+    // The complaint this fixes: the wall looked spread out rather than composed.
+    // A phyllotaxis first-fit spiral saturates at ~25% of the available area, so
+    // the only way to place the next card is further out — fourteen cards spread
+    // over ~2700px of paper. Ring packing fills each circle by capacity instead,
+    // so the same wall fits in roughly half that.
+    const notes = Array.from({ length: 14 }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
+    const planned = arrangeLayouts(notes)
+    let minX = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    for (const [id, layout] of planned) {
+      const note = notes.find((candidate) => candidate.id === id)!
+      const box = footprintOf(note, layout)
+      minX = Math.min(minX, box.x)
+      maxX = Math.max(maxX, box.x + box.width)
+      minY = Math.min(minY, box.y)
+      maxY = Math.max(maxY, box.y + box.height)
+    }
+    const width = maxX - minX
+    const height = maxY - minY
+    // A 14-card wall of mixed small/medium notes must fit comfortably inside a
+    // 1440x900 viewport at the 50% framing floor, which is ~2880x1800 of world.
+    expect(width).toBeLessThan(2400)
+    expect(height).toBeLessThan(2400)
+    // And it must still be a disc, not a column.
+    expect(width / height).toBeGreaterThan(0.7)
+    expect(width / height).toBeLessThan(1.4)
   })
 
   it('grows a large wall into a disc, not a column or a strip', () => {
@@ -181,31 +222,50 @@ describe('tidy arrangement', () => {
     }
   })
 
-  it('leaves the middle of the wall clear for the centrepiece', () => {
+  it('leaves a clear rectangle in the middle for the centrepiece', () => {
     // The centre holds the greeting, the tally and the quick-capture field. A
-    // card packed there would sit on top of the wall's own controls.
+    // card packed there would sit on top of the wall's own controls — and the
+    // reserve is a RECTANGLE because that centrepiece is a wide, short stack: a
+    // circle either wasted a tall column of paper or let wide cards in sideways.
     for (const count of [3, 12, 60]) {
       const notes = Array.from({ length: count }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
       const planned = arrangeLayouts(notes)
-      for (const layout of planned.values()) {
-        const centreX = layout.x + WIDTH_PX[layout.width] / 2
-        const centreY = layout.y + estimateHeight({ ...makeNote(), layout }, layout.width) / 2
-        // No card's centre may fall inside the reserved disc.
-        expect(Math.hypot(centreX, centreY)).toBeGreaterThan(CENTRE_RADIUS - 1)
+      for (const [id, layout] of planned) {
+        const note = notes.find((candidate) => candidate.id === id)!
+        // No card's FOOTPRINT may intersect the reserved rectangle. Measured on
+        // the box, not the centre: a card whose centre clears the reserve can
+        // still reach over the capture field by half its own width.
+        expect(intersectsReserve(footprintOf(note, layout), CENTRE_RESERVE)).toBe(false)
       }
     }
   })
 
-  it('honours an explicit centre radius and defaults to the shipped one', () => {
+  it('honours an explicit centre reserve and defaults to the shipped one', () => {
     const notes = Array.from({ length: 8 }, (_, index) => makeNote({ id: `n${index}` }))
     const defaulted = arrangeLayouts(notes)
-    const explicit = arrangeLayouts(notes, { centreRadius: CENTRE_RADIUS })
+    const explicit = arrangeLayouts(notes, { centreReserve: CENTRE_RESERVE })
     expect([...defaulted.entries()]).toEqual([...explicit.entries()])
     // A larger reserve pushes every card further out.
-    const wide = arrangeLayouts(notes, { centreRadius: 600 })
+    const wide = arrangeLayouts(notes, { centreReserve: { halfWidth: 620, halfHeight: 400 } })
     const minRadius = (planned: Map<string, { x: number; y: number }>): number =>
       Math.min(...[...planned.values()].map((layout) => Math.hypot(layout.x, layout.y)))
     expect(minRadius(wide)).toBeGreaterThan(minRadius(defaulted))
+  })
+
+  it('clamps a nonsensical reserve instead of leaving no paper for the cards', () => {
+    // The Client sends a zoom-corrected reserve, so it can arrive as Infinity,
+    // as a negative number, or as an absurdly large one. None of those may make
+    // the packer throw or push every card past the world bounds.
+    expect(normalizeReserve({ halfWidth: Number.NaN, halfHeight: -5 })).toEqual({ halfWidth: 0, halfHeight: 0 })
+    const capped = normalizeReserve({ halfWidth: 10_000_000, halfHeight: 10_000_000 })
+    expect(capped.halfWidth).toBe(LAYOUT_LIMITS.coord / 4)
+    const notes = Array.from({ length: 6 }, (_, index) => makeNote({ id: `n${index}` }))
+    const planned = arrangeLayouts(notes, { centreReserve: capped })
+    expect(planned.size).toBe(6)
+    for (const layout of planned.values()) {
+      expect(Math.abs(layout.x)).toBeLessThanOrEqual(LAYOUT_LIMITS.coord)
+      expect(Math.abs(layout.y)).toBeLessThanOrEqual(LAYOUT_LIMITS.coord)
+    }
   })
 
   it('counts CJK text at two columns so a Chinese wall does not pack too tightly', () => {
@@ -326,5 +386,69 @@ describe('tidy arrangement', () => {
     expect(planned.size).toBe(2)
     expect(planned.has('a')).toBe(true)
     expect(planned.has('b')).toBe(true)
+  })
+})
+
+describe('free spot for a new card', () => {
+  /** Whether two footprints share any area. */
+  const overlaps = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): boolean =>
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+  it('places the first card just outside the centrepiece, not off in the distance', () => {
+    // The complaint this fixes: a note created from the centre capture field
+    // landed far away — the derived spiral grows with the note's index, so the
+    // tenth capture could be more than a screen from where the user was looking,
+    // and the wall looked like the capture had silently failed.
+    const fresh = makeNote({ id: 'fresh', body: 'a new idea' })
+    const layout = findFreeLayout(fresh, [])
+    const box = noteBox({ ...fresh, layout }, 0)
+    // Outside the reserved middle ...
+    const inside =
+      box.x < CENTRE_RESERVE.halfWidth &&
+      box.x + box.width > -CENTRE_RESERVE.halfWidth &&
+      box.y < CENTRE_RESERVE.halfHeight &&
+      box.y + box.height > -CENTRE_RESERVE.halfHeight
+    expect(inside).toBe(false)
+    // ... and close to it: the nearest legal ring, not a far hole.
+    const distance = Math.hypot(box.x + box.width / 2, box.y + box.height / 2)
+    expect(distance).toBeLessThan(560)
+  })
+
+  it('never puts a new card on top of an existing one', () => {
+    const existing = Array.from({ length: 12 }, (_, index) =>
+      makeNote({ id: `n${index}`, body: `body ${index}`, layout: { x: index * 40, y: index * 30, rotate: 0, width: 'md' } }),
+    )
+    const fresh = makeNote({ id: 'fresh', body: 'a new idea' })
+    const layout = findFreeLayout(fresh, existing)
+    const box = noteBox({ ...fresh, layout }, 0)
+    for (const note of existing) {
+      expect(overlaps(box, noteBox(note, 0))).toBe(false)
+    }
+  })
+
+  it('is deterministic, so two windows agree on where the card goes', () => {
+    const existing = Array.from({ length: 5 }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
+    const fresh = makeNote({ id: 'fresh' })
+    expect(findFreeLayout(fresh, existing)).toEqual(findFreeLayout(fresh, existing))
+  })
+
+  it('finds a gap between existing cards instead of always the outermost ring', () => {
+    // A wall with a deliberate hole in the middle ring: the new card belongs in
+    // the hole, which is nearer the middle than the next free ring outside.
+    const existing = Array.from({ length: 16 }, (_, index) => {
+      const theta = (index / 16) * Math.PI * 2
+      return makeNote({
+        id: `ring${index}`,
+        body: 'x',
+        layout: { x: Math.cos(theta) * 620 - 111, y: Math.sin(theta) * 620 - 100, rotate: 0, width: 'md' },
+      })
+    })
+    const fresh = makeNote({ id: 'fresh', body: 'gap' })
+    const layout = findFreeLayout(fresh, existing)
+    const box = noteBox({ ...fresh, layout }, 0)
+    // It must not have been pushed outside the ring it could have fit inside.
+    const distance = Math.hypot(box.x + box.width / 2, box.y + box.height / 2)
+    expect(distance).toBeLessThan(620)
+    for (const note of existing) expect(overlaps(box, noteBox(note, 0))).toBe(false)
   })
 })

@@ -14,7 +14,8 @@ import { ENDPOINT, LIMITS, type Note } from '../src/types.js'
 const store = {
   notes: new Map<string, Note>(),
   list: (includeArchived = false) => [...store.notes.values()].filter((note) => includeArchived || !note.archived),
-  async create(input: { body: string }) {
+  async create(input: { body: string }, _id?: string, options?: { centreReserve?: { halfWidth: number; halfHeight: number } }) {
+    store.lastCreateOptions = options
     const note = {
       id: 'n1', title: '', body: input.body, tags: [], color: 'yellow' as const,
       pinned: false, archived: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
@@ -50,9 +51,12 @@ const store = {
     store.notes.set(id, next)
     return next
   },
-  async arrange() {
+  async arrange(options?: { centreReserve?: { halfWidth: number; halfHeight: number } }) {
+    store.lastArrangeOptions = options
     return [...store.notes.values()]
   },
+  lastCreateOptions: undefined as { centreReserve?: { halfWidth: number; halfHeight: number } } | undefined,
+  lastArrangeOptions: undefined as { centreReserve?: { halfWidth: number; halfHeight: number } } | undefined,
 }
 
 const actions = async () => store
@@ -254,6 +258,22 @@ describe('sticky-wall transport', () => {
     const result = document.result as { ok: boolean; value: { changed: Note[] } }
     expect(result.ok).toBe(true)
     expect(Array.isArray(result.value.changed)).toBe(true)
+  })
+
+  it('passes the centre reserve through to the store and drops a malformed one', async () => {
+    // The reserve is how the Client tells the Host how much world space its
+    // centrepiece covers at the current zoom. A malformed one is refused at the
+    // wire boundary rather than reaching the packer.
+    const route = createExecuteRoute(actions)
+    const reserve = { halfWidth: 412.5, halfHeight: 170 }
+    await route.fetch(request({ action: 'arrange', centreReserve: reserve }, 'rpc-arrange'))
+    expect(store.lastArrangeOptions).toEqual({ centreReserve: reserve })
+    await route.fetch(request({ action: 'create', note: { body: 'hi' }, centreReserve: reserve }, 'rpc-create'))
+    expect(store.lastCreateOptions).toEqual({ centreReserve: reserve })
+    // A non-finite half-extent is not clampable, so the envelope is rejected.
+    const bad = await route.fetch(request({ action: 'arrange', centreReserve: { halfWidth: 'wide', halfHeight: 1 } }, 'rpc-bad'))
+    const document = await body(bad)
+    expect(document.result).toMatchObject({ ok: false, error: { code: 'sticky-wall/bad-request' } })
   })
 
   it('reports a storage-open failure on the first request instead of at registration', async () => {

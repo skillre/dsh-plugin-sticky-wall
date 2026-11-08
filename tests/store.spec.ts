@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { StickyWallStore, WallError, DOMAIN_SPEC } from '../src/store.js'
+import { footprintOf, intersectsReserve } from '../src/layout.js'
 import { LAYOUT_LIMITS, LIMITS, type Note } from '../src/types.js'
 
 /**
@@ -244,12 +245,50 @@ describe('sticky-wall store', () => {
   it('moves a card without touching its content timestamp', async () => {
     const store = await makeStore()
     const note = await store.create({ body: 'draggable' })
-    expect(note.layout).toBeNull()
+    // A created note is PLACED, not left with a null layout: null means "derive a
+    // position from my index", and that spiral grows outward, so the user's next
+    // capture could land off screen. See `places a new note in a free gap`.
+    expect(note.layout).not.toBeNull()
     const moved = await store.move(note.id, { x: 120, y: 64, rotate: 3, width: 'lg' })
     expect(moved.layout).toEqual({ x: 120, y: 64, rotate: 3, width: 'lg' })
     // Rearranging a wall is not editing a note, so a "by updated" sort must not
     // reshuffle just because a card was dragged.
     expect(moved.updatedAt).toBe(note.updatedAt)
+  })
+
+  it('places a new note in a free gap instead of leaving its layout null', async () => {
+    // The user-facing bug: creating from the centre capture field put the card
+    // somewhere far from the field, so the capture looked like it had failed.
+    // The Host now assigns the nearest free spot at creation time.
+    const store = await makeStore()
+    const first = await store.create({ body: 'first' })
+    expect(first.layout).not.toBeNull()
+    const second = await store.create({ body: 'second' })
+    expect(second.layout).not.toBeNull()
+    // Two cards must not be stacked on each other.
+    expect(second.layout).not.toEqual(first.layout)
+    // Both are outside the centrepiece's reserved rectangle.
+    for (const note of [first, second]) {
+      expect(intersectsReserve(footprintOf(note, note.layout!))).toBe(false)
+    }
+  })
+
+  it('honours an explicit layout instead of placing the note itself', async () => {
+    // The agent tool and a drag both submit a real placement; the free-spot search
+    // must not override it.
+    const store = await makeStore()
+    const note = await store.create({ body: 'placed', layout: { x: 900, y: -700, rotate: 2, width: 'sm' } })
+    expect(note.layout).toEqual({ x: 900, y: -700, rotate: 2, width: 'sm' })
+  })
+
+  it('accepts a zoom-corrected centre reserve and keeps cards out of it', async () => {
+    const store = await makeStore()
+    // A deeply zoomed-out view covers far more world space, so its reserve is
+    // bigger; the placement must respect the bigger rectangle.
+    const wide = { halfWidth: 900, halfHeight: 500 }
+    const note = await store.create({ body: 'zoomed out' }, undefined, { centreReserve: wide })
+    expect(note.layout).not.toBeNull()
+    expect(intersectsReserve(footprintOf(note, note.layout!), wide)).toBe(false)
   })
 
   it('clamps an out-of-range placement and treats a repeat move as a no-op', async () => {

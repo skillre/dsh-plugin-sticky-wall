@@ -57,17 +57,26 @@ function makeNote(overrides: Partial<Note> = {}): Note {
   }
 }
 
+/** One recorded call: the method name, the payload it carried and its options. */
+interface RecordedCall {
+  method: string
+  args: unknown
+  options: unknown
+}
+
 /** A ClientApi double recording every call, with overridable behavior. */
-function makeApi(overrides: Partial<ClientApi> = {}): ClientApi & { calls: string[] } {
+function makeApi(overrides: Partial<ClientApi> = {}): ClientApi & { calls: string[]; arguments: RecordedCall[] } {
   const calls: string[] = []
+  const recorded: RecordedCall[] = []
   const api: ClientApi = {
     async list(includeArchived, sort) {
       calls.push(`list:${String(includeArchived)}:${sort}`)
       return overrides.list ? await overrides.list(includeArchived, sort) : [makeNote()]
     },
-    async create(input) {
+    async create(input, signal, options) {
       calls.push('create')
-      if (overrides.create) return overrides.create(input)
+      recorded.push({ method: 'create', args: input, options })
+      if (overrides.create) return overrides.create(input, signal, options)
       return makeNote({ id: 'created', body: input.body })
     },
     async update(id, patch) {
@@ -92,17 +101,19 @@ function makeApi(overrides: Partial<ClientApi> = {}): ClientApi & { calls: strin
     },
     async move(id, layout) {
       calls.push('move')
+      recorded.push({ method: 'move', args: { id, layout }, options: undefined })
       ;(api as unknown as { lastMove: { id: string; layout: unknown } }).lastMove = { id, layout }
       if (overrides.move) return overrides.move(id, layout)
       return makeNote({ id, layout })
     },
-    async arrange() {
+    async arrange(signal, options) {
       calls.push('arrange')
-      if (overrides.arrange) return overrides.arrange()
+      recorded.push({ method: 'arrange', args: undefined, options })
+      if (overrides.arrange) return overrides.arrange(signal)
       return []
     },
   }
-  return Object.assign(api, { calls })
+  return Object.assign(api, { calls, arguments: recorded })
 }
 
 /** Open the composer and fill its body, then press the save shortcut. */
@@ -125,11 +136,14 @@ describe('wall page', () => {
     expect(screen.queryByText(copy('emptyArchived'))).toBeNull()
   })
 
-  it('offers clear-archived whenever an archived note exists', async () => {
+  it('offers clear-archived from the dock menu whenever an archived note exists', async () => {
+    // The sweep is a mode, not a frequent click, so it moved into the dock's
+    // overflow menu rather than occupying a permanent slot in the strip.
     const api = makeApi({ list: async () => [makeNote({ id: 'a', archived: true })] })
     render(<WallPage api={api} locale={locale} t={t} />)
-    fireEvent.click(screen.getByRole('button', { name: /Show archived/ }))
-    await waitFor(() => expect(screen.getByRole('button', { name: copy('clearArchived') })).toBeTruthy())
+    await waitFor(() => expect(document.querySelector('.skw-dock')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: copy('more') }))
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: copy('clearArchived') })).toBeTruthy())
   })
 
   it('reloads after a failed mutation so a partial write cannot stay hidden', async () => {
@@ -375,7 +389,7 @@ describe('view modes and the free canvas', () => {
     // next render — a visible snap. The UI harness caught this; this test keeps
     // it caught without a browser.
     const api = makeApi({
-      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 10, y: 10, rotate: -3, width: 'md' } })],
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 420, y: 300, rotate: -3, width: 'md' } })],
     })
     render(<WallPage api={api} locale={locale} t={t} />)
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
@@ -401,9 +415,10 @@ describe('view modes and the free canvas', () => {
     expect(card.style.transform).toContain('rotate(-3deg)')
     expect(card.style.transform).not.toContain('translate3d')
     const moved = (api as unknown as { lastMove?: { layout: { x: number; y: number } } }).lastMove
-    // 40px/30px of travel at zoom 1, on top of the stored 10/10.
-    expect(moved?.layout.x).toBe(50)
-    expect(moved?.layout.y).toBe(40)
+    // 40px/30px of travel at zoom 1, on top of the stored 420/300. The card is
+    // clear of the centrepiece reserve, so the drop is exactly the pointer delta.
+    expect(moved?.layout.x).toBe(460)
+    expect(moved?.layout.y).toBe(330)
   })
 
   it('writes the dropped position optimistically, before the Host answers', async () => {
@@ -413,7 +428,7 @@ describe('view modes and the free canvas', () => {
     let release: (() => void) | undefined
     const gate = new Promise<void>((resolve) => { release = resolve })
     const api = makeApi({
-      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 10, y: 10, rotate: 0, width: 'md' } })],
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 420, y: 300, rotate: 0, width: 'md' } })],
       move: async (id, layout) => {
         await gate
         return makeNote({ id, layout })
@@ -437,9 +452,9 @@ describe('view modes and the free canvas', () => {
       window.dispatchEvent(pointer('pointerup', 150, 140))
     })
     // The Host has not answered yet (the move is gated), so this is purely the
-    // optimistic write: without it the card would sit at 10px.
-    await waitFor(() => expect(card.style.left).toBe('60px'))
-    expect(card.style.top).toBe('50px')
+    // optimistic write: without it the card would sit at 420px.
+    await waitFor(() => expect(card.style.left).toBe('470px'))
+    expect(card.style.top).toBe('340px')
     release?.()
   })
 
@@ -630,8 +645,7 @@ describe('view modes and the free canvas', () => {
     expect(getComputedStyle(dock).position).toBe('absolute')
     // Every control the toolbar used to hold is still reachable in the dock.
     expect(document.querySelector('.skw-dock .skw-search')).not.toBeNull()
-    expect(document.querySelectorAll('.skw-dock .skw-seg').length).toBe(3)
-    expect(document.querySelector('.skw-dock .skw-toggle')).not.toBeNull()
+    expect(document.querySelectorAll('.skw-dock .skw-seg').length).toBe(2)
     expect(document.querySelector('.skw-dock-new')).not.toBeNull()
     expect(document.querySelector('.skw-dock-zoom')).not.toBeNull()
     expect(document.querySelector('.skw-dock .skw-count')?.textContent).toBe(t('count', { count: 1 }))
@@ -646,6 +660,111 @@ describe('view modes and the free canvas', () => {
     await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('200%'))
     fireEvent.click(screen.getByRole('button', { name: copy('zoomReset') }))
     await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('100%'))
+  })
+})
+
+describe('the dock menu and the arrival reveal', () => {
+  it('keeps the mode controls in one overflow menu instead of the dock row', async () => {
+    // The complaint: too many buttons, and on a narrow window they overflowed the
+    // background they were drawn on. The dock now carries only the frequent
+    // controls; sort and the archive sweep live in a menu that opens upward.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-dock')).not.toBeNull())
+    expect(document.querySelector('.skw-menu')).toBeNull()
+    const more = screen.getByRole('button', { name: copy('more') })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(more)
+    await waitFor(() => expect(document.querySelector('.skw-menu')).not.toBeNull())
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    // The sort choices are menuitemradio, so their selected state is announced.
+    const sortItems = document.querySelectorAll('.skw-menu [role="menuitemradio"]')
+    expect(sortItems.length).toBe(3)
+    expect(sortItems[0]?.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(sortItems[1] as HTMLElement)
+    // The sort is a Host query, so choosing one refetches with the new order.
+    await waitFor(() => expect(api.calls).toContain('list:false:created'))
+    // Choosing an option closes the menu: the user asked for one thing.
+    expect(document.querySelector('.skw-menu')).toBeNull()
+  })
+
+  it('closes the dock menu on Escape and on a press outside it', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-dock')).not.toBeNull())
+    const more = screen.getByRole('button', { name: copy('more') })
+    fireEvent.click(more)
+    await waitFor(() => expect(document.querySelector('.skw-menu')).not.toBeNull())
+    act(() => { fireEvent.keyDown(window, { key: 'Escape' }) })
+    await waitFor(() => expect(document.querySelector('.skw-menu')).toBeNull())
+    fireEvent.click(more)
+    await waitFor(() => expect(document.querySelector('.skw-menu')).not.toBeNull())
+    act(() => { fireEvent.pointerDown(document.querySelector('.skw-canvas') as HTMLElement) })
+    await waitFor(() => expect(document.querySelector('.skw-menu')).toBeNull())
+  })
+
+  it('creates a note at the free spot the Host returns and marks it as arrived', async () => {
+    // Creating from the centre field used to leave the placement to an
+    // index-derived spiral, which could put the new card a screen away — the wall
+    // then looked like the capture had silently failed. The Host now places the
+    // card in the nearest free gap and the Client flags it for the arrival pop.
+    //
+    // The double's list must include the created note: the arrival effect looks
+    // the card up in the committed snapshot, which is what a real reload returns.
+    let created: Note | null = null
+    const api = makeApi({
+      list: async () => (created === null ? [] : [created]),
+      create: async (input) => {
+        created = makeNote({ id: 'created', body: input.body, layout: { x: 420, y: 300, rotate: 0, width: 'md' } })
+        return created
+      },
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-capture-input')).not.toBeNull())
+    const field = document.querySelector('.skw-capture-input') as HTMLInputElement
+    fireEvent.change(field, { target: { value: '记下一个灵感' } })
+    act(() => { fireEvent.submit(document.querySelector('.skw-capture') as HTMLFormElement) })
+    await waitFor(() => expect(api.calls).toContain('create'))
+    // The create call carries the zoom-corrected reserve, so the Host places the
+    // card in a gap that is genuinely free on the current view.
+    const createCall = api.arguments.find((entry) => entry.method === 'create')
+    expect(createCall?.options).toBeDefined()
+    expect((createCall?.options as { centreReserve?: { halfWidth: number } }).centreReserve?.halfWidth).toBeGreaterThan(0)
+    // The new card is rendered with the arrival flag so it can be found.
+    await waitFor(() => expect(document.querySelector('.skw-note[data-arrived="true"]')).not.toBeNull())
+  })
+
+  it('drags a card out of the centrepiece instead of letting it cover the field', async () => {
+    // The reserve is a magnetic edge during a drag too: a card parked over the
+    // capture field hides the wall's own controls behind itself.
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 300, y: 200, rotate: 0, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-canvas .skw-note').length).toBe(1))
+    const card = document.querySelector('.skw-canvas .skw-note') as HTMLElement
+    const pointer = (type: string, x: number, y: number): Event => {
+      const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+      event.pointerId = 11
+      event.clientX = x
+      event.clientY = y
+      event.button = 0
+      event.isPrimary = true
+      return event
+    }
+    act(() => { card.dispatchEvent(pointer('pointerdown', 400, 300)) })
+    // Drag the card so its top-left lands on the world origin: squarely over the
+    // centrepiece, which must be refused.
+    act(() => {
+      window.dispatchEvent(pointer('pointermove', 400 - 300, 300 - 200))
+      window.dispatchEvent(pointer('pointerup', 400 - 300, 300 - 200))
+    })
+    await waitFor(() => expect(api.calls).toContain('move'))
+    const moveCall = api.arguments.find((entry) => entry.method === 'move')
+    const layout = (moveCall?.args as { layout?: { x: number; y: number } } | undefined)?.layout
+    expect(layout).toBeDefined()
+    // Not at the origin: the drop was pushed clear of the reserved rectangle.
+    expect(Math.abs(layout!.x) > 0 || Math.abs(layout!.y) > 0).toBe(true)
   })
 })
 

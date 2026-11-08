@@ -11,7 +11,7 @@
  * `{ type: 'server-response', rpcId, result: { ok: true, value } | { ok: false, error } }`
  * out. A non-owner Peer is rejected by Connection before this handler runs.
  */
-import { type Note, type NoteInput, type NoteLayout, type NotePatch, type NoteSort, type WallResult } from './types.js';
+import { type CentreReserve, type Note, type NoteInput, type NoteLayout, type NotePatch, type NoteSort, type WallResult } from './types.js';
 /** Path of the exact route, under the shared `/api` channel. */
 export declare const EXECUTE_PATH = "/api/skillre-sticky-wall/execute";
 /** One buffered exact Fetch route as the Connection registry accepts it. */
@@ -36,7 +36,12 @@ export interface WallActions {
     remove(ids: string[]): Promise<string[]>;
     clearArchived(): Promise<string[]>;
     move(id: string, layout: NoteLayout): Promise<Note>;
-    arrange(): Promise<Note[]>;
+    arrange(options?: {
+        centreReserve?: CentreReserve | undefined;
+    }): Promise<Note[]>;
+    create(input: NoteInput, id?: string, options?: {
+        centreReserve?: CentreReserve | undefined;
+    }): Promise<Note>;
 }
 /**
  * Build the exact route Connection registers; every failure stays inside the

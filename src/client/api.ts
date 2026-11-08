@@ -10,7 +10,7 @@
 
 import type { ClientConnectionLike, RpcResult } from './contracts.js'
 import { ENDPOINT } from '../types.js'
-import type { MutationResult, Note, NoteInput, NoteLayout, NotePatch, WallRequest, WallSnapshot } from '../types.js'
+import type { CentreReserve, MutationResult, Note, NoteInput, NoteLayout, NotePatch, WallRequest, WallSnapshot } from '../types.js'
 
 /** Failure raised by the Host; `code` is stable enough to switch on. */
 export class ActionError extends Error {
@@ -27,13 +27,13 @@ export class ActionError extends Error {
 /** The one API face the view uses. */
 export interface ClientApi {
   list(includeArchived: boolean, sort: 'pinned' | 'created' | 'updated', signal?: AbortSignal): Promise<Note[]>
-  create(input: NoteInput, signal?: AbortSignal): Promise<Note>
+  create(input: NoteInput, signal?: AbortSignal, options?: { centreReserve?: CentreReserve | undefined }): Promise<Note>
   update(id: string, patch: NotePatch, signal?: AbortSignal): Promise<Note>
   archive(ids: string[], archived: boolean, signal?: AbortSignal): Promise<Note[]>
   remove(ids: string[], signal?: AbortSignal): Promise<string[]>
   clearArchived(signal?: AbortSignal): Promise<string[]>
   move(id: string, layout: NoteLayout, signal?: AbortSignal): Promise<Note>
-  arrange(signal?: AbortSignal): Promise<Note[]>
+  arrange(signal?: AbortSignal, options?: { centreReserve?: CentreReserve | undefined }): Promise<Note[]>
 }
 
 /** Unwrap one endpoint result, converting a failure into a thrown error. */
@@ -54,8 +54,13 @@ export function createApi(connection: ClientConnectionLike, lifetime: AbortSigna
       const value = await call<WallSnapshot>({ action: 'list', includeArchived, sort }, signal)
       return Array.isArray(value?.notes) ? value.notes : []
     },
-    async create(input, signal) {
-      const value = await call<MutationResult>({ action: 'create', note: input }, signal)
+    async create(input, signal, options) {
+      const value = await call<MutationResult>(
+        options?.centreReserve === undefined
+          ? { action: 'create', note: input }
+          : { action: 'create', note: input, centreReserve: options.centreReserve },
+        signal,
+      )
       const note = value?.changed?.[0]
       if (!note) throw new ActionError('invalid-response', 'The Host created no note.')
       return note
@@ -84,8 +89,11 @@ export function createApi(connection: ClientConnectionLike, lifetime: AbortSigna
       if (!note) throw new ActionError('invalid-response', 'The Host moved no note.')
       return note
     },
-    async arrange(signal) {
-      const value = await call<MutationResult>({ action: 'arrange' }, signal)
+    async arrange(signal, options) {
+      const value = await call<MutationResult>(
+        options?.centreReserve === undefined ? { action: 'arrange' } : { action: 'arrange', centreReserve: options.centreReserve },
+        signal,
+      )
       return Array.isArray(value?.changed) ? value.changed : []
     },
   }

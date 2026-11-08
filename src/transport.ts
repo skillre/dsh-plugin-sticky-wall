@@ -20,6 +20,7 @@ import {
   LIMITS,
   SORTS,
   WIDTHS,
+  type CentreReserve,
   type MutationResult,
   type Note,
   type NoteInput,
@@ -55,7 +56,8 @@ export interface WallActions {
   remove(ids: string[]): Promise<string[]>
   clearArchived(): Promise<string[]>
   move(id: string, layout: NoteLayout): Promise<Note>
-  arrange(): Promise<Note[]>
+  arrange(options?: { centreReserve?: CentreReserve | undefined }): Promise<Note[]>
+  create(input: NoteInput, id?: string, options?: { centreReserve?: CentreReserve | undefined }): Promise<Note>
 }
 
 const envelopeSchema = z.object({
@@ -87,6 +89,18 @@ const layoutSchema = z
   })
   .strict()
 
+/**
+ * The clear rectangle the Client reserves around the wall's centrepiece.
+ *
+ * Bounds are NOT enforced here for the same reason the layout's are not: the
+ * store normalizes with `normalizeReserve`, which caps an absurd value instead of
+ * erroring, so a deeply zoomed-out wall still gets a wall. Non-finite values are
+ * refused, because there is no sensible clamp for NaN.
+ */
+const reserveSchema = z
+  .object({ halfWidth: z.number().finite(), halfHeight: z.number().finite() })
+  .strict()
+
 const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list'), includeArchived: z.boolean().optional(), sort: sortSchema.optional() }).strict(),
   z
@@ -102,6 +116,9 @@ const requestSchema = z.discriminatedUnion('action', [
           layout: layoutSchema.nullable().optional(),
         })
         .strict(),
+      // The Client's zoom-corrected centre reserve, so a note created without a
+      // layout is placed in a gap that is genuinely free on screen.
+      centreReserve: reserveSchema.optional(),
     })
     .strict(),
   z
@@ -124,7 +141,7 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('delete'), ids: idsSchema }).strict(),
   z.object({ action: z.literal('clear-archived') }).strict(),
   z.object({ action: z.literal('move'), id: idSchema, layout: layoutSchema }).strict(),
-  z.object({ action: z.literal('arrange') }).strict(),
+  z.object({ action: z.literal('arrange'), centreReserve: reserveSchema.optional() }).strict(),
 ])
 
 /** A JSON response with no-store caching; the wall is always live state. */
@@ -153,7 +170,7 @@ async function dispatch(actions: WallActions, request: WallRequest): Promise<unk
     case 'list':
       return { notes: actions.list(request.includeArchived, request.sort) }
     case 'create':
-      return { action: 'create', changed: [await actions.create(request.note)], removed: [] } satisfies MutationResult
+      return { action: 'create', changed: [await actions.create(request.note, undefined, { centreReserve: request.centreReserve })], removed: [] } satisfies MutationResult
     case 'update':
       return { action: 'update', changed: [await actions.update(request.id, request.patch)], removed: [] } satisfies MutationResult
     case 'archive':
@@ -165,7 +182,7 @@ async function dispatch(actions: WallActions, request: WallRequest): Promise<unk
     case 'move':
       return { action: 'move', changed: [await actions.move(request.id, request.layout)], removed: [] } satisfies MutationResult
     case 'arrange':
-      return { action: 'arrange', changed: await actions.arrange(), removed: [] } satisfies MutationResult
+      return { action: 'arrange', changed: await actions.arrange({ centreReserve: request.centreReserve }), removed: [] } satisfies MutationResult
   }
 }
 

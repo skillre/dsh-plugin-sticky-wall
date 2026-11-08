@@ -39,16 +39,7 @@ export const WALL_CSS = `
 .skw-seg button { height: 28px; padding: 0 9px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12.5px; transition: background .12s ease, color .12s ease; }
 .skw-seg button:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
 .skw-seg button[data-on="true"] { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font-weight: 550; }
-@media (max-width: 1180px) {
-  /* Narrow window: keep the row, drop the least-used groups' labels down a step. */
-  .skw-dock { gap: 6px; padding: 5px 6px; }
-  .skw-seg button { padding: 0 7px; font-size: 11.5px; }
-}
 .skw-seg button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
-.skw-toggle { height: 28px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 12.5px; transition: background .12s ease, color .12s ease, border-color .12s ease; }
-.skw-toggle:hover { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-border-l4); }
-.skw-toggle[data-on="true"] { border-style: solid; border-color: var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
-.skw-toggle:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
 .skw-count { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; padding: 0 4px; }
 
 .skw-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px 22px 118px; }
@@ -134,6 +125,38 @@ export const WALL_CSS = `
   contain: layout paint;
 }
 .skw-canvas .skw-note[data-dragging="true"] * { pointer-events: none; }
+/* Arrival.
+   A freshly created card has to be findable: it pops in and holds a ring for a
+   beat, so "did my capture actually work" is answered by the wall itself instead
+   of by counting cards. The animation is a scale on the card's own transform —
+   the same property the drag writes — so it must not be transitioned and must
+   return to exactly the stored rotation. */
+@keyframes skw-arrive {
+  /* No overshoot past 1.
+     A 4.5% bounce looked nice but it inflated the card's PAINTED box, and a card
+     packed exactly on the reserve's edge then overlapped the capture field for
+     ~200ms — a real, if brief, defect that also made the overlap assertion
+     intermittent. Growing from .86 to exactly 1 keeps the pop and never exceeds
+     the footprint the packer collision-checked. */
+  0%   { opacity: 0; scale: .86; }
+  60%  { opacity: 1; scale: .985; }
+  100% { opacity: 1; scale: 1; }
+}
+@keyframes skw-arrive-ring {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--skw-note-accent) 70%, transparent), 0 6px 18px -6px var(--skw-note-glow); }
+  70%  { box-shadow: 0 0 0 9px color-mix(in srgb, var(--skw-note-accent) 0%, transparent), 0 6px 18px -6px var(--skw-note-glow); }
+  100% { box-shadow: 0 1px 2px var(--dsw-alias-bg-mask-2), 0 6px 16px -8px var(--skw-note-glow); }
+}
+.skw-canvas .skw-note[data-arrived="true"] {
+  z-index: 18;
+  animation: skw-arrive .42s cubic-bezier(.2, .9, .25, 1) both, skw-arrive-ring .9s ease-out both;
+  /* The ring needs room to draw outside the card's box. */
+  overflow: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skw-canvas .skw-note[data-arrived="true"] { animation: skw-arrive-ring .9s ease-out both; }
+}
+
 /* The hover lift belongs to the grid view only. On the canvas the card already
    has a stored position, and a translateY(-2px) here would fight the drag's
    own transform (the two rules would overwrite each other). */
@@ -163,50 +186,109 @@ export const WALL_CSS = `
 .skw-row[data-color="orange"]  { --skw-note-accent: #e79a4e; }
 
 /* The floating dock.
-   One row of quiet pills across the bottom of the canvas. The wall gets the whole
-   window, and the controls sit where the pointer already is after a drag. */
+   One quiet strip across the bottom of the canvas. The wall gets the whole
+   window, and the controls sit where the pointer already is after a drag.
+   Design rules that came out of the "buttons overflow the background" report:
+   - it is a SINGLE row that never wraps and never grows past the page;
+   - groups are separated by hairlines instead of boxes, so it reads as one bar;
+   - anything that is a mode rather than a frequent click moves into the menu, so
+     the strip stays short at every window width. */
 .skw-dock {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 14;
-  max-width: calc(100% - 32px); white-space: nowrap;
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px 6px 10px; border-radius: 16px;
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 14;
+  max-width: calc(100% - 28px); box-sizing: border-box;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 6px 5px 6px; border-radius: 15px;
   border: 1px solid var(--dsw-alias-border-l2);
-  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 88%, transparent);
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 8px 28px var(--dsw-alias-bg-mask-2), 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent) inset;
-  /* One row, never a wrapped stack: the dock is a floating control strip, and a
-     two-line block over the canvas eats the wall it is floating above. */
-  flex-wrap: nowrap; justify-content: center;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: 0 10px 30px -8px var(--dsw-alias-bg-mask-2), 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent) inset;
+  flex-wrap: nowrap; justify-content: center; white-space: nowrap;
 }
-.skw-dock-group { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.skw-dock-group + .skw-dock-group { padding-left: 8px; border-left: 1px solid var(--dsw-alias-border-l1); }
-.skw-dock-zoom { gap: 1px; }
-.skw-dock-quiet {
-  height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent;
-  color: var(--dsw-alias-label-tertiary); cursor: pointer; font-size: 11.5px; white-space: nowrap;
+/* A hairline between groups. Softer than a border on every group, which made the
+   dock look like three boxes glued together. */
+.skw-dock-divider { width: 1px; height: 18px; flex: none; background: var(--dsw-alias-border-l1); }
+.skw-dock .skw-search-wrap { position: relative; flex: 0 1 168px; min-width: 84px; display: flex; align-items: center; }
+.skw-search-icon { position: absolute; left: 8px; display: flex; color: var(--dsw-alias-label-tertiary); pointer-events: none; }
+.skw-search {
+  width: 100%; height: 28px; padding: 0 8px 0 26px; border: 1px solid transparent; border-radius: 9px;
+  background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-size: 12.5px;
+  transition: border-color .12s ease, background .12s ease;
 }
-.skw-dock-quiet:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
-.skw-dock-quiet[disabled] { opacity: .45; cursor: default; }
+.skw-search::placeholder { color: var(--dsw-alias-label-tertiary); }
+.skw-search:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-1); }
+/* Chips: one row of quiet pills, the active one filled. */
+.skw-seg { display: inline-flex; gap: 2px; flex: none; }
+.skw-seg button {
+  height: 28px; min-width: 28px; padding: 0 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer;
+  font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  transition: background .12s ease, color .12s ease;
+}
+.skw-seg button:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-seg button[data-on="true"] { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font-weight: 550; }
+.skw-seg button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+.skw-seg-icons button { width: 30px; padding: 0; }
+.skw-count {
+  font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums;
+  white-space: nowrap; padding: 0 2px;
+}
+.skw-dock-zoom { display: flex; align-items: center; gap: 0; flex: none; }
+.skw-camera-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary);
+  cursor: pointer; font-size: 14px; line-height: 1;
+}
+.skw-camera-btn:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-camera-btn[data-on="true"] { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-camera-btn[disabled] { opacity: .38; cursor: default; background: transparent; }
+.skw-camera-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+/* The zoom readout is also the reset button: the number is the most obvious
+   place to click when the view is wrong, and a separate ⌖ icon was one more
+   glyph in a row that had too many. */
+.skw-camera-value {
+  min-width: 40px; height: 28px; padding: 0 4px; border: 0; border-radius: 8px; background: transparent;
+  text-align: center; font-size: 11px; color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.skw-camera-value:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-camera-value:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
 /* The one filled control: creating a note is the primary action. */
 .skw-dock-new {
-  width: 32px; height: 32px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: 50%; background: var(--dsw-alias-brand-primary);
   color: var(--dsw-alias-label-primary-foreground); cursor: pointer;
-  font-size: 19px; line-height: 1; font-weight: 400; padding: 0 0 2px;
+  font-size: 18px; line-height: 1; font-weight: 400; padding: 0 0 2px;
   transition: transform .12s ease, filter .12s ease;
 }
 .skw-dock-new:hover { filter: brightness(1.08); transform: scale(1.06); }
 .skw-dock-new:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
 .skw-dock-new[disabled] { opacity: .5; cursor: default; transform: none; }
-.skw-camera-btn {
-  width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary);
-  cursor: pointer; font-size: 13px; line-height: 1;
+
+/* The dock's overflow menu.
+   Opens upward out of the dock, because the dock sits on the bottom edge. */
+.skw-menu-wrap { position: relative; flex: none; display: flex; }
+.skw-menu {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 20;
+  min-width: 172px; padding: 5px;
+  display: flex; flex-direction: column; gap: 1px;
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 11px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 14px 34px -10px var(--dsw-alias-bg-mask-3), 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent) inset;
 }
-.skw-camera-btn:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
-.skw-camera-btn[disabled] { opacity: .4; cursor: default; background: transparent; }
-.skw-camera-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
-.skw-camera-value { min-width: 36px; text-align: center; font-size: 11px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.skw-menu-label { padding: 4px 8px 2px; font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; color: var(--dsw-alias-label-tertiary); }
+.skw-menu button {
+  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary);
+  cursor: pointer; font-size: 12.5px; text-align: left; white-space: nowrap;
+}
+.skw-menu button:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.skw-menu button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -1px; }
+.skw-menu button[data-on="true"] { color: var(--dsw-alias-label-primary); font-weight: 550; }
+.skw-menu button[disabled] { opacity: .45; cursor: default; }
+.skw-menu-tick { width: 12px; flex: none; color: var(--dsw-alias-brand-primary); font-size: 11px; }
+.skw-menu-rule { height: 1px; margin: 4px 6px; background: var(--dsw-alias-border-l1); }
+.skw-menu-danger { color: var(--dsw-alias-state-error-primary) !important; }
+.skw-menu-danger:hover { background: var(--dsw-alias-state-error-secondary) !important; color: var(--dsw-alias-label-primary-foreground) !important; }
 
 /* The wall's centrepiece: greeting, tally and quick capture.
    Screen space, not world space, so it stays put when the wall pans or zooms.
@@ -217,6 +299,20 @@ export const WALL_CSS = `
   width: min(560px, calc(100% - 48px)); z-index: 10;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   pointer-events: none; text-align: center;
+  /* A soft plate under the block.
+     The reserve keeps cards out of a rectangle, but a card can still sit just
+     outside its edge, and bare paper behind a floating capture field made the
+     field look like it was hovering over text. The plate is a feathered radial
+     wash rather than a solid panel, so the wall still reads as one surface. */
+  padding: 22px 26px 26px;
+}
+.skw-centre::before {
+  content: ""; position: absolute; inset: -28px -40px; z-index: -1; pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 96%, transparent) 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 88%, transparent) 46%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 72%);
 }
 .skw-centre-hello {
   margin: 0; font-size: 21px; line-height: 30px; font-weight: 650; letter-spacing: -.3px;

@@ -74,6 +74,32 @@ const BUTTON_NAMED = (name) => `(() => {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
 })()`
 
+/**
+ * Open the dock's overflow menu and click one of its items.
+ *
+ * Two things make this a helper rather than three inline evaluates: the menu is
+ * React state, so the click that toggles it and the click that lands on an item
+ * MUST be separated by a paint (a same-task click reads a menu that is not in the
+ * DOM yet); and the dock button is matched by its accessible name, because the
+ * trigger is an icon.
+ */
+async function dockMenu(page, itemText) {
+  const opened = await page.evaluate(`(() => {
+    const more = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '更多');
+    more?.click();
+    return !!more;
+  })()`)
+  if (!opened) return { opened: false, clicked: false, items: [] }
+  await page.wait(600)
+  const items = await page.evaluate(`[...document.querySelectorAll('.skw-menu button')].map((b) => (b.innerText || '').trim())`)
+  const clicked = await page.evaluate(`(() => {
+    const item = [...document.querySelectorAll('.skw-menu button')].find((b) => (b.innerText || '').includes(${JSON.stringify(itemText)}));
+    item?.click();
+    return !!item;
+  })()`)
+  return { opened, clicked, items }
+}
+
 const results = []
 function record(name, value) {
   results.push({ check: name, ...value })
@@ -309,17 +335,21 @@ try {
   }))()`)
   record('archive-hides-note', { ok: archived.ok && afterArchive.visible === false, detail: `visible notes=${afterArchive.count}` })
 
-  await page.evaluate(`(() => {
-    const toggle = [...document.querySelectorAll('.skw-toggle')][0];
-    toggle?.click();
-    return !!toggle;
-  })()`)
+  // "Show archived" moved into the dock's overflow menu, because it is a mode
+  // rather than a frequent click and the always-visible strip overflowed the page.
+  const showArchivedMenu = await dockMenu(page, '显示归档')
+  if (!showArchivedMenu.clicked) {
+    throw new Error(`the dock menu did not offer show-archived: ${JSON.stringify(showArchivedMenu)}`)
+  }
   await page.wait(1000)
   const restoredVisible = await page.evaluate(`(() => ({
     visible: [...document.querySelectorAll('.skw-note')].some((n) => n.innerText.includes('验证便签')),
     archivedCards: [...document.querySelectorAll('.skw-note[data-archived="true"]')].length,
   }))()`)
-  record('show-archived-toggle', { ok: restoredVisible.visible === true, detail: `archived cards=${restoredVisible.archivedCards}` })
+  record('show-archived-toggle', {
+    ok: restoredVisible.visible === true,
+    detail: `archived cards=${restoredVisible.archivedCards}`,
+  })
   const archivedShot = await page.shot('sticky-wall-archived.png')
 
   // 7. The Host is the source of truth: a fresh reload must still show the note.
@@ -340,7 +370,10 @@ try {
   await page.wait(2000)
   // The note was archived in step 6, so the reloaded wall hides it by default:
   // enable the archived filter before asserting that the record still exists.
-  await page.evaluate(`(() => { document.querySelector('.skw-toggle')?.click(); return true; })()`)
+  const reloadedMenu = await dockMenu(page, '显示归档')
+  if (!reloadedMenu.clicked) {
+    throw new Error(`the dock menu did not offer show-archived after reload: ${JSON.stringify(reloadedMenu)}`)
+  }
   await page.wait(1500)
   const afterReload = await page.evaluate(`(() => ({
     wall: !!document.querySelector('.skw-page'),
@@ -461,6 +494,16 @@ try {
   const canvasShot = await page.shot('sticky-wall-canvas.png')
 
   // Now the wall is tidy, so a press can be aimed at one specific card.
+  // A dock menu left open from an earlier step floats over the canvas and would
+  // swallow the press. Close it the way a user would.
+  await page.evaluate(`(() => {
+    if (document.querySelector('.skw-menu')) {
+      const more = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '更多');
+      more?.click();
+    }
+    return true;
+  })()`)
+  await page.wait(400)
   const dragStart = await page.evaluate(`(() => {
     const card = [...document.querySelectorAll('.skw-note')].find((n) => n.innerText.includes('验证便签'));
     if (!card) return null;
@@ -473,14 +516,30 @@ try {
     // of the wall is legitimately underneath it.
     const dock = document.querySelector('.skw-dock')?.getBoundingClientRect();
     const ceiling = dock ? dock.top - 12 : Number.POSITIVE_INFINITY;
-    const x = rect.x + rect.width / 2;
-    let y = rect.y + rect.height * 0.62;
-    if (y > ceiling) y = Math.min(rect.y + rect.height - 6, ceiling);
-    const hit = document.elementFromPoint(x, y);
+    // The capture field is a screen-space overlay with its own pointer handling,
+    // so a press that lands on it never reaches the card underneath. Probe several
+    // points inside the card and take the first one that is genuinely the card.
+    const centre = document.querySelector('.skw-centre')?.getBoundingClientRect();
+    const probes = [];
+    for (const fx of [0.5, 0.3, 0.7, 0.5, 0.25, 0.75]) {
+      for (const fy of [0.62, 0.45, 0.78, 0.3, 0.85]) {
+        probes.push({ x: rect.x + rect.width * fx, y: rect.y + rect.height * fy });
+      }
+    }
+    let chosen = null;
+    let lastHit = null;
+    for (const probe of probes) {
+      if (probe.y > ceiling) continue;
+      if (centre && probe.x > centre.left && probe.x < centre.right && probe.y > centre.top && probe.y < centre.bottom) continue;
+      const hit = document.elementFromPoint(probe.x, probe.y);
+      lastHit = hit;
+      if (hit === card || (hit !== null && card.contains(hit))) { chosen = probe; break; }
+    }
     return {
-      x, y,
-      hitIsCard: hit === card || (hit !== null && card.contains(hit)),
-      hitClass: hit ? String(hit.className).slice(0, 40) : null,
+      x: chosen ? chosen.x : rect.x + rect.width / 2,
+      y: chosen ? chosen.y : rect.y + rect.height * 0.62,
+      hitIsCard: chosen !== null,
+      hitClass: chosen === null && lastHit ? String(lastHit.className).slice(0, 40) : null,
       left: card.style.left,
       top: card.style.top,
     };
@@ -602,7 +661,7 @@ try {
   await page.evaluate(`(() => {
     // Select by accessible name: the zoom group also holds the tidy button, so
     // "the last camera button" is no longer the reset control.
-    const reset = [...document.querySelectorAll('.skw-camera-btn')].find((b) => b.getAttribute('aria-label') === '重置视图');
+    const reset = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '重置视图');
     reset?.click();
     return !!reset;
   })()`)
@@ -717,15 +776,49 @@ try {
       fits: left >= viewport.left - 2 && right <= viewport.right + 2 && top >= viewport.top - 2 && bottom <= viewport.bottom + 2,
       zoom: document.querySelector('.skw-camera-value')?.textContent ?? null,
       zoomPercent: Number.parseInt(document.querySelector('.skw-camera-value')?.textContent ?? '0', 10),
+      // The dock floats OVER the canvas, so framing against the raw viewport put
+      // the bottom row of a tidied wall behind it. The camera must leave room.
+      worldSize: (() => {
+        const nodes = [...document.querySelectorAll('.skw-canvas .skw-note')];
+        const boxes = nodes.map((node) => {
+          const left = Number.parseFloat(node.style.left);
+          const top = Number.parseFloat(node.style.top);
+          const w = Number.parseFloat(node.style.width);
+          const h = Number.parseFloat(node.style.height);
+          return { x: left, y: top, r: left + w, b: top + h };
+        });
+        const minX = Math.min(...boxes.map((b) => b.x));
+        const maxX = Math.max(...boxes.map((b) => b.r));
+        const minY = Math.min(...boxes.map((b) => b.y));
+        const maxY = Math.max(...boxes.map((b) => b.b));
+        return { w: Math.round(maxX - minX), h: Math.round(maxY - minY), centre: [Math.round((minX + maxX) / 2), Math.round((minY + maxY) / 2)] };
+      })(),
+      viewport: [Math.round(viewport.width), Math.round(viewport.height)],
+      // Cards whose CENTRE is behind the dock. A wall taller than the usable
+      // viewport necessarily has some card edges near the dock at the framing
+      // floor; what must never happen is the wall being positioned so its middle
+      // (and therefore the centrepiece) is under the dock.
+      behindDock: (() => {
+        const dock = document.querySelector('.skw-dock')?.getBoundingClientRect();
+        if (!dock) return 0;
+        return [...document.querySelectorAll('.skw-canvas .skw-note')].filter((node) => {
+          const r = node.getBoundingClientRect();
+          const cy = r.top + r.height / 2;
+          return cy > dock.top && cy < dock.bottom;
+        }).length;
+      })(),
     };
   })()`)
   record('canvas-large-wall-is-a-centred-disc', {
-    // A readable floor means a big wall may not fit entirely; what must hold is
-    // that it is CENTRED, legible and free of overlaps.
+    // What must hold: the wall is CENTRED, legible, free of overlaps, and its cards
+    // are not hidden behind the dock. It does NOT have to fit entirely — the
+    // readable zoom floor exists precisely so a large wall is shown at a legible
+    // size and panned, rather than shrunk into confetti. The wall's own bounding
+    // box is centred on the viewport, which is what the camera frames.
     ok: bigWall.cards >= 10 && bigWall.overlaps === 0 &&
       Math.abs(bigWall.offsetX) < 340 && Math.abs(bigWall.offsetY) < 340 &&
-      bigWall.ratio > 0.5 && bigWall.ratio < 2 && bigWall.zoomPercent >= 50,
-    detail: `${bigWall.cards} cards (seeded ${seeded}), overlaps=${bigWall.overlaps}, offset=(${Math.round(bigWall.offsetX)},${Math.round(bigWall.offsetY)}), ratio=${bigWall.ratio.toFixed(2)}, zoom=${bigWall.zoom}, fits=${bigWall.fits}`,
+      bigWall.ratio > 0.5 && bigWall.ratio < 2 && bigWall.zoomPercent >= 42 && bigWall.behindDock === 0,
+    detail: `${bigWall.cards} cards (seeded ${seeded}), overlaps=${bigWall.overlaps}, offset=(${Math.round(bigWall.offsetX)},${Math.round(bigWall.offsetY)}), ratio=${bigWall.ratio.toFixed(2)}, zoom=${bigWall.zoom}, fits=${bigWall.fits}, behindDock=${bigWall.behindDock}, world=${bigWall.worldSize.w}x${bigWall.worldSize.h}`,
   })
   const bigShot = await page.shot('sticky-wall-canvas-many.png')
 
@@ -811,6 +904,82 @@ try {
     detail: `${captureBefore} -> ${captureAfter.notes} notes, field cleared=${captureAfter.field === ''}`,
   })
 
+  // The new card must be VISIBLE and must not sit under the centrepiece.
+  // The complaint: a capture from the centre field produced a card far away, so
+  // the wall looked like the capture had silently failed.
+  //
+  // Overlap is judged in WORLD space against the packer's own reserve rectangle,
+  // using each card's rotated footprint — the same geometry `arrangeLayouts`
+  // collision-checks. A painted-rect comparison is not usable here: a card's
+  // arrival animation and its tilt both change its bounding box, so the answer
+  // would depend on when the probe happened to run.
+  // Wait for the arrival animation to settle: the assertion is about where the
+  // card LANDED, not about a mid-animation frame.
+  await page.wait(1200)
+  const arrivalState = await page.evaluate(`(() => {
+    const world = document.querySelector('.skw-world');
+    const canvas = document.querySelector('.skw-canvas').getBoundingClientRect();
+    const RESERVE = { halfWidth: 330, halfHeight: 136 };
+    const footprint = (node) => {
+      // offsetLeft/offsetTop are the UNTRANSFORMED layout box, so an in-flight
+      // arrival animation or a tilt cannot move the measurement.
+      const left = node.offsetLeft;
+      const top = node.offsetTop;
+      const width = node.offsetWidth;
+      const height = node.offsetHeight;
+      const rotate = Math.abs(Number.parseFloat((node.style.transform.match(/rotate\\((-?[\\d.]+)deg\\)/) || [0, '0'])[1]) || 0);
+      const rad = (rotate * Math.PI) / 180;
+      const extentWidth = width * Math.cos(rad) + height * Math.sin(rad);
+      const extentHeight = height * Math.cos(rad) + width * Math.sin(rad);
+      const centreX = left + width / 2;
+      const centreY = top + height / 2;
+      const x = centreX - extentWidth / 2;
+      const y = centreY - extentHeight / 2;
+      return { x, y, width: extentWidth, height: extentHeight, centreX, centreY };
+    };
+    const inReserve = (box) =>
+      box.x < RESERVE.halfWidth && box.x + box.width > -RESERVE.halfWidth &&
+      box.y < RESERVE.halfHeight && box.y + box.height > -RESERVE.halfHeight;
+    const nodes = [...document.querySelectorAll('.skw-canvas .skw-note')];
+    const cards = nodes.map((node) => ({
+      text: (node.innerText || '').slice(0, 24),
+      box: footprint(node),
+      rect: node.getBoundingClientRect(),
+      arrived: node.getAttribute('data-arrived') === 'true',
+    }));
+    const fresh = cards.find((card) => card.text.includes('圆心快速记录'));
+    if (!fresh) return { ok: false, reason: 'the new card is not rendered' };
+    const cx = fresh.rect.left + fresh.rect.width / 2;
+    const cy = fresh.rect.top + fresh.rect.height / 2;
+    const onScreen = cx > canvas.left && cx < canvas.right && cy > canvas.top && cy < canvas.bottom;
+    const covering = cards.filter((card) => inReserve(card.box)).map((card) => card.text.slice(0, 12));
+    const zoom = world ? new DOMMatrix(getComputedStyle(world).transform).a : 1;
+    return {
+      ok: true, onScreen, covering, cards: cards.length, arrived: fresh.arrived,
+      freshInReserve: inReserve(fresh.box),
+      // How far the fresh card's centre is from the wall's middle, in world px.
+      distance: Math.round(Math.hypot(fresh.box.centreX, fresh.box.centreY)),
+      zoom: Number(zoom.toFixed(2)),
+    };
+  })()`)
+  record('centre-capture-lands-visible-and-clear-of-the-field', {
+    ok: arrivalState.ok === true && arrivalState.onScreen === true &&
+      arrivalState.freshInReserve === false && arrivalState.covering.length === 0,
+    detail: arrivalState.ok === false
+      ? arrivalState.reason
+      : `onScreen=${arrivalState.onScreen} inReserve=${arrivalState.freshInReserve} distance=${arrivalState.distance}px cardsOverField=${arrivalState.covering.length}/${arrivalState.cards} zoom=${arrivalState.zoom}`,
+  })
+  // Every card, not just the new one, must stay out of the reserved centre: the
+  // reserve is the invariant the overlap complaint was really about.
+  record('no-card-covers-the-centrepiece', {
+    ok: arrivalState.ok === true && arrivalState.covering.length === 0,
+    detail: arrivalState.ok === false
+      ? arrivalState.reason
+      : arrivalState.covering.length === 0
+        ? `${arrivalState.cards} cards, centrepiece clear`
+        : `covered by: ${arrivalState.covering.join(' | ')}`,
+  })
+
   // The dock must be a single floating row over the canvas, and the canvas must
   // occupy the whole page (no header/toolbar rows eating vertical space).
   const layoutState = await page.evaluate(`(() => {
@@ -825,12 +994,20 @@ try {
       dockCentred: Math.abs((dock.left + dock.right) / 2 - (canvas.left + canvas.right) / 2) < 3,
       dockHeight: dock.height,
       dockRows: new Set([...document.querySelectorAll('.skw-dock > *')].map((n) => Math.round(n.getBoundingClientRect().top))).size,
+      dockOverflowsPage: dock.left < page.left - 1 || dock.right > page.right + 1,
+      // Every control must be INSIDE the dock's own painted box: the complaint was
+      // that buttons spilled past the background they were drawn on.
+      controlsOutside: [...document.querySelectorAll('.skw-dock button, .skw-dock input')].filter((node) => {
+        const r = node.getBoundingClientRect();
+        return r.width > 0 && (r.left < dock.left - 1 || r.right > dock.right + 1 || r.top < dock.top - 1 || r.bottom > dock.bottom + 1);
+      }).length,
     };
   })()`)
   record('canvas-fills-the-page-with-a-floating-dock', {
     ok: !layoutState.head && !layoutState.toolbar && layoutState.canvasRatio > 0.95 &&
-      layoutState.dockInsideCanvas && layoutState.dockCentred && layoutState.dockHeight < 90,
-    detail: `canvas=${(layoutState.canvasRatio * 100).toFixed(1)}% of page, dock ${Math.round(layoutState.dockHeight)}px tall, centred=${layoutState.dockCentred}`,
+      layoutState.dockInsideCanvas && layoutState.dockCentred && layoutState.dockHeight < 90 &&
+      !layoutState.dockOverflowsPage && layoutState.controlsOutside === 0,
+    detail: `canvas=${(layoutState.canvasRatio * 100).toFixed(1)}% of page, dock ${Math.round(layoutState.dockHeight)}px tall, centred=${layoutState.dockCentred}, overflowsPage=${layoutState.dockOverflowsPage}, controlsOutside=${layoutState.controlsOutside}`,
   })
   record('canvas-large-wall-screenshot', { ok: true, detail: bigShot })
 

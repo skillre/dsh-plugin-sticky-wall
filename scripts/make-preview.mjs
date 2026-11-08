@@ -52,7 +52,7 @@ const COPY = {
     codeLines: ['pnpm build', 'then drag me'],
     checkHead: 'A quiet corner',
     checkItems: ['Draft', 'Review'],
-    quoteShort: 'Tools should disappear.',
+    quoteShort: 'Tools should vanish.',
     plainHead: 'Morning pages',
     plainBody: ['Three lines', 'before coffee.'],
     tableHead: 'Sprint',
@@ -66,6 +66,8 @@ const COPY = {
     centreTally: '14 notes · 1 archived',
     capture: 'Jot an idea, or paste a link',
     views: ['Canvas', 'Grid', 'List'],
+    count: '14',
+    more: 'More',
   },
   zh: {
     appName: '便签墙',
@@ -101,6 +103,8 @@ const COPY = {
     centreTally: '14 张便签 · 1 张已归档',
     capture: '记下一个灵感，或粘贴一个链接',
     views: ['画布', '网格', '列表'],
+    count: '14',
+    more: '更多',
   },
 }
 
@@ -261,50 +265,122 @@ function sidebar(t) {
     .join('')}`
 }
 
-/** The floating dock along the bottom of the canvas. */
+/**
+ * The floating dock along the bottom of the canvas.
+ *
+ * Mirrors the shipped strip: search, the filter chips, three icon view buttons,
+ * the zoom group, an overflow menu button, the count and the filled "+". It is
+ * drawn as ONE short row so the banner shows why the redesign happened — the old
+ * row of nine labelled controls is what overflowed the background.
+ */
 function dock(t) {
   const y = 546
   const left = 268
-  const width = 744
-  // Search field on the left, then the chips, then the quiet actions, then "+".
-  const searchWidth = 150
-  let cursor = left + 14 + searchWidth + 12
-  const chipMarkup = t.chips
-    .map((label, index) => {
-      const w = Math.max(46, label.length * 12 + 18)
-      const x = cursor
-      cursor += w + 5
-      return `
-    <rect x="${x}" y="${y}" width="${w}" height="26" rx="13" fill="#ffffff" fill-opacity="${index === 0 ? '0.92' : '0.06'}"/>
-    <text x="${x + w / 2}" y="${y + 18}" font-size="11.5" font-weight="${index === 0 ? '600' : '500'}" fill="${index === 0 ? '#14161b' : '#ffffff'}" fill-opacity="${index === 0 ? '1' : '0.6'}" text-anchor="middle" font-family="${SANS}">${esc(label)}</text>`
-    })
-    .join('')
-  cursor += 6
-  const divider = cursor
-  cursor += 12
-  const viewMarkup = t.views
-    .map((label, index) => {
-      const w = Math.max(44, label.length * 12 + 16)
-      const x = cursor
-      cursor += w + 5
-      return `
-    <rect x="${x}" y="${y}" width="${w}" height="26" rx="13" fill="#ffffff" fill-opacity="${index === 0 ? '0.92' : '0.06'}"/>
-    <text x="${x + w / 2}" y="${y + 18}" font-size="11.5" font-weight="${index === 0 ? '600' : '500'}" fill="${index === 0 ? '#14161b' : '#ffffff'}" fill-opacity="${index === 0 ? '1' : '0.6'}" text-anchor="middle" font-family="${SANS}">${esc(label)}</text>`
-    })
-    .join('')
+  const pad = 8
+  const inner = y - 4
+  const height = 32
+  let cursor = left + pad
+  const parts = []
+
+  // Search field.
+  const searchWidth = 148
+  parts.push(`
+  <rect x="${cursor}" y="${inner}" width="${searchWidth}" height="${height}" rx="9" fill="#ffffff" fill-opacity="0.06"/>
+  <circle cx="${cursor + 16}" cy="${inner + 15}" r="5" fill="none" stroke="#ffffff" stroke-opacity="0.4" stroke-width="1.5"/>
+  <path d="M${cursor + 19.5} ${inner + 18.5} l3.4 3.4" stroke="#ffffff" stroke-opacity="0.4" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="${cursor + 30}" y="${inner + 20}" font-size="11.5" fill="#ffffff" fill-opacity="0.32" font-family="${SANS}">${esc(t.search)}</text>`)
+  cursor += searchWidth + 8
+
+  // Divider.
+  parts.push(`<line x1="${cursor}" y1="${inner + 7}" x2="${cursor}" y2="${inner + 25}" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>`)
+  cursor += 8
+
+  // Filter chips: the first is filled.
+  for (const [index, label] of t.chips.entries()) {
+    const w = Math.max(38, label.length * 12 + 16)
+    parts.push(`
+  <rect x="${cursor}" y="${inner}" width="${w}" height="${height}" rx="8" fill="#ffffff" fill-opacity="${index === 0 ? '0.92' : '0.055'}"/>
+  <text x="${cursor + w / 2}" y="${inner + 20}" font-size="11.5" font-weight="${index === 0 ? '600' : '500'}" fill="${index === 0 ? '#14161b' : '#ffffff'}" fill-opacity="${index === 0 ? '1' : '0.58'}" text-anchor="middle" font-family="${SANS}">${esc(label)}</text>`)
+    cursor += w + 3
+  }
+  cursor += 5
+
+  parts.push(`<line x1="${cursor}" y1="${inner + 7}" x2="${cursor}" y2="${inner + 25}" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>`)
+  cursor += 8
+
+  // Three icon view buttons; the first is active.
+  const icons = [
+    // Canvas: three offset cards.
+    `<rect x="-6" y="-6" width="7" height="6" rx="1.4" stroke="#14161b" stroke-width="1.4" fill="none"/>
+     <rect x="2" y="-3" width="7" height="6" rx="1.4" stroke="#14161b" stroke-width="1.4" fill="none"/>
+     <rect x="-3" y="3" width="7" height="6" rx="1.4" stroke="#14161b" stroke-width="1.4" fill="none"/>`,
+    // Grid: four squares.
+    `<rect x="-6" y="-6" width="5.4" height="5.4" rx="1.2" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.4" fill="none"/>
+     <rect x="1.4" y="-6" width="5.4" height="5.4" rx="1.2" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.4" fill="none"/>
+     <rect x="-6" y="1.4" width="5.4" height="5.4" rx="1.2" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.4" fill="none"/>
+     <rect x="1.4" y="1.4" width="5.4" height="5.4" rx="1.2" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.4" fill="none"/>`,
+    // List: three rules.
+    `<path d="M-6 -5h12M-6 0h12M-6 5h8" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.5" stroke-linecap="round"/>`,
+  ]
+  for (const [index, icon] of icons.entries()) {
+    const x = cursor
+    parts.push(`
+  <rect x="${x}" y="${inner}" width="30" height="${height}" rx="8" fill="#ffffff" fill-opacity="${index === 0 ? '0.92' : '0'}"/>
+  <g transform="translate(${x + 15} ${inner + 16})">${icon}</g>`)
+    cursor += 30 + 2
+  }
+  cursor += 4
+
+  parts.push(`<line x1="${cursor}" y1="${inner + 7}" x2="${cursor}" y2="${inner + 25}" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>`)
+  cursor += 8
+
+  // Zoom group: minus, readout, plus, tidy.
+  const zoomParts = [
+    { glyph: `<path d="M-5 0h10" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.6" stroke-linecap="round"/>`, w: 26 },
+    { text: t.zoom, w: 40 },
+    { glyph: `<path d="M-5 0h10M0 -5v10" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.6" stroke-linecap="round"/>`, w: 26 },
+    {
+      glyph: `<path d="M0 -6l1.7 4.3 4.3 1.7-4.3 1.7L0 6l-1.7-4.3L-6 -1.7l4.3-1.7L0 -6Z" stroke="#ffffff" stroke-opacity="0.62" stroke-width="1.3" fill="none" stroke-linejoin="round"/>`,
+      w: 28,
+    },
+  ]
+  for (const part of zoomParts) {
+    if (part.text !== undefined) {
+      parts.push(`<text x="${cursor + part.w / 2}" y="${inner + 20}" font-size="11" fill="#ffffff" fill-opacity="0.4" text-anchor="middle" font-family="${SANS}">${esc(part.text)}</text>`)
+    } else {
+      parts.push(`<g transform="translate(${cursor + part.w / 2} ${inner + 16})">${part.glyph}</g>`)
+    }
+    cursor += part.w
+  }
+  cursor += 4
+
+  parts.push(`<line x1="${cursor}" y1="${inner + 7}" x2="${cursor}" y2="${inner + 25}" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1"/>`)
+  cursor += 8
+
+  // Overflow menu button (three dots).
+  parts.push(`
+  <g transform="translate(${cursor + 14} ${inner + 16})">
+    <circle cx="-5" cy="0" r="1.5" fill="#ffffff" fill-opacity="0.6"/>
+    <circle cx="0" cy="0" r="1.5" fill="#ffffff" fill-opacity="0.6"/>
+    <circle cx="5" cy="0" r="1.5" fill="#ffffff" fill-opacity="0.6"/>
+  </g>`)
+  cursor += 30
+
+  // Count and the filled "+", placed after the content so the strip is exactly
+  // as wide as what it holds — a fixed width collided in the English copy, whose
+  // chips are wider than the Chinese ones.
+  cursor += 8
+  const countX = cursor + 8
+  const plusX = countX + 22 + 18
+  parts.push(`
+  <text x="${countX}" y="${inner + 20}" font-size="11" fill="#ffffff" fill-opacity="0.34" font-family="${SANS}">${esc(t.count)}</text>
+  <circle cx="${plusX}" cy="${inner + 16}" r="14" fill="#4d7cfe"/>
+  <path d="M${plusX} ${inner + 9.5} v13 M${plusX - 6.5} ${inner + 16} h13" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>`)
+  const width = plusX + 15 + pad - left
+
   return `
-  <rect x="${left}" y="${y - 9}" width="${width}" height="44" rx="15" fill="#0f1115" fill-opacity="0.9" stroke="#ffffff" stroke-opacity="0.13" stroke-width="1"/>
-  <rect x="${left + 14}" y="${y - 2}" width="${searchWidth}" height="30" rx="9" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1"/>
-  <circle cx="${left + 30}" cy="${y + 10}" r="5.2" fill="none" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.5"/>
-  <path d="M${left + 34} ${y + 14} l3.6 3.6" stroke="#ffffff" stroke-opacity="0.42" stroke-width="1.5" stroke-linecap="round"/>
-  <text x="${left + 44}" y="${y + 18}" font-size="11.5" fill="#ffffff" fill-opacity="0.34" font-family="${SANS}">${esc(t.search)}</text>
-  ${chipMarkup}
-  <line x1="${divider}" y1="${y + 3}" x2="${divider}" y2="${y + 23}" stroke="#ffffff" stroke-opacity="0.13" stroke-width="1"/>
-  ${viewMarkup}
-  <text x="${cursor + 8}" y="${y + 18}" font-size="11" fill="#ffffff" fill-opacity="0.36" font-family="${SANS}">${esc(t.zoom)}</text>
-  <text x="${cursor + 46}" y="${y + 18}" font-size="11" fill="#ffffff" fill-opacity="0.36" font-family="${SANS}">${esc(t.tidy)}</text>
-  <circle cx="${left + width - 26}" cy="${y + 13}" r="14" fill="#4d7cfe"/>
-  <path d="M${left + width - 26} ${y + 6.5} v13 M${left + width - 32.5} ${y + 13} h13" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>`
+  <rect x="${left}" y="${inner - 5}" width="${width}" height="${height + 10}" rx="15" fill="#0f1115" fill-opacity="0.9" stroke="#ffffff" stroke-opacity="0.13" stroke-width="1"/>
+  ${parts.join('')}`
 }
 
 /** One language's complete banner. */

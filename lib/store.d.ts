@@ -16,7 +16,7 @@
  * with zod record schemas.
  */
 import { z } from 'zod';
-import { type Note, type NoteInput, type NoteLayout, type NotePatch } from './types.js';
+import { type CentreReserve, type Note, type NoteInput, type NoteLayout, type NotePatch } from './types.js';
 /** Failure carrying a stable code the transport maps onto the RPC envelope. */
 export declare class WallError extends Error {
     readonly code: string;
@@ -120,8 +120,18 @@ export declare class StickyWallStore {
     private seedWelcomeNote;
     /** Every stored note, newest-relevant first; archived ones only on request. */
     list(includeArchived?: boolean, sort?: 'pinned' | 'created' | 'updated'): Note[];
-    /** Create one note from a Client or agent submission. */
-    create(input: NoteInput, id?: string): Promise<Note>;
+    /**
+     * Create one note from a Client or agent submission.
+     *
+     * `options.centreReserve` is the Client's zoom-corrected version of the clear
+     * rectangle around the wall's centrepiece. It only affects a note created
+     * WITHOUT a layout: the Host places that note in the nearest free gap, which
+     * is what makes a capture from the centre field appear right next to the field
+     * instead of wherever an index-derived spiral happened to reach.
+     */
+    create(input: NoteInput, id?: string, options?: {
+        centreReserve?: CentreReserve | undefined;
+    }): Promise<Note>;
     private createNow;
     /** Apply one patch; `updatedAt` moves only when a field actually changed. */
     update(id: string, patch: NotePatch): Promise<Note>;
@@ -162,7 +172,9 @@ export declare class StickyWallStore {
      * without refetching the whole wall, and pressing tidy on an already-tidy
      * wall is a no-op instead of a write storm.
      */
-    arrange(): Promise<Note[]>;
+    arrange(options?: {
+        centreReserve?: CentreReserve | undefined;
+    }): Promise<Note[]>;
     private arrangeNow;
     /**
      * Permanently remove every archived note.
