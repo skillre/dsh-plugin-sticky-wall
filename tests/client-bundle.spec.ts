@@ -44,12 +44,23 @@ function loadBundle(): LoadedModule {
   return entry
 }
 
+/**
+ * The baseline React face the shipped module table provides.
+ *
+ * It is deliberately complete for what the bundle uses: a hook missing here is a
+ * real defect, not a test gap, because the browser module table would throw the
+ * same TypeError at runtime. `memo` is identity here (it is called at module
+ * scope), which is enough to prove the bundle resolves and registers.
+ */
 const REACT_STUB = {
   createElement: () => null,
   Fragment: () => null,
+  memo: <T,>(component: T): T => component,
   useState: (initial: unknown) => [typeof initial === 'function' ? (initial as () => unknown)() : initial, () => {}],
   useEffect: () => {},
+  useLayoutEffect: () => {},
   useMemo: (factory: () => unknown) => factory(),
+  useCallback: (callback: unknown) => callback,
   useRef: (value: unknown) => ({ current: value }),
   jsx: () => null,
   jsxs: () => null,

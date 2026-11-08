@@ -218,14 +218,17 @@ describe('view modes and the free canvas', () => {
     })
     render(<WallPage api={api} locale={locale} t={t} />)
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(2))
-    const placed = document.querySelector('[data-note-id="a"] .skw-note') as HTMLElement
+    // The card itself carries the id now: the old full-size slot wrapper was an
+    // extra element per note that existed only to hold an attribute.
+    const placed = document.querySelector('[data-note-id="a"]') as HTMLElement
+    expect(placed.classList.contains('skw-note')).toBe(true)
     expect(placed.style.left).toBe('140px')
     expect(placed.style.top).toBe('90px')
     // The stored preset drives the rendered width, not a responsive guess.
     expect(placed.style.width).toBe(`${WIDTH_PX.lg}px`)
     expect(placed.style.transform).toContain('rotate(-3deg)')
     // A never-placed note still lands somewhere distinct instead of at (0,0).
-    const derived = document.querySelector('[data-note-id="b"] .skw-note') as HTMLElement
+    const derived = document.querySelector('[data-note-id="b"]') as HTMLElement
     expect(derived.style.left).not.toBe('0px')
   })
 
@@ -292,12 +295,12 @@ describe('view modes and the free canvas', () => {
     })
     render(<WallPage api={api} locale={locale} t={t} />)
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(2))
-    const beforeLeft = (document.querySelector('[data-note-id="b"] .skw-note') as HTMLElement).style.left
+    const beforeLeft = (document.querySelector('[data-note-id="b"]') as HTMLElement).style.left
     // Filter down to just "b": if the index came from the filtered list it
     // would now be index 0 and jump.
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'beta' } })
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
-    const afterLeft = (document.querySelector('[data-note-id="b"] .skw-note') as HTMLElement).style.left
+    const afterLeft = (document.querySelector('[data-note-id="b"]') as HTMLElement).style.left
     expect(afterLeft).toBe(beforeLeft)
   })
 
@@ -309,7 +312,7 @@ describe('view modes and the free canvas', () => {
     })
     render(<WallPage api={api} locale={locale} t={t} />)
     await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
-    const card = document.querySelector('[data-note-id="a"] .skw-note') as HTMLElement
+    const card = document.querySelector('[data-note-id="a"]') as HTMLElement
     expect(card.style.transform).toContain('rotate(-3deg)')
     // Drive a real drag through the pointer handlers the component installs.
     // jsdom has no PointerEvent constructor, so build a plain Event and attach
@@ -385,8 +388,52 @@ describe('view modes and the free canvas', () => {
       window.dispatchEvent(pointer('pointerup', 140, 130))
     })
     await waitFor(() => expect(api.calls).toContain('move'))
-    // The inline transform must still carry the card's rotation.
+    // The drop hands the drag offset over to left/top and keeps the tilt: the
+    // card must never straighten, and it must never snap back to the corner it
+    // started from while the Host round-trip is in flight.
     expect(card.style.transform).toContain('rotate(-3deg)')
+    expect(card.style.transform).not.toContain('translate3d')
+    const moved = (api as unknown as { lastMove?: { layout: { x: number; y: number } } }).lastMove
+    // 40px/30px of travel at zoom 1, on top of the stored 10/10.
+    expect(moved?.layout.x).toBe(50)
+    expect(moved?.layout.y).toBe(40)
+  })
+
+  it('writes the dropped position optimistically, before the Host answers', async () => {
+    // Regression: the card used to snap back to its old corner on drop and only
+    // jump forward once the reload landed, which read as the drag "not sticking".
+    // The drop now writes left/top on the node AND the note list immediately.
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 10, y: 10, rotate: 0, width: 'md' } })],
+      move: async (id, layout) => {
+        await gate
+        return makeNote({ id, layout })
+      },
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const card = document.querySelector('.skw-canvas .skw-note') as HTMLElement
+    const pointer = (type: string, x: number, y: number): Event => {
+      const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+      event.pointerId = 1
+      event.clientX = x
+      event.clientY = y
+      event.button = 0
+      event.isPrimary = true
+      return event
+    }
+    act(() => { card.dispatchEvent(pointer('pointerdown', 100, 100)) })
+    act(() => {
+      window.dispatchEvent(pointer('pointermove', 150, 140))
+      window.dispatchEvent(pointer('pointerup', 150, 140))
+    })
+    // The Host has not answered yet (the move is gated), so this is purely the
+    // optimistic write: without it the card would sit at 10px.
+    await waitFor(() => expect(card.style.left).toBe('60px'))
+    expect(card.style.top).toBe('50px')
+    release?.()
   })
 
   it('marks the dragged card on the node instead of re-rendering the wall', async () => {
@@ -412,6 +459,115 @@ describe('view modes and the free canvas', () => {
     expect(card.getAttribute('data-dragging')).toBe('true')
     act(() => { window.dispatchEvent(pointer('pointerup', 100, 100)) })
     await waitFor(() => expect(card.getAttribute('data-dragging')).toBeNull())
+  })
+
+  it('opens the canvas looking at the middle of the wall, not a corner', async () => {
+    // The complaint this fixes: the wall opened on its top-left corner, so the
+    // first thing a user saw was empty paper with the notes off to one side.
+    // The camera now centres on the visible wall's centroid.
+    const api = makeApi({
+      list: async () => [
+        makeNote({ id: 'a', body: 'x', layout: { x: 400, y: 300, rotate: 0, width: 'md' } }),
+        makeNote({ id: 'b', body: 'y', layout: { x: 800, y: 500, rotate: 0, width: 'md' } }),
+      ],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-canvas .skw-note').length).toBe(2))
+    const world = document.querySelector('.skw-world') as HTMLElement
+    // jsdom reports a zero-sized viewport, so the centre offset is exactly the
+    // negated centroid: (400+222/2 + 800+222/2)/2 = 711, (300+h + 500+h)/2.
+    const match = world.style.transform.match(/translate3d\((-?[\d.]+)px, (-?[\d.]+)px, 0\) scale\(([\d.]+)\)/)
+    expect(match).not.toBeNull()
+    const panX = Number.parseFloat(match![1]!)
+    const panY = Number.parseFloat(match![2]!)
+    expect(panX).toBeLessThan(-500)
+    expect(panX).toBeGreaterThan(-900)
+    expect(panY).toBeLessThan(-300)
+    expect(panY).toBeGreaterThan(-700)
+    expect(Number.parseFloat(match![3]!)).toBe(1)
+  })
+
+  it('keeps the zoom anchored so the wall does not jump', async () => {
+    // Zoom used to scale from the world origin, which threw the visible content
+    // off screen at every step. The anchor point now stays fixed.
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 400, y: 300, rotate: 0, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-canvas .skw-note').length).toBe(1))
+    const world = document.querySelector('.skw-world') as HTMLElement
+    const read = (): { panX: number; panY: number; zoom: number } => {
+      const match = world.style.transform.match(/translate3d\((-?[\d.]+)px, (-?[\d.]+)px, 0\) scale\(([\d.]+)\)/)!
+      return { panX: Number.parseFloat(match[1]!), panY: Number.parseFloat(match[2]!), zoom: Number.parseFloat(match[3]!) }
+    }
+    const before = read()
+    // The world point under the (zero-sized) viewport's top-left corner.
+    const worldX = (0 - before.panX) / before.zoom
+    const worldY = (0 - before.panY) / before.zoom
+    fireEvent.click(screen.getByRole('button', { name: copy('zoomIn') }))
+    await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('115%'))
+    const after = read()
+    expect(after.zoom).toBeCloseTo(1.15, 5)
+    // Same world point under the same anchor: pan == -world * newZoom.
+    expect(after.panX).toBeCloseTo(-worldX * after.zoom, 3)
+    expect(after.panY).toBeCloseTo(-worldY * after.zoom, 3)
+  })
+
+  it('pans by dragging empty paper and recentres on reset', async () => {
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 300, y: 200, rotate: 0, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-canvas .skw-note').length).toBe(1))
+    const canvas = document.querySelector('.skw-canvas') as HTMLElement
+    const world = document.querySelector('.skw-world') as HTMLElement
+    const panX = (): number => Number.parseFloat(world.style.transform.match(/translate3d\((-?[\d.]+)px/)![1]!)
+    const before = panX()
+    const pointer = (type: string, x: number, y: number): Event => {
+      const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+      event.pointerId = 7
+      event.clientX = x
+      event.clientY = y
+      event.button = 0
+      event.isPrimary = true
+      return event
+    }
+    act(() => { canvas.dispatchEvent(pointer('pointerdown', 500, 400)) })
+    act(() => {
+      window.dispatchEvent(pointer('pointermove', 560, 430))
+      window.dispatchEvent(pointer('pointerup', 560, 430))
+    })
+    // rAF drives the paint; wait for the world transform to move.
+    await waitFor(() => expect(panX()).toBe(before + 60))
+    // A pan is not a note mutation: dragging paper must not write to the Host.
+    expect(api.calls).not.toContain('move')
+    fireEvent.click(screen.getByRole('button', { name: copy('zoomReset') }))
+    await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('100%'))
+    expect(panX()).toBe(before)
+  })
+
+  it('does not start a pan when the press lands on a card', async () => {
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 300, y: 200, rotate: 0, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-canvas .skw-note').length).toBe(1))
+    const canvas = document.querySelector('.skw-canvas') as HTMLElement
+    const card = document.querySelector('.skw-canvas .skw-note') as HTMLElement
+    const pointer = (type: string, x: number, y: number): Event => {
+      const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+      event.pointerId = 9
+      event.clientX = x
+      event.clientY = y
+      event.button = 0
+      event.isPrimary = true
+      return event
+    }
+    // A press on the card bubbles up to the canvas; the canvas must ignore it.
+    act(() => { card.dispatchEvent(pointer('pointerdown', 320, 220)) })
+    expect(canvas.getAttribute('data-panning')).toBeNull()
+    expect(card.getAttribute('data-dragging')).toBe('true')
+    act(() => { window.dispatchEvent(pointer('pointerup', 320, 220)) })
   })
 
   it('keeps the camera controls usable and bounded', async () => {

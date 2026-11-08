@@ -4,15 +4,18 @@
  * The wall is a canvas, not a grid: every card owns a world position, a
  * rotation and a width preset. Two operations produce those numbers:
  *
- * - {@link arrangeLayouts} is the Host-side "tidy" pass. It is deterministic:
- *   the same notes always produce the same wall, so a user who presses tidy
- *   twice does not get a reshuffled board, and a test can assert the exact
- *   packing without a browser.
+ * - {@link arrangeLayouts} is the Host-side "tidy" pass. It packs the wall into
+ *   a phyllotaxis (sunflower) disc **centred on the world origin**, so the wall
+ *   has a middle instead of a top-left corner: the Client opens looking at that
+ *   middle, and a tidied wall reads as one composition rather than a list that
+ *   happens to wrap. It is deterministic — the same notes always produce the
+ *   same wall — and it is collision-checked rather than estimated, so two cards
+ *   can never overlap even at the height cap.
  * - {@link previewLayout} is the Client-side fallback for a note that was never
  *   placed (a wall written before the canvas existed, or a note created by the
- *   agent tool). It derives a position from the note's own id and its index in
- *   the stable order, so the first render is already a scattered wall instead
- *   of one tall stack, and it never writes to the Host.
+ *   agent tool). It is the same spiral without the collision check: O(1) per
+ *   note, index-stable, and centred, so the first render is already a scattered
+ *   wall around the middle instead of one tall stack.
  *
  * Both halves import this module, so the geometry never drifts between the
  * value the Host persists and the value the Client previews.
@@ -41,8 +44,10 @@ export declare function layoutOf(note: Note, index: number): NoteLayout;
 /**
  * Derived position for a note the user never placed.
  *
- * Index-based so two never-placed notes cannot collide, hash-jittered so the
- * result still looks scattered rather than gridded.
+ * Index-based so two never-placed notes cannot collide, golden-angle spiralled
+ * so the result reads as a wall scattered around the middle rather than a grid.
+ * The height used for centring is a nominal constant, not the real estimate:
+ * a derived position must not move when the user edits the note's text.
  */
 export declare function previewLayout(note: Note, index: number): NoteLayout;
 /**
@@ -60,16 +65,20 @@ export declare function rotatedExtent(width: number, height: number, rotate: num
 /**
  * Deterministic tidy arrangement for the whole wall.
  *
- * Shelf packing: cards flow left to right with a hash jitter and a small tilt,
- * wrapping to a new shelf when the row is full. The shelf width adapts to the
- * wall: a large wall gets wider shelves so the arrangement stays roughly square
- * instead of growing into a single column kilometres tall. The output is shifted
- * so the top-left card starts near the origin, which keeps the canvas' scroll
- * extent predictable instead of starting inside negative space.
+ * Phyllotaxis packing around the world origin: candidate positions are visited
+ * on a sunflower spiral and the first one that clears every placed card is
+ * accepted. The spiral's step is derived from the wall's own average card area,
+ * so a wall of small notes packs tightly while a wall of large ones does not
+ * overlap, and a big wall grows outward in a disc instead of a column that runs
+ * off the coordinate limit.
+ *
+ * A collision check rather than a shelf estimate is what makes the result
+ * trustworthy: the estimate is only a height guess, so any packing that merely
+ * trusts it can overlap at the cap. This one cannot.
  *
  * Returns a map from note id to its new layout, for every note that needs to
- * move. Notes already at exactly that layout are omitted, so pressing tidy on
- * an already-tidy wall writes nothing.
+ * move. Notes already at exactly that layout are omitted by the caller, so
+ * pressing tidy on an already-tidy wall writes nothing.
  */
 export declare function arrangeLayouts(notes: readonly Note[]): Map<string, NoteLayout>;
 /** Normalize a submitted width preset, defaulting to the middle size. */

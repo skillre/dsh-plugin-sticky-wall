@@ -353,20 +353,19 @@ try {
     const card = [...document.querySelectorAll('.skw-note')].find((n) => n.innerText.includes('验证便签'));
     if (!card) return { ok: false, reason: 'card missing' };
     const rect = card.getBoundingClientRect();
-    const slot = card.parentElement;
     return {
       ok: true,
       position: getComputedStyle(card).position,
       left: card.style.left,
       top: card.style.top,
       transform: card.style.transform,
-      slotId: slot ? slot.getAttribute('data-note-id') : null,
+      noteId: card.getAttribute('data-note-id'),
       center: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
     };
   })()`)
   record('canvas-positions-cards-absolutely', {
-    ok: canvas.ok && canvas.position === 'absolute' && canvas.left !== '' && canvas.transform.includes('rotate'),
-    detail: `left=${canvas.left} top=${canvas.top} transform=${canvas.transform}`,
+    ok: canvas.ok && canvas.position === 'absolute' && canvas.left !== '' && canvas.transform.includes('rotate') && canvas.noteId !== null,
+    detail: `left=${canvas.left} top=${canvas.top} transform=${canvas.transform} id=${canvas.noteId}`,
   })
 
   // Tidy FIRST, then drag.
@@ -415,6 +414,43 @@ try {
   record('canvas-tidy-leaves-no-overlap', {
     ok: overlaps.pairs.length === 0,
     detail: overlaps.pairs.length === 0 ? `${overlaps.cards} cards, no overlap` : `overlap: ${overlaps.pairs.join(' | ')}`,
+  })
+  // The wall must be framed by the CAMERA, not by a scroll offset: the whole
+  // point of the redesign is that tidy leaves the wall's middle in the middle
+  // of the viewport instead of parked in a corner.
+  const framing = await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas');
+    const world = document.querySelector('.skw-world');
+    if (!viewport || !world) return { ok: false, reason: 'canvas missing' };
+    const view = viewport.getBoundingClientRect();
+    const cards = [...document.querySelectorAll('.skw-canvas .skw-note')].map((node) => node.getBoundingClientRect());
+    const left = Math.min(...cards.map((r) => r.left));
+    const right = Math.max(...cards.map((r) => r.right));
+    const top = Math.min(...cards.map((r) => r.top));
+    const bottom = Math.max(...cards.map((r) => r.bottom));
+    return {
+      ok: true,
+      transform: world.style.transform,
+      cards: cards.length,
+      // Where the wall's bounding box sits relative to the viewport's middle.
+      offsetX: ((left + right) / 2) - (view.left + view.width / 2),
+      offsetY: ((top + bottom) / 2) - (view.top + view.height / 2),
+      inside: left >= view.left - 4 && right <= view.right + 4 && top >= view.top - 4 && bottom <= view.bottom + 4,
+      // A camera-driven canvas must CLIP, not scroll. scrollHeight alone is not
+      // evidence either way: with overflow hidden it still reports the content
+      // size, so the contract is the computed overflow plus an untouched scroll
+      // offset.
+      overflow: getComputedStyle(viewport).overflow,
+      scrollOffset: viewport.scrollLeft + viewport.scrollTop,
+    };
+  })()`)
+  record('canvas-camera-frames-the-wall-centre', {
+    ok: framing.ok && Math.abs(framing.offsetX) < 260 && Math.abs(framing.offsetY) < 240,
+    detail: `offset=(${Math.round(framing.offsetX)},${Math.round(framing.offsetY)})px inside=${framing.inside} transform=${framing.transform}`,
+  })
+  record('canvas-camera-is-a-transform-not-scroll', {
+    ok: framing.ok && framing.transform.includes('scale(') && framing.overflow === 'hidden' && framing.scrollOffset === 0,
+    detail: `transform=${framing.transform} overflow=${framing.overflow} scroll=${framing.scrollOffset}`,
   })
   const canvasShot = await page.shot('sticky-wall-canvas.png')
 
@@ -466,7 +502,217 @@ try {
     detail: afterDrag.transform,
   })
 
-  // 9. Markdown renders on the card instead of showing literal markers. The
+  // 8b. Pan and zoom are camera transforms, not scrolling, and both keep the
+  // content anchored. These are the interactions the "drag feels bad" complaint
+  // was about, so they get real pointer/wheel events rather than a state probe.
+  //
+  // The camera is read through DOMMatrix, not a regex on the inline style: a
+  // regex written inside a template literal loses its backslashes before it ever
+  // reaches the page, and the resulting pattern silently matches nothing.
+  const READ_CAMERA = `(() => {
+    const world = document.querySelector('.skw-world');
+    if (!world) return null;
+    const matrix = new DOMMatrix(getComputedStyle(world).transform);
+    return { panX: matrix.e, panY: matrix.f, zoom: matrix.a };
+  })()`
+  const WORLD_POINT_UNDER = (x, y) => `(() => {
+    const world = document.querySelector('.skw-world');
+    const viewport = document.querySelector('.skw-canvas');
+    if (!world || !viewport) return null;
+    const matrix = new DOMMatrix(getComputedStyle(world).transform);
+    const rect = viewport.getBoundingClientRect();
+    return {
+      worldX: ((${x} - rect.left) - matrix.e) / matrix.a,
+      worldY: ((${y} - rect.top) - matrix.f) / matrix.a,
+    };
+  })()`
+
+  const cameraBefore = await page.evaluate(READ_CAMERA)
+
+  // Drag empty paper near the bottom-left of the viewport (the wall is centred,
+  // so this is guaranteed to be paper and not a card).
+  const emptyPoint = await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas');
+    const rect = viewport.getBoundingClientRect();
+    const x = rect.left + 40;
+    const y = rect.top + rect.height - 120;
+    const hit = document.elementFromPoint(x, y);
+    return { x, y, hitIsCard: hit !== null && hit.closest('.skw-note') !== null };
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: emptyPoint.x, y: emptyPoint.y, button: 'none', buttons: 0 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: emptyPoint.x, y: emptyPoint.y, button: 'left', buttons: 1, clickCount: 1 })
+  for (let step = 1; step <= 5; step += 1) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: emptyPoint.x + step * 24, y: emptyPoint.y - step * 12, button: 'left', buttons: 1 })
+  }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: emptyPoint.x + 120, y: emptyPoint.y - 60, button: 'left', buttons: 0, clickCount: 1 })
+  await page.wait(400)
+  const cameraAfterPan = await page.evaluate(READ_CAMERA)
+  const panState = await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas');
+    return { panning: viewport.getAttribute('data-panning'), cursor: getComputedStyle(viewport).cursor };
+  })()`)
+  record('canvas-drag-on-paper-pans-the-camera', {
+    ok: !emptyPoint.hitIsCard && cameraBefore !== null && cameraAfterPan !== null &&
+      Math.round(cameraAfterPan.panX - cameraBefore.panX) === 120 &&
+      Math.round(cameraAfterPan.panY - cameraBefore.panY) === -60 &&
+      panState.panning === null,
+    detail: `(${cameraBefore?.panX},${cameraBefore?.panY}) -> (${cameraAfterPan?.panX},${cameraAfterPan?.panY}) cursor=${panState.cursor}`,
+  })
+
+  // Zoom with the wheel while holding the anchor still: the world point under the
+  // pointer must not move, which is what makes zoom feel like pulling the wall.
+  const anchorPoint = { x: emptyPoint.x + 160, y: emptyPoint.y - 100 }
+  const beforeZoom = await page.evaluate(READ_CAMERA)
+  const underBefore = await page.evaluate(WORLD_POINT_UNDER(anchorPoint.x, anchorPoint.y))
+  // Dispatched as a real WheelEvent from the page: CDP's `mouseWheel` modifier
+  // bit does not reliably surface as `ctrlKey` on the JS event, and the handler
+  // keys off exactly that (a trackpad pinch arrives as ctrl+wheel).
+  await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas');
+    viewport.dispatchEvent(new WheelEvent('wheel', {
+      deltaY: -180, ctrlKey: true, bubbles: true, cancelable: true,
+      clientX: ${anchorPoint.x}, clientY: ${anchorPoint.y},
+    }));
+    return true;
+  })()`)
+  await page.wait(400)
+  const afterZoom = await page.evaluate(READ_CAMERA)
+  const underAfter = await page.evaluate(WORLD_POINT_UNDER(anchorPoint.x, anchorPoint.y))
+  record('canvas-wheel-zoom-keeps-the-pointer-anchored', {
+    ok: beforeZoom !== null && afterZoom !== null && afterZoom.zoom > beforeZoom.zoom &&
+      Math.abs(underAfter.worldX - underBefore.worldX) < 2 &&
+      Math.abs(underAfter.worldY - underBefore.worldY) < 2,
+    detail: `zoom ${beforeZoom?.zoom?.toFixed(3)} -> ${afterZoom?.zoom?.toFixed(3)}, world point (${underBefore.worldX.toFixed(1)},${underBefore.worldY.toFixed(1)}) -> (${underAfter.worldX.toFixed(1)},${underAfter.worldY.toFixed(1)})`,
+  })
+
+  // Reset puts the camera back on the wall's middle at 100%.
+  await page.evaluate(`(() => {
+    const reset = [...document.querySelectorAll('.skw-camera-btn')].pop();
+    reset?.click();
+    return !!reset;
+  })()`)
+  await page.wait(500)
+  const afterReset = await page.evaluate(READ_CAMERA)
+  const resetFraming = await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas').getBoundingClientRect();
+    const cards = [...document.querySelectorAll('.skw-canvas .skw-note')].map((node) => node.getBoundingClientRect());
+    const left = Math.min(...cards.map((r) => r.left));
+    const right = Math.max(...cards.map((r) => r.right));
+    const top = Math.min(...cards.map((r) => r.top));
+    const bottom = Math.max(...cards.map((r) => r.bottom));
+    return {
+      offsetX: ((left + right) / 2) - (viewport.left + viewport.width / 2),
+      offsetY: ((top + bottom) / 2) - (viewport.top + viewport.height / 2),
+      // "Reset" must show the WHOLE wall, not a magnified middle of it.
+      fits: left >= viewport.left - 2 && right <= viewport.right + 2 && top >= viewport.top - 2 && bottom <= viewport.bottom + 2,
+      label: document.querySelector('.skw-camera-value')?.textContent ?? null,
+    };
+  })()`)
+  record('canvas-reset-frames-the-whole-wall', {
+    ok: afterReset !== null && Math.abs(resetFraming.offsetX) < 260 && Math.abs(resetFraming.offsetY) < 240 &&
+      resetFraming.fits === true,
+    detail: `zoom=${resetFraming.label} offset=(${Math.round(resetFraming.offsetX)},${Math.round(resetFraming.offsetY)}) fits=${resetFraming.fits}`,
+  })
+
+  // 8c. A real wall, not two cards: seed a dozen notes through the real composer
+  // so the tidy pass and the camera framing are exercised at a size where a disc
+  // and a shelf look different. This is the composition the redesign is about.
+  const TICK2 = String.fromCharCode(96)
+  const SEEDS = [
+    ['今天的三个决定', '先做小一点。\n\n- 砍范围\n- 周五发\n- 告诉一个人', 'yellow'],
+    ['读书清单', '1. 小而美\n2. 刻意练习\n3. 反脆弱', 'pink'],
+    ['待办', '- [x] 写周报\n- [ ] 回邮件\n- [ ] 改稿', 'green'],
+    ['一个想法', '工具应该消失。**好的工具**不打断你。', 'blue'],
+    ['代码片段', TICK2.repeat(3) + 'js\nconst a = 1\n' + TICK2.repeat(3), 'purple'],
+    ['会议记录', '> 结论：先验证，再投入。', 'orange'],
+    ['灵感', '慢即是快。', 'yellow'],
+    ['预算', '| 项 | 天数 |\n| --- | --- |\n| 写 | 2 |', 'pink'],
+    ['提醒', '给妈妈打电话。', 'green'],
+    ['草稿', '开头三行：\n一、问题\n二、方法\n三、结果', 'blue'],
+    ['引用', '「完美是完成的敌人。」', 'purple'],
+    ['周末', '散步、做饭、读完一本。', 'orange'],
+  ]
+  for (const [title, body, colour] of SEEDS) {
+    await page.evaluate(`(() => {
+      const open = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '+ 新建');
+      open?.click();
+      return !!open;
+    })()`)
+    await page.wait(220)
+    await page.evaluate(`(() => {
+      const textarea = document.querySelector('.skw-textarea');
+      const input = document.querySelector('.skw-input');
+      if (!textarea || !input) return false;
+      const setText = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      const setInput = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setText.call(textarea, ${JSON.stringify(body)});
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      setInput.call(input, ${JSON.stringify(title)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`)
+    // The colour is a second task: React batches the swatch click with the save
+    // click if both happen in one evaluate, so `saveDraft` would read the draft
+    // from before the colour changed. A real user cannot click that fast.
+    await page.wait(120)
+    await page.evaluate(`(() => {
+      const swatch = [...document.querySelectorAll('.skw-swatch')].find((element) => element.getAttribute('aria-label') === ${JSON.stringify(colour)});
+      swatch?.click();
+      return !!swatch;
+    })()`)
+    await page.wait(120)
+    await page.evaluate(`(() => {
+      const save = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '保存');
+      save?.click();
+      return !!save;
+    })()`)
+    await page.wait(420)
+  }
+  await page.wait(1200)
+  const seeded = await page.evaluate(`(() => document.querySelectorAll('.skw-note').length)()`)
+  await page.evaluate(`(() => {
+    const tidy = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '整理');
+    tidy?.click();
+    return !!tidy;
+  })()`)
+  await page.wait(2400)
+  const bigWall = await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas').getBoundingClientRect();
+    const cards = [...document.querySelectorAll('.skw-canvas .skw-note')].map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+    });
+    let overlaps = 0;
+    for (let i = 0; i < cards.length; i += 1) {
+      for (let j = i + 1; j < cards.length; j += 1) {
+        const a = cards[i], b = cards[j];
+        if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) overlaps += 1;
+      }
+    }
+    const left = Math.min(...cards.map((c) => c.x));
+    const right = Math.max(...cards.map((c) => c.x + c.w));
+    const top = Math.min(...cards.map((c) => c.y));
+    const bottom = Math.max(...cards.map((c) => c.y + c.h));
+    return {
+      cards: cards.length,
+      overlaps,
+      offsetX: ((left + right) / 2) - (viewport.left + viewport.width / 2),
+      offsetY: ((top + bottom) / 2) - (viewport.top + viewport.height / 2),
+      ratio: (right - left) / (bottom - top),
+      fits: left >= viewport.left - 2 && right <= viewport.right + 2 && top >= viewport.top - 2 && bottom <= viewport.bottom + 2,
+      zoom: document.querySelector('.skw-camera-value')?.textContent ?? null,
+    };
+  })()`)
+  record('canvas-large-wall-is-a-centred-disc', {
+    ok: bigWall.cards >= 10 && bigWall.overlaps === 0 && bigWall.fits === true &&
+      Math.abs(bigWall.offsetX) < 340 && Math.abs(bigWall.offsetY) < 340 &&
+      bigWall.ratio > 0.5 && bigWall.ratio < 2,
+    detail: `${bigWall.cards} cards (seeded ${seeded}), overlaps=${bigWall.overlaps}, offset=(${Math.round(bigWall.offsetX)},${Math.round(bigWall.offsetY)}), ratio=${bigWall.ratio.toFixed(2)}, zoom=${bigWall.zoom}, fits=${bigWall.fits}`,
+  })
+  const bigShot = await page.shot('sticky-wall-canvas-many.png')
+  record('canvas-large-wall-screenshot', { ok: true, detail: bigShot })
+
+  // 9. Markdown renders on the card instead of showing literal markers.  // 9. Markdown renders on the card instead of showing literal markers. The
   // note written in step 3 carries `**bold**`, `` `code` `` and a bullet list,
   // so the rendered card must contain the elements and none of the markers.
   const markdown = await page.evaluate(`(() => {

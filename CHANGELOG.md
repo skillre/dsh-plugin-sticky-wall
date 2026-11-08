@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- Give the wall a centre, and make the canvas feel direct.
+  
+  The wall used to be laid out from a top-left corner and viewed through a scroll
+  container, which is why it opened on empty paper and why the first drag of a
+  session moved the whole wall.
+  
+  - **The wall is a disc around the origin.** "Tidy" now packs a phyllotaxis
+    (sunflower) spiral centred on the world origin, with a real collision check
+    against every card already placed instead of an estimated shelf. The result is
+    deterministic, roughly square at every size (12 / 60 / 300 cards all come out
+    within 0.7–1.4 aspect ratio), and cannot overlap even when every card sits at
+    its height cap. The finished disc is re-centred on its own centre of mass, so
+    the composition is balanced rather than merely origin-anchored.
+  - **The camera opens on that middle.** Opening the wall, pressing reset, and
+    tidying all frame the wall's centre of mass and pick the zoom that fits the
+    whole wall in view (capped at 100%, never below the readable minimum).
+  - **The camera is a transform, not a scroll container.** The canvas clips and one
+    wrapper carries `translate3d(pan) scale(zoom)`, written imperatively. Panning
+    and zooming cost zero React renders and zero layout, and dragging a card can no
+    longer move the wall under it — which is exactly what the old padded scroll
+    surface did when a card crossed its bounds.
+  - **Panning and anchored zoom.** Drag empty paper to pan, scroll to pan, and
+    `⌘/Ctrl + wheel` zooms around the pointer: the world point under the cursor
+    stays under the cursor (verified to under 2px in the real browser).
+  - **The drop is optimistic.** On release the card is written to its final world
+    position on the node and in the note list before the Host round-trip, so it no
+    longer snaps back to where it started while the write is in flight.
+  - **Fewer renders per interaction.** Cards are memoized and note objects are
+    reconciled by identity, so a mutation re-renders one card instead of the whole
+    wall; the full-size wrapper element per note is gone and the card carries its
+    own id.
+  - **Clamping follows the width preset**, so a long body ends on a whole line
+    instead of being cut mid-glyph by the card's max-height.
+  
+  Verified in the real DSH Web UI: 31/31 assertions, including a 14-note wall that
+  tidies into a centred disc (zero overlaps, aspect ratio 0.94) and is framed at
+  54% by the camera.
+
 ## 0.2.2
 
 ### Patch Changes

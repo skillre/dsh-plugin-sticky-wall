@@ -293,15 +293,29 @@ function render(lang) {
 
   // The scattered wall. Sizes and angles differ on purpose: the whole point of
   // this release is that cards are placed, not flowed into a grid.
+  //
+  // The composition is a CLOUD around the canvas centre, not a row that starts at
+  // the left edge: the product opens on the wall's centre of mass, and the banner
+  // has to show the same thing the product does. Cards are placed on two bands
+  // around the middle with alternating tilts, so the eye reads a centre.
+  //
+  // The canvas region of the frame is x 140..1245, y 176..584. Every card stays
+  // inside it, and the bottom-left corner is kept clear for the zoom pill. Each
+  // card's height is the height its body function actually draws to: shrinking a
+  // card below that clips its own content (the hero's tag pills sit at y=138).
+  const CX = 692
+  const CY = 378
   const cards = [
-    card({ x: 168, y: 194, w: 252, h: 172, rotate: -4.5, color: 'yellow', body: bodyHero }),
-    card({ x: 444, y: 176, w: 198, h: 158, rotate: 3.2, color: 'pink', body: bodyList }),
-    card({ x: 668, y: 212, w: 240, h: 132, rotate: -2.4, color: 'blue', body: bodyCode }),
-    card({ x: 924, y: 168, w: 184, h: 140, rotate: 4.6, color: 'green', body: bodyCheck }),
-    card({ x: 296, y: 396, w: 214, h: 100, rotate: 2.8, color: 'purple', body: bodyQuote }),
-    card({ x: 556, y: 386, w: 172, h: 116, rotate: -5.2, color: 'orange', body: bodyPlain }),
-    card({ x: 770, y: 372, w: 186, h: 124, rotate: 1.8, color: 'yellow', body: bodyTable }),
-    card({ x: 998, y: 344, w: 172, h: 128, rotate: -3.6, color: 'pink', body: bodyCalm }),
+    // Upper band.
+    card({ x: 170, y: 200, w: 214, h: 172, rotate: -3.4, color: 'yellow', body: bodyHero }),
+    card({ x: 420, y: 235, w: 178, h: 104, rotate: 2.6, color: 'purple', body: bodyQuote }),
+    card({ x: 620, y: 228, w: 186, h: 126, rotate: -2.2, color: 'green', body: bodyCheck }),
+    card({ x: 820, y: 232, w: 166, h: 118, rotate: 3.1, color: 'orange', body: bodyPlain }),
+    card({ x: 1010, y: 205, w: 196, h: 150, rotate: -2.8, color: 'pink', body: bodyList }),
+    // Lower band.
+    card({ x: 420, y: 400, w: 176, h: 124, rotate: -1.8, color: 'yellow', body: bodyTable }),
+    card({ x: 620, y: 402, w: 168, h: 118, rotate: 2.2, color: 'pink', body: bodyCalm }),
+    card({ x: 820, y: 398, w: 208, h: 132, rotate: -2.4, color: 'blue', body: bodyCode }),
   ].join('')
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
@@ -315,6 +329,11 @@ function render(lang) {
       <stop offset="0" stop-color="#4d7cfe" stop-opacity="0.15"/>
       <stop offset="1" stop-color="#4d7cfe" stop-opacity="0"/>
     </linearGradient>
+    <!-- The halo the real canvas paints at the wall's middle. -->
+    <radialGradient id="centre">
+      <stop offset="0" stop-color="#4d7cfe" stop-opacity="0.16"/>
+      <stop offset="0.7" stop-color="#4d7cfe" stop-opacity="0"/>
+    </radialGradient>
     <filter id="${shadow}" x="-30%" y="-30%" width="160%" height="180%">
       <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.45"/>
     </filter>
@@ -329,15 +348,16 @@ function render(lang) {
 
   <!-- Paper dot grid on the canvas. Dots, not a pattern: the parser rejects patterns. -->
   <g fill="#ffffff" fill-opacity="0.05">
-${Array.from({ length: 11 }, (_, row) => Array.from({ length: 22 }, (_, col) => `<circle cx="${148 + col * 50}" cy="${176 + row * 36}" r="1.6"/>`).join('')).join('\n')}
+${Array.from({ length: 12 }, (_, row) => Array.from({ length: 26 }, (_, col) => `<circle cx="${140 + col * 44}" cy="${168 + row * 34}" r="1.6"/>`).join('')).join('\n')}
   </g>
 
   ${toolbar(t)}
+  <circle cx="${CX}" cy="${CY}" r="286" fill="url(#centre)"/>
   ${cards}
 
   <!-- Drag cue: the dashed drop target and a pointer on the hero card's corner. -->
-  <rect x="176" y="202" width="252" height="172" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1.4" stroke-dasharray="7 7" transform="rotate(-4.5 302 288)"/>
-  <g transform="translate(404 356)">
+  <rect x="178" y="208" width="214" height="172" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1.4" stroke-dasharray="7 7" transform="rotate(-3.4 285 294)"/>
+  <g transform="translate(392 356)">
     <path d="M0 0v20l5.2-5.2 3.6 8.4 4.2-1.8-3.6-8.2 7-.2z" fill="#ffffff" fill-opacity="0.92" stroke="#191c22" stroke-width="1.4" stroke-linejoin="round"/>
     <rect x="15" y="18" width="54" height="20" rx="10" fill="#ffffff" fill-opacity="0.14" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1"/>
     <text x="42" y="32" font-size="10.5" fill="#ffffff" fill-opacity="0.78" text-anchor="middle" font-family="${SANS}">${esc(t.dragCue)}</text>

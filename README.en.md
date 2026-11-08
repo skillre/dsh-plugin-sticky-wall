@@ -16,10 +16,11 @@ Non-goals: task management (no scheduling, assignment or reminders), collaborati
 
 - **Sidebar entry** — a "Notes" glyph in `sidebar.panellist`; clicking it swaps the centre column to the wall.
 - **Free canvas** — notes are cards on a canvas, not list rows. Position, rotation and a three-step width (small/medium/large) are note data owned by the Host, so the same wall opens with the same arrangement in another window.
-- **Drag to place** — press anywhere on a card and drag; releasing writes the new position to the Host. A drag does **not** bump `updatedAt`, so tidying your desk never reshuffles a "by updated" sort.
-- **One-click tidy** — "Tidy" repacks the visible notes with a deterministic shelf algorithm: pressing it twice yields the same wall instead of reshuffling every time.
+- **Drag to place** — press anywhere on a card and drag; the drop lands on the new position immediately and then writes it to the Host, so the card never snaps back first. A drag does **not** bump `updatedAt`, so tidying your desk never reshuffles a "by updated" sort.
+- **A wall with a middle** — "Tidy" packs every note into a **phyllotaxis disc centred on the world origin**, and the camera opens looking at the wall's centre of mass instead of a top-left corner.
+- **One-click tidy** — "Tidy" repacks deterministically and collision-checks every card against the ones already placed, so the same wall always yields the same arrangement and cards never overlap.
 - **Three views** — canvas (default, free placement), grid (responsive masonry for reading long notes) and list (one line per note for finding one by title).
-- **Zoom** — a floating `− / percent / + / reset` control on the canvas, plus `⌘/Ctrl + wheel` (0.4×–2×).
+- **Camera** — drag empty paper to pan, scroll to pan, `⌘/Ctrl + wheel` to zoom around the pointer (0.35×–2×), plus the floating `− / percent / + / reset` control. Opening the wall and pressing reset both frame the whole wall in view.
 - **Markdown bodies** — headings, paragraphs, bold/italic/strikethrough, `code`, code blocks, ordered and unordered lists, `- [ ]` checkboxes, quotes, rules, tables and http(s)/mailto links. The composer has a "Preview" toggle.
 - **Quick capture** — "New" opens a note sheet with an optional title, required body, tags, six pastel colors and a width preset.
 - **Pin and archive** — pinned notes carry a coloured left rail and a star; archived notes hide by default, the "Archive" filter fetches them on its own, and "Clear archive" is a permanent delete.
@@ -126,8 +127,9 @@ The install path was verified end to end: derive the spec from the live index, i
 - The wall is a scratchpad: body up to 4000 characters, title 120, up to 8 tags — hard limits.
 - **Markdown is a deliberate subset**, not full CommonMark: headings (`#`–`####`), paragraphs and hard breaks, bold/italic/strikethrough, inline `` `code` ``, ``` / ~~~ code blocks, ordered and unordered lists, `- [ ]` checkboxes, quotes, rules, pipe tables and http(s)/mailto links. **Not supported**: nested list indentation, images, footnotes, or interactive checkboxes (they render as a read-only glyph).
 - **Raw HTML in a body is shown as text** — it is neither executed nor rendered. That is a safety decision, not a bug.
-- Card width has only **three presets** (small/medium/large); there is no arbitrary resize. Rotation resets to zero while dragging and the tidy pass re-adds a slight tilt.
-- The canvas is a flat plane: no grouping, layers, connectors or snap alignment.
+- Card width has only **three presets** (small/medium/large); there is no arbitrary resize. A drag keeps the card's existing tilt.
+- Tidy is O(n) spiral placement plus a spatial-grid collision check; the wall holds at most 400 notes, and a wall larger than the viewport needs panning or zooming out.
+- The canvas is a flat plane: no grouping, layers, connectors or snap alignment, and no rotation gesture beyond the stored tilt.
 - Placement is owned by the Host, but two windows open on the same wall each render their own snapshot and do not live-push the other's drags.
 - Archived notes do not occupy a `maxNotes` slot, but restoring them does; a restore at the cap is rejected instead of silently overshooting.
 - "Clear archive" is a permanent, irreversible delete.

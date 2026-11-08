@@ -2,27 +2,45 @@
  * The sticky wall page, its free canvas and its composer sheet.
  *
  * State rules: the Host owns every note AND its placement; this page holds only
- * view state (search text, filter, camera zoom/pan, the in-flight drag). Every
+ * view state (search text, filter, camera, the in-flight drag/pan). Every
  * mutation goes to the Host and the response is reconciled in place, so two
  * windows on the same wall converge instead of fighting over local state.
  *
  * The canvas has three view modes:
- * - `canvas` — the free board: cards sit where the Host says, drag to move,
- *   scroll to pan, ⌘/Ctrl + wheel to zoom, "整理" repacks them into a tidy
- *   shelf arrangement on the Host.
+ * - `canvas` — the free board: cards sit where the Host says, drag a card to
+ *   move it, drag the empty paper to pan, scroll to pan, ⌘/Ctrl + wheel to zoom,
+ *   "整理" repacks them into a disc centred on the world origin.
  * - `grid` — the same notes as a responsive masonry grid, for scanning a lot of
  *   text without the spatial noise.
  * - `list` — a dense one-line-per-note index, for finding a note by title.
  *
+ * Four decisions shape the canvas half of this file, and each one is a measured
+ * fix rather than a preference:
+ *
+ * 1. **The camera is a transform, not a scroll container.** A scroll container
+ *    forced the wall into a padded surface whose origin moved whenever a card
+ *    was dragged past the edge — so the whole wall visibly jumped mid-drag. The
+ *    viewport is now `overflow: hidden` and the camera is
+ *    `translate3d(pan) scale(zoom)` on one wrapper, written imperatively.
+ * 2. **Panning and zooming never re-render.** They touch two style properties on
+ *    two nodes. Cards keep their `left`/`top`/`width` and a `rotate()`, so a pan
+ *    or a zoom costs zero React work and zero layout.
+ * 3. **The wall has a middle.** `arrangeLayouts` packs a phyllotaxis disc around
+ *    the origin, and the camera opens on the wall's centroid instead of on a
+ *    top-left corner.
+ * 4. **A drop is optimistic.** The card is written to its final world position
+ *    on the node and in the note list before the Host round-trip, so the card
+ *    never snaps back to where it started while the write is in flight.
+ *
  * Markdown is rendered, never parsed as HTML: see `markdown.tsx`.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LIMITS, WIDTH_PX, type Note, type NoteColor, type NoteLayout, type NotePatch, type NoteWidth } from '../types.js'
 import type { ClientApi } from './api.js'
 import { ActionError } from './api.js'
 import type { ClientLocaleLike } from './contracts.js'
-import { layoutOf } from '../layout.js'
+import { clampLayout, estimateHeight, layoutOf, rotatedExtent } from '../layout.js'
 import { Markdown } from './markdown.jsx'
 import { SWATCHES, WALL_CSS } from './styles.js'
 import type { Translate } from './text.js'
@@ -33,6 +51,8 @@ type Filter = 'all' | 'pinned' | 'archived'
 type Sort = 'pinned' | 'created' | 'updated'
 /** How the wall lays its notes out. */
 type ViewMode = 'canvas' | 'grid' | 'list'
+/** Where a card is being rendered: the free canvas or the flowing grid. */
+type Surface = 'canvas' | 'grid'
 
 /** One draft the composer edits; a null id means "new note". */
 interface Draft {
@@ -44,18 +64,6 @@ interface Draft {
   width: NoteWidth
 }
 
-/**
- * The camera over the world canvas.
- *
- * Zoom only: panning is the scroll container's job, which keeps native scroll
- * bars, trackpad inertia and keyboard scrolling working. A `x`/`y` offset here
- * would have had to reimplement all of that (and an earlier draft carried two
- * fields that nothing ever applied).
- */
-interface Camera {
-  zoom: number
-}
-
 /** Props the `main` slot passes through; the wall owns its own data. */
 export interface WallPageProps {
   api: ClientApi
@@ -63,13 +71,17 @@ export interface WallPageProps {
   t: Translate
 }
 
-/** Zoom limits: below 0.4 a note is unreadable, above 2 it is a magnifier. */
-const ZOOM_MIN = 0.4
+/** Zoom limits: below 0.35 a note is unreadable, above 2 it is a magnifier. */
+const ZOOM_MIN = 0.35
 const ZOOM_MAX = 2
 /** Pointer travel, in px, before a press becomes a drag instead of a click. */
 const DRAG_THRESHOLD = 3
 /** Width cycle order for the resize action. */
 const WIDTH_CYCLE: NoteWidth[] = ['sm', 'md', 'lg']
+/** World dot grid pitch, in pixels at zoom 1. */
+const DOT_PITCH = 22
+/** Wheel pan speed for a non-zooming wheel event. */
+const WHEEL_PAN = 1
 
 /** The sidebar glyph: a small stack of notes, sized by the sidebar slot. */
 export function SidebarGlyph({ size = 18 }: { size?: number }): JSX.Element {
@@ -104,6 +116,57 @@ function parseTags(raw: string): string[] {
     .split(/[,，\s]+/)
     .map((tag) => tag.trim())
     .filter((tag) => tag !== '')
+}
+
+/** Clamp one zoom value into the declared camera range. */
+function clampZoom(value: number): number {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value))
+}
+
+/** True when two notes are field-for-field identical, placement included. */
+function sameNote(left: Note, right: Note): boolean {
+  if (
+    left.title !== right.title ||
+    left.body !== right.body ||
+    left.color !== right.color ||
+    left.pinned !== right.pinned ||
+    left.archived !== right.archived ||
+    left.createdAt !== right.createdAt ||
+    left.updatedAt !== right.updatedAt ||
+    left.tags.length !== right.tags.length ||
+    left.tags.some((tag, index) => tag !== right.tags[index])
+  ) {
+    return false
+  }
+  if (left.layout === right.layout) return true
+  if (left.layout === null || right.layout === null) return false
+  return (
+    left.layout.x === right.layout.x &&
+    left.layout.y === right.layout.y &&
+    left.layout.rotate === right.layout.rotate &&
+    left.layout.width === right.layout.width
+  )
+}
+
+/**
+ * Keep the previous object identity for notes that did not change.
+ *
+ * The RPC hands back a freshly parsed array after every mutation, so a plain
+ * `setNotes` would give every card a new object and re-render the whole wall —
+ * including re-parsing the Markdown of hundreds of notes that did not change.
+ * Reusing the old objects lets `memo` skip them. Returns the previous array
+ * itself when nothing changed at all, which also stops the parent re-rendering.
+ */
+function reconcileNotes(previous: readonly Note[], next: readonly Note[]): Note[] {
+  const byId = new Map(previous.map((note) => [note.id, note]))
+  let changed = previous.length !== next.length
+  const merged = next.map((note) => {
+    const old = byId.get(note.id)
+    if (old !== undefined && sameNote(old, note)) return old
+    changed = true
+    return note
+  })
+  return changed ? merged : (previous as Note[])
 }
 
 /** The composer sheet: create or edit one note. */
@@ -254,38 +317,47 @@ export function ConfirmDialog({
   )
 }
 
-/** One note card on the canvas; drag moves it, click selects, double-click edits. */
-function NoteCard({
+/** The card actions, in one stable object so `NoteCard` can be memoized. */
+interface CardActions {
+  edit(note: Note): void
+  patch(note: Note, patch: NotePatch): void
+  remove(note: Note): void
+  resize(note: Note, width: NoteWidth): void
+  drag(note: Note, event: React.PointerEvent<HTMLElement>): void
+}
+
+/**
+ * One note card.
+ *
+ * Memoized: the wall reconciles note objects by identity, so a mutation that
+ * touches one note re-renders one card instead of every card on the wall. On
+ * the canvas the card's world position is `left`/`top` and only the tilt is a
+ * transform, so a drag can be a pure transform write and a drop is a `left`/`top`
+ * update that lands exactly where the card already is.
+ */
+const NoteCard = memo(function NoteCard({
   note,
   index,
+  surface,
   t,
   locale,
-  onEdit,
-  onPatch,
-  onRemove,
-  onResize,
-  onDragStart,
+  actions,
 }: {
   note: Note
   index: number
+  surface: Surface
   t: Translate
   locale: string
-  onEdit(note: Note): void
-  onPatch(note: Note, patch: NotePatch): void
-  onRemove(note: Note): void
-  onResize(note: Note, width: NoteWidth): void
-  onDragStart(note: Note, event: React.PointerEvent<HTMLElement>): void
+  actions: CardActions
 }): JSX.Element {
   const layout = layoutOf(note, index)
-  const style: React.CSSProperties = {
-    left: `${layout.x}px`,
-    top: `${layout.y}px`,
-    width: `${WIDTH_PX[layout.width]}px`,
-    transform: `rotate(${layout.rotate}deg)`,
-  }
+  const style: React.CSSProperties = surface === 'canvas'
+    ? { left: `${layout.x}px`, top: `${layout.y}px`, width: `${WIDTH_PX[layout.width]}px`, transform: `rotate(${layout.rotate}deg)` }
+    : {}
   return (
     <article
       className="skw-note"
+      data-note-id={note.id}
       data-color={note.color}
       data-pinned={note.pinned}
       data-archived={note.archived}
@@ -293,12 +365,12 @@ function NoteCard({
       style={style}
       aria-label={note.title || note.body.slice(0, 40)}
       tabIndex={0}
-      onPointerDown={(event) => onDragStart(note, event)}
-      onDoubleClick={() => onEdit(note)}
+      onPointerDown={(event) => actions.drag(note, event)}
+      onDoubleClick={() => actions.edit(note)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
           event.preventDefault()
-          onEdit(note)
+          actions.edit(note)
         }
       }}
     >
@@ -316,22 +388,22 @@ function NoteCard({
           <button className="skw-icon-btn" type="button" title={note.pinned ? t('unpin') : t('pin')}
             data-on={note.pinned} aria-label={note.pinned ? t('unpin') : t('pin')}
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => onPatch(note, { pinned: !note.pinned })}>
+            onClick={() => actions.patch(note, { pinned: !note.pinned })}>
             <span className="skw-pin" aria-hidden="true">{note.pinned ? '★' : '☆'}</span>
           </button>
           <button className="skw-icon-btn" type="button" title={t('resize')} aria-label={t('resize')}
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => onResize(note, WIDTH_CYCLE[(WIDTH_CYCLE.indexOf(layout.width) + 1) % WIDTH_CYCLE.length] ?? 'md')}>⤢</button>
+            onClick={() => actions.resize(note, WIDTH_CYCLE[(WIDTH_CYCLE.indexOf(layout.width) + 1) % WIDTH_CYCLE.length] ?? 'md')}>⤢</button>
           <button className="skw-icon-btn" type="button" title={t('edit')} aria-label={t('edit')}
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => onEdit(note)}>✎</button>
+            onClick={() => actions.edit(note)}>✎</button>
           <button className="skw-icon-btn" type="button" title={note.archived ? t('restore') : t('archive')}
             aria-label={note.archived ? t('restore') : t('archive')}
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => onPatch(note, { archived: !note.archived })}>{note.archived ? '↩' : '▤'}</button>
+            onClick={() => actions.patch(note, { archived: !note.archived })}>{note.archived ? '↩' : '▤'}</button>
           <button className="skw-icon-btn" type="button" title={t('delete')} aria-label={t('delete')}
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => onRemove(note)}>✕</button>
+            onClick={() => actions.remove(note)}>✕</button>
         </div>
       </div>
       {note.title !== '' && <div className="skw-note-head"><span className="skw-note-title">{note.title}</span></div>}
@@ -347,7 +419,7 @@ function NoteCard({
       </div>
     </article>
   )
-}
+})
 
 /** One row in the dense list view. */
 function NoteRow({ note, t, locale, onEdit }: { note: Note; t: Translate; locale: string; onEdit(note: Note): void }): JSX.Element {
@@ -377,7 +449,10 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [draftError, setDraftError] = useState('')
   const [confirming, setConfirming] = useState<'clear' | Note | null>(null)
-  const [camera, setCamera] = useState<Camera>({ zoom: 1 })
+  /** Zoom is state because the readout is rendered; pan is not (see below). */
+  const [zoom, setZoom] = useState(1)
+  /** Bumped when the canvas remounts or the wall goes from empty to populated. */
+  const [viewportTick, setViewportTick] = useState(0)
   // Re-render on locale switch: relative times and copy are read from the
   // active locale, so the page must observe the locale revision.
   const [, setLocaleRevision] = useState(0)
@@ -386,7 +461,30 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const sequence = useRef(0)
   /** Synchronous write fence: React state is too late for same-tick events. */
   const inFlight = useRef(false)
-  /** The live drag, kept in a ref so pointermove does not re-render per frame. */
+  /**
+   * The canvas node.
+   *
+   * A ref rather than state, mirrored by a callback ref so the wheel listener can
+   * be bound exactly when the node is created: the canvas does not exist while
+   * the wall is still loading, and an effect-based binding attached to `null` and
+   * then silently never retried.
+   */
+  const viewportRefCurrent = useRef<HTMLDivElement | null>(null)
+  const worldRef = useRef<HTMLDivElement | null>(null)
+  /** Detaches the wheel listener bound to the current canvas node. */
+  const detachWheel = useRef<(() => void) | null>(null)
+
+  /**
+   * The camera.
+   *
+   * Zoom lives in React state (the percentage readout renders from it); pan does
+   * not, because nothing in the tree depends on it. Both are mirrored here so
+   * the imperative pointer loop and the style writer always read the truth.
+   */
+  const camera = useRef({ zoom: 1, panX: 0, panY: 0 })
+  /** Set when the next layout pass must put the wall's middle in the middle. */
+  const centreRequest = useRef(true)
+
   /**
    * The live drag.
    *
@@ -410,16 +508,35 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     moved: boolean
     /** Whether the browser pointer is captured, so cleanup knows to release. */
     captured: boolean
-    /** Local preview position while dragging, so the card follows the pointer. */
-    x: number
-    y: number
     /** Pending animation frame, coalescing several pointermoves into one paint. */
     frame: number
     /** Latest pointer position, in client coordinates. */
     lastX: number
     lastY: number
   } | null>(null)
-  const canvasRef = useRef<HTMLDivElement | null>(null)
+
+  /** The live canvas pan, kept in a ref for the same reason as the drag. */
+  const pan = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+    node: HTMLElement | null
+    frame: number
+    lastX: number
+    lastY: number
+  } | null>(null)
+
+  /**
+   * The latest mutation runner for the pointer loop.
+   *
+   * Assigned on every render rather than through an effect: the drop handler
+   * can fire in the same task as a render, and an effect assignment would still
+   * be holding the previous closure (which captured a stale note list).
+   */
+  const live = useRef({ mutate: (_run: () => Promise<Note[] | string[] | void>): void => {} })
+  live.current.mutate = (run) => { void mutate(run) }
 
   const activeLocale = locale.getSnapshot().active
 
@@ -461,7 +578,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     try {
       const next = await api.list(options.includeArchived, options.sort, life.current.signal)
       if (alive.current && seq === sequence.current) {
-        setNotes(next)
+        setNotes((previous) => reconcileNotes(previous, next))
         if (options.clearError !== false) setError('')
       }
     } catch (cause) {
@@ -562,22 +679,214 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const archivedCount = notes.filter((note) => note.archived).length
 
   /**
-   * The world extent of the visible notes.
+   * The centre of the visible wall, in world coordinates.
    *
-   * The canvas is one large absolutely-positioned surface; its size comes from
-   * the furthest card plus padding, so a wall of three notes does not scroll
-   * for three screens of empty paper.
+   * This is what the camera opens on and what "reset view" returns to, so the
+   * wall reads as a composition with a middle rather than as a document that
+   * happens to start at a corner.
    */
-  const extent = useMemo(() => {
-    let maxX = 0
-    let maxY = 0
-    for (const [index, note] of visible.entries()) {
-      const layout = layoutOf(note, index)
-      maxX = Math.max(maxX, layout.x + WIDTH_PX[layout.width])
-      maxY = Math.max(maxY, layout.y + 220)
+  const wallBounds = useMemo(() => {
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    let sumX = 0
+    let sumY = 0
+    let count = 0
+    for (const note of visible) {
+      const layout = layoutOf(note, indexOf(note))
+      const width = WIDTH_PX[layout.width]
+      const height = estimateHeight(note, layout.width)
+      const box = rotatedExtent(width, height, layout.rotate)
+      const centreX = layout.x + width / 2
+      const centreY = layout.y + height / 2
+      minX = Math.min(minX, centreX - box.width / 2)
+      maxX = Math.max(maxX, centreX + box.width / 2)
+      minY = Math.min(minY, centreY - box.height / 2)
+      maxY = Math.max(maxY, centreY + box.height / 2)
+      sumX += centreX
+      sumY += centreY
+      count += 1
     }
-    return { width: maxX + 420, height: maxY + 320 }
-  }, [visible])
+    if (count === 0) return { centre: { x: 0, y: 0 }, width: 0, height: 0 }
+    return {
+      // The centroid, not the box's middle: an uneven disc has a centre of mass
+      // that reads as "the middle" to the eye even when its bounds are lopsided.
+      centre: { x: sumX / count, y: sumY / count },
+      width: maxX - minX,
+      height: maxY - minY,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, stableIndex])
+
+  const wallCentre = wallBounds.centre
+
+  const hasNotes = visible.length > 0
+
+  /** Write the camera onto the two nodes that own it. No React, no layout. */
+  const applyCamera = useCallback((): void => {
+    const current = camera.current
+    const world = worldRef.current
+    const viewport = viewportRefCurrent.current
+    if (world !== null) world.style.transform = `translate3d(${current.panX}px, ${current.panY}px, 0) scale(${current.zoom})`
+    if (viewport !== null) {
+      // The paper's dots belong to the world, so their pitch and offset follow
+      // the camera instead of staying a fixed screen texture under the cards.
+      viewport.style.backgroundSize = `${DOT_PITCH * current.zoom}px ${DOT_PITCH * current.zoom}px`
+      viewport.style.backgroundPosition = `${current.panX}px ${current.panY}px`
+    }
+  }, [])
+
+  /** Put one world point in the middle of the viewport, at the current zoom. */
+  const centreOn = useCallback((worldX: number, worldY: number): void => {
+    const viewport = viewportRefCurrent.current
+    const current = camera.current
+    if (viewport !== null) {
+      current.panX = viewport.clientWidth / 2 - worldX * current.zoom
+      current.panY = viewport.clientHeight / 2 - worldY * current.zoom
+    }
+    applyCamera()
+  }, [applyCamera])
+
+  /**
+   * A wall that just went from empty to populated must open on its middle.
+   *
+   * The tick forces the camera layout effect to run once more after the canvas
+   * has actually mounted: the first centre request happens while the viewport
+   * still has no size, so it would otherwise leave the wall in a corner.
+   */
+  useEffect(() => {
+    if (hasNotes) centreRequest.current = true
+    setViewportTick((value) => value + 1)
+  }, [hasNotes, view])
+
+  /** Zoom, keeping the world point under `anchor` fixed. */
+  const zoomTo = useCallback((next: number, anchor?: { x: number; y: number }): void => {
+    const viewport = viewportRefCurrent.current
+    const current = camera.current
+    const target = clampZoom(next)
+    if (viewport === null) {
+      current.zoom = target
+      setZoom(target)
+      return
+    }
+    const ax = anchor?.x ?? viewport.clientWidth / 2
+    const ay = anchor?.y ?? viewport.clientHeight / 2
+    // The world point under the anchor must not move.
+    const worldX = (ax - current.panX) / current.zoom
+    const worldY = (ay - current.panY) / current.zoom
+    current.zoom = target
+    current.panX = ax - worldX * target
+    current.panY = ay - worldY * target
+    setZoom(target)
+    applyCamera()
+  }, [applyCamera])
+
+  /**
+   * Frame the whole wall: pick the zoom that fits it, then centre it.
+   *
+   * A wall that overflows the viewport at 100% shows a middle but not a wall, and
+   * a wall of three cards at 40% is unreadable. So the fit zoom is capped at 1
+   * (never magnify a small wall) and floored at the readable minimum; the
+   * resulting camera is what "reset view" and the first open use.
+   */
+  const fitWall = useCallback((): void => {
+    const viewport = viewportRefCurrent.current
+    if (viewport === null) return
+    const availableWidth = viewport.clientWidth
+    const availableHeight = viewport.clientHeight
+    // A margin so the outermost cards do not touch the viewport edge.
+    const margin = 48
+    const fit = Math.min(
+      availableWidth > 0 ? (availableWidth - margin * 2) / Math.max(1, wallBounds.width) : 1,
+      availableHeight > 0 ? (availableHeight - margin * 2) / Math.max(1, wallBounds.height) : 1,
+    )
+    const target = clampZoom(Math.min(1, fit))
+    camera.current.zoom = target
+    setZoom(target)
+    centreOn(wallBounds.centre.x, wallBounds.centre.y)
+  }, [centreOn, wallBounds])
+
+  /** Put the wall back in view at the zoom that frames it. */
+  const resetView = useCallback((): void => fitWall(), [fitWall])
+
+  /**
+   * Wheel: pan by default, zoom with ⌘/Ctrl (which is also how a trackpad pinch
+   * arrives). Bound through a callback ref, not an effect: an effect keyed on
+   * render state can run before the canvas exists (the wall is still loading) or
+   * keep a listener on a node React has since replaced, and both failures are
+   * silent — the wheel simply does nothing. A callback ref attaches exactly when
+   * the node is created and detaches exactly when it goes away.
+   *
+   * It is also registered natively rather than through React so the listener can
+   * be non-passive and actually suppress the browser's own page zoom.
+   */
+  const onWheel = useCallback((event: WheelEvent): void => {
+    const node = viewportRefCurrent.current
+    if (node === null) return
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault()
+      const rect = node.getBoundingClientRect()
+      zoomTo(camera.current.zoom - event.deltaY * 0.0022, { x: event.clientX - rect.left, y: event.clientY - rect.top })
+      return
+    }
+    // A plain wheel pans the wall. `preventDefault` stops the surrounding page
+    // from scrolling behind the canvas, which made the wall feel detached.
+    event.preventDefault()
+    camera.current.panX -= event.deltaX * WHEEL_PAN
+    camera.current.panY -= event.deltaY * WHEEL_PAN
+    applyCamera()
+  }, [applyCamera, zoomTo])
+
+  /** Attach the wheel listener to the canvas node, and only to that node. */
+  const bindViewport = useCallback((node: HTMLDivElement | null): void => {
+    viewportRefCurrent.current = node
+    detachWheel.current?.()
+    detachWheel.current = null
+    if (node === null) return
+    node.addEventListener('wheel', onWheel, { passive: false })
+    detachWheel.current = () => node.removeEventListener('wheel', onWheel)
+  }, [onWheel])
+
+  // A new handler identity must be re-bound to the node that is already mounted.
+  useEffect(() => {
+    const node = viewportRefCurrent.current
+    if (node === null) return
+    detachWheel.current?.()
+    node.addEventListener('wheel', onWheel, { passive: false })
+    detachWheel.current = () => node.removeEventListener('wheel', onWheel)
+  }, [onWheel])
+
+  // A viewport resize (window drag, sidebar collapse) must not leave the wall
+  // half off screen: re-fit it, but only when it is not being interacted with.
+  useEffect(() => {
+    const node = viewportRefCurrent.current
+    if (node === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (drag.current !== null || pan.current !== null) return
+      centreRequest.current = true
+      setViewportTick((value) => value + 1)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [view])
+
+  /**
+   * Re-apply the camera after every render.
+   *
+   * Cheap (two style writes) and always correct: the pointer loop mutates
+   * `camera.current` directly, so a render triggered by anything else must not
+   * leave the nodes showing a stale transform.
+   */
+  useLayoutEffect(() => {
+    if (view !== 'canvas') return
+    if (centreRequest.current) {
+      centreRequest.current = false
+      fitWall()
+      return
+    }
+    applyCamera()
+  }, [applyCamera, centreOn, fitWall, view, viewportTick])
 
   /** Begin a drag; the move itself is applied on pointerup through the Host. */
   function startDrag(note: Note, event: React.PointerEvent<HTMLElement>): void {
@@ -587,7 +896,8 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     // Mark the card as dragging directly on the node: going through React state
     // here re-rendered the entire wall on press and release, which is the main
     // reason the drag felt laggy. The CSS hook is a data attribute, so it costs
-    // one attribute write instead.
+    // one attribute write instead — and it disables the placement transition,
+    // which is what keeps the card glued to the pointer.
     node.setAttribute('data-dragging', 'true')
     // Assign through a named value, not an inline literal: a literal followed
     // by a `(` on the next line parses as a call expression, not as ASI.
@@ -603,8 +913,6 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       width: layout.width,
       moved: false,
       captured: false,
-      x: layout.x,
-      y: layout.y,
       frame: 0,
       lastX: event.clientX,
       lastY: event.clientY,
@@ -620,80 +928,146 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     }
   }
 
+  /** Begin a canvas pan when the press lands on empty paper, not on a card. */
+  function startPan(event: React.PointerEvent<HTMLDivElement>): void {
+    if (event.button !== 0 || event.isPrimary === false) return
+    const target = event.target as HTMLElement | null
+    if (target !== null && target.closest('.skw-note') !== null) return
+    const node = viewportRefCurrent.current
+    if (node === null) return
+    node.setAttribute('data-panning', 'true')
+    pan.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: camera.current.panX,
+      originY: camera.current.panY,
+      node,
+      frame: 0,
+      lastX: event.clientX,
+      lastY: event.clientY,
+    }
+  }
+
   /**
    * The pointer loop.
    *
    * Registered ONCE for the page's lifetime, not per drag: an effect keyed on
    * `draggingId` tore down and re-added three window listeners on every press
    * and release, and re-registered whenever `notes` changed mid-drag. Every
-   * handler below reads the drag from a ref, so a single registration is
-   * correct for any number of drags.
+   * handler below reads live state from refs, so a single registration is
+   * correct for any number of drags and pans.
    *
-   * Three things keep it smooth:
-   * - the offset is written on one element's `transform`, and the card's
-   *   `transition` is disabled while dragging (an animated transform fights
-   *   every frame of input and reads as rubber-banding);
+   * Three things keep the drag smooth:
+   * - the offset is written on one element's `transform`, and the placement
+   *   transition is disabled while dragging (an animated transform fights every
+   *   frame of input and reads as rubber-banding);
    * - several pointermoves are coalesced into one write per animation frame,
    *   because a high-rate trackpad emits far more events than there are paints;
    * - nothing in this path calls setState, so React never re-renders the wall
    *   while the pointer is down.
    */
   useEffect(() => {
-    const paint = (current: NonNullable<typeof drag.current>): void => {
+    const paintDrag = (current: NonNullable<typeof drag.current>): void => {
       current.frame = 0
       const node = current.node
       if (node === null) return
-      const dx = (current.lastX - current.startX) / camera.zoom
-      const dy = (current.lastY - current.startY) / camera.zoom
+      // The world wrapper is scaled, so a translate inside it is multiplied by
+      // the zoom: dividing keeps the card exactly under the pointer.
+      const zoomNow = camera.current.zoom
+      const dx = (current.lastX - current.startX) / zoomNow
+      const dy = (current.lastY - current.startY) / zoomNow
       node.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(${current.rotate}deg)`
+    }
+
+    const paintPan = (current: NonNullable<typeof pan.current>): void => {
+      current.frame = 0
+      camera.current.panX = current.originX + (current.lastX - current.startX)
+      camera.current.panY = current.originY + (current.lastY - current.startY)
+      applyCamera()
     }
 
     const move = (event: PointerEvent): void => {
       const current = drag.current
-      if (current === null || event.pointerId !== current.pointerId) return
-      current.lastX = event.clientX
-      current.lastY = event.clientY
-      if (!current.moved) {
-        if (Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < DRAG_THRESHOLD) return
-        current.moved = true
+      if (current !== null && event.pointerId === current.pointerId) {
+        current.lastX = event.clientX
+        current.lastY = event.clientY
+        if (!current.moved) {
+          if (Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < DRAG_THRESHOLD) return
+          current.moved = true
+        }
+        // Coalesce: one transform write per frame instead of one per event.
+        if (current.frame === 0) current.frame = requestAnimationFrame(() => paintDrag(current))
+        return
       }
-      // Coalesce: one transform write per frame instead of one per event.
-      if (current.frame === 0) current.frame = requestAnimationFrame(() => paint(current))
+      const panning = pan.current
+      if (panning !== null && event.pointerId === panning.pointerId) {
+        panning.lastX = event.clientX
+        panning.lastY = event.clientY
+        if (panning.frame === 0) panning.frame = requestAnimationFrame(() => paintPan(panning))
+      }
     }
 
     const finish = (event: PointerEvent): void => {
+      const panning = pan.current
+      if (panning !== null && event.pointerId === panning.pointerId) {
+        pan.current = null
+        // A pan that ends inside the same frame never got painted: cancelling
+        // the pending frame would silently drop the whole gesture, which is
+        // exactly what a quick flick does. Apply the final offset instead.
+        if (panning.frame !== 0) {
+          cancelAnimationFrame(panning.frame)
+          panning.frame = 0
+          camera.current.panX = panning.originX + (panning.lastX - panning.startX)
+          camera.current.panY = panning.originY + (panning.lastY - panning.startY)
+          applyCamera()
+        }
+        panning.node?.removeAttribute('data-panning')
+      }
       const current = drag.current
       if (current === null || event.pointerId !== current.pointerId) return
       drag.current = null
       if (current.frame !== 0) cancelAnimationFrame(current.frame)
       const node = current.node
-      if (node !== null) {
-        node.removeAttribute('data-dragging')
-        // Restore the card's own placement transform rather than clearing the
-        // inline style: React wrote `rotate(...)` into the same inline property,
-        // so clearing it would strip the tilt until the next render — a visible
-        // snap on every drop.
-        node.style.transform = `translate3d(0, 0, 0) rotate(${current.rotate}deg)`
+      const zoomNow = camera.current.zoom
+      const release = (): void => {
         if (current.captured) {
           try {
-            node.releasePointerCapture?.(event.pointerId)
+            node?.releasePointerCapture?.(event.pointerId)
           } catch {
             // The pointer may already be gone; nothing to release.
           }
         }
       }
-      if (!current.moved) return
-      const dx = (current.lastX - current.startX) / camera.zoom
-      const dy = (current.lastY - current.startY) / camera.zoom
+      if (!current.moved) {
+        // A press that never travelled is a click: drop the drag hook and let
+        // the browser's click land on the card's own handlers.
+        node?.removeAttribute('data-dragging')
+        if (node !== null) node.style.transform = `rotate(${current.rotate}deg)`
+        release()
+        return
+      }
+      const dx = (current.lastX - current.startX) / zoomNow
+      const dy = (current.lastY - current.startY) / zoomNow
       // The card keeps the tilt and width it had: a drag only changes where it
       // sits, so `rotate`/`width` come from the captured layout, not defaults.
-      const layout: NoteLayout = {
-        x: current.originX + dx,
-        y: current.originY + dy,
-        rotate: current.rotate,
-        width: current.width,
+      // Clamped with the same function the Host uses, so the card lands exactly
+      // where it will be stored and never snaps after the reload.
+      const layout = clampLayout({ x: current.originX + dx, y: current.originY + dy, rotate: current.rotate, width: current.width })
+      if (node !== null) {
+        node.removeAttribute('data-dragging')
+        // Hand the drag offset over to `left`/`top` in the same frame: the new
+        // world position is exactly where the card already is on screen, so the
+        // React update below is invisible instead of a snap back to the corner
+        // while the Host round-trip is still in flight.
+        node.style.transform = `rotate(${current.rotate}deg)`
+        node.style.left = `${layout.x}px`
+        node.style.top = `${layout.y}px`
+        release()
       }
-      void mutate(async () => { await api.move(current.id, layout, life.current.signal) })
+      // Optimistic placement, reconciled by the reload that `mutate` runs.
+      setNotes((previous) => previous.map((note) => (note.id === current.id ? { ...note, layout } : note)))
+      live.current.mutate(async () => { await api.move(current.id, layout, life.current.signal) })
     }
 
     // `pointerup` and `pointercancel` share the same teardown; a cancel is not a
@@ -707,20 +1081,33 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       window.removeEventListener('pointercancel', finish)
       const pending = drag.current
       if (pending !== null && pending.frame !== 0) cancelAnimationFrame(pending.frame)
+      const pendingPan = pan.current
+      if (pendingPan !== null && pendingPan.frame !== 0) cancelAnimationFrame(pendingPan.frame)
+      pan.current?.node?.removeAttribute('data-panning')
     }
-  }, [camera.zoom, api, mutate])
+  }, [api, applyCamera])
 
-  /** Zoom with the wheel; trackpad pinch arrives as ctrl+wheel. */
-  function onWheel(event: React.WheelEvent<HTMLDivElement>): void {
-    if (!event.ctrlKey && !event.metaKey) return
-    event.preventDefault()
-    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom - event.deltaY * 0.002))
-    setCamera((current) => ({ ...current, zoom: next }))
+  /** Stable action bag for the memoized cards. */
+  const latestActions = useRef<CardActions | null>(null)
+  latestActions.current = {
+    edit: openComposer,
+    patch: (note, patch) => { void mutate(async () => { await api.update(note.id, patch, life.current.signal) }) },
+    remove: (note) => setConfirming(note),
+    resize: (note, width) => {
+      void mutate(async () => {
+        const current = notes.find((candidate) => candidate.id === note.id)
+        if (current !== undefined) await api.move(note.id, { ...layoutOf(current, stableIndex.get(current.id) ?? 0), width }, life.current.signal)
+      })
+    },
+    drag: startDrag,
   }
-
-  const zoomBy = (delta: number): void => {
-    setCamera((current) => ({ ...current, zoom: Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, current.zoom + delta)) }))
-  }
+  const actions = useMemo<CardActions>(() => ({
+    edit: (note) => latestActions.current?.edit(note),
+    patch: (note, patch) => latestActions.current?.patch(note, patch),
+    remove: (note) => latestActions.current?.remove(note),
+    resize: (note, width) => latestActions.current?.resize(note, width),
+    drag: (note, event) => latestActions.current?.drag(note, event),
+  }), [])
 
   return (
     <section className="skw-page" aria-label={t('title')}>
@@ -741,7 +1128,14 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
           )}
           {view === 'canvas' && (
             <button className="skw-btn skw-btn-quiet" type="button" disabled={busy || visible.length === 0}
-              onClick={() => void mutate(async () => { await api.arrange(life.current.signal) })}>
+              onClick={() => void mutate(async () => {
+                await api.arrange(life.current.signal)
+                // Tidy packs a disc around the origin, so ask for a recentre
+                // once the reload has delivered the new placements: framing the
+                // OLD centroid here would land the viewport on empty paper.
+                centreRequest.current = true
+                setViewportTick((value) => value + 1)
+              })}>
               {t('arrange')}
             </button>
           )}
@@ -815,41 +1209,18 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         ) : view === 'grid' ? (
           <div className="skw-grid">
             {visible.map((note) => (
-              <NoteCard key={note.id} note={note} index={indexOf(note)} t={t} locale={activeLocale}
-                onEdit={openComposer}
-                onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
-                onRemove={(target) => setConfirming(target)}
-                onResize={(target, width) => void mutate(async () => {
-                  const current = notes.find((candidate) => candidate.id === target.id)
-                  if (current !== undefined) await api.move(target.id, { ...layoutOf(current, stableIndex.get(current.id) ?? 0), width }, life.current.signal)
-                })}
-                onDragStart={() => {}} />
+              <NoteCard key={note.id} note={note} index={indexOf(note)} surface="grid" t={t} locale={activeLocale} actions={actions} />
             ))}
           </div>
         ) : (
-          <div className="skw-canvas-scroll">
-            <div
-              ref={canvasRef}
-              className="skw-canvas"
-              data-zoomed={camera.zoom !== 1}
-              style={{ width: `${extent.width}px`, height: `${extent.height}px` }}
-              onWheel={onWheel}
-            >
-              <div className="skw-world" style={{ transform: `scale(${camera.zoom})`, transformOrigin: '0 0' }}>
-                {visible.map((note) => (
-                  <div key={note.id} className="skw-note-slot" data-note-id={note.id}>
-                    <NoteCard note={note} index={indexOf(note)} t={t} locale={activeLocale}
-                      onEdit={openComposer}
-                      onPatch={(target, patch) => void mutate(async () => { await api.update(target.id, patch, life.current.signal) })}
-                      onRemove={(target) => setConfirming(target)}
-                      onResize={(target, width) => void mutate(async () => {
-                        const current = notes.find((candidate) => candidate.id === target.id)
-                        if (current !== undefined) await api.move(target.id, { ...layoutOf(current, stableIndex.get(current.id) ?? 0), width }, life.current.signal)
-                      })}
-                      onDragStart={startDrag} />
-                  </div>
-                ))}
-              </div>
+          <div ref={bindViewport} className="skw-canvas" data-zoomed={zoom !== 1} onPointerDown={startPan}>
+            <div ref={worldRef} className="skw-world">
+              {/* A soft halo at the wall's middle: the wall has a centre, and
+                  the camera opens looking at it. */}
+              <div className="skw-origin-glow" style={{ left: `${wallCentre.x}px`, top: `${wallCentre.y}px` }} aria-hidden="true" />
+              {visible.map((note) => (
+                <NoteCard key={note.id} note={note} index={indexOf(note)} surface="canvas" t={t} locale={activeLocale} actions={actions} />
+              ))}
             </div>
           </div>
         )}
@@ -857,11 +1228,10 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
 
       {view === 'canvas' && (
         <div className="skw-cameras" role="group" aria-label={t('zoomLabel')}>
-          <button className="skw-camera-btn" type="button" aria-label={t('zoomOut')} onClick={() => zoomBy(-0.15)}>−</button>
-          <span className="skw-camera-value">{Math.round(camera.zoom * 100)}%</span>
-          <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} onClick={() => zoomBy(0.15)}>+</button>
-          <button className="skw-camera-btn" type="button" aria-label={t('zoomReset')}
-            onClick={() => setCamera({ zoom: 1 })}>⌖</button>
+          <button className="skw-camera-btn" type="button" aria-label={t('zoomOut')} onClick={() => zoomTo(zoom - 0.15)}>−</button>
+          <span className="skw-camera-value">{Math.round(zoom * 100)}%</span>
+          <button className="skw-camera-btn" type="button" aria-label={t('zoomIn')} onClick={() => zoomTo(zoom + 0.15)}>+</button>
+          <button className="skw-camera-btn" type="button" aria-label={t('zoomReset')} onClick={resetView}>⌖</button>
         </div>
       )}
 

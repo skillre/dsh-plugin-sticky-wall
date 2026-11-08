@@ -71,6 +71,23 @@ describe('layout geometry', () => {
     }
   })
 
+  it('spirals the derived positions around the origin instead of a grid', () => {
+    // A legacy wall (every note unplaced) is the first thing a user upgrading
+    // from a pre-canvas version sees, so it has to look like a wall with a
+    // middle: a spiral is centred, a grid starts in a corner.
+    const notes = Array.from({ length: 16 }, (_, index) => makeNote({ id: `n${index}` }))
+    const layouts = notes.map((note, index) => previewLayout(note, index))
+    const centreX = layouts.reduce((sum, layout) => sum + layout.x + WIDTH_PX[layout.width] / 2, 0) / layouts.length
+    const centreY = layouts.reduce((sum, layout) => sum + layout.y + 100, 0) / layouts.length
+    expect(Math.abs(centreX)).toBeLessThan(120)
+    expect(Math.abs(centreY)).toBeLessThan(120)
+    // Radius grows monotonically: index 0 is the middle, the rest surround it.
+    const radii = layouts.map((layout) => Math.hypot(layout.x + WIDTH_PX[layout.width] / 2, layout.y + 100))
+    for (let index = 1; index < radii.length; index += 1) {
+      expect(radii[index]!).toBeGreaterThan(radii[index - 1]!)
+    }
+  })
+
   it('uses the stored layout when one exists and falls back to the preview otherwise', () => {
     const stored: NoteLayout = { x: 42, y: 84, rotate: 2, width: 'lg' }
     expect(layoutOf(makeNote({ layout: stored }), 0)).toEqual(stored)
@@ -119,23 +136,45 @@ describe('tidy arrangement', () => {
     }
   })
 
-  it('keeps the arrangement inside the world bounds and starts near the origin', () => {
+  it('centres the arrangement on the world origin instead of a top-left corner', () => {
+    // The camera opens on the wall's middle, so the packing must have one. An
+    // earlier version shifted everything into the positive quadrant, which put
+    // the centre of gravity far from the origin and made the opening view show
+    // a corner of empty paper.
     const notes = Array.from({ length: 20 }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
     const planned = arrangeLayouts(notes)
-    let minX = Number.POSITIVE_INFINITY
-    let minY = Number.POSITIVE_INFINITY
-    for (const layout of planned.values()) {
+    let sumX = 0
+    let sumY = 0
+    for (const [id, layout] of planned) {
       expect(Math.abs(layout.x)).toBeLessThanOrEqual(LAYOUT_LIMITS.coord)
       expect(Math.abs(layout.y)).toBeLessThanOrEqual(LAYOUT_LIMITS.coord)
-      minX = Math.min(minX, layout.x)
-      minY = Math.min(minY, layout.y)
+      const note = notes.find((candidate) => candidate.id === id)!
+      sumX += layout.x + WIDTH_PX[layout.width] / 2
+      sumY += layout.y + estimateHeight(note, layout.width) / 2
     }
-    // The packing is shifted so the top-left card lands in the positive
-    // quadrant, which keeps the canvas scroll extent predictable.
-    expect(minX).toBeGreaterThanOrEqual(0)
-    expect(minY).toBeGreaterThanOrEqual(0)
-    expect(minX).toBeLessThan(80)
-    expect(minY).toBeLessThan(80)
+    const centroidX = sumX / planned.size
+    const centroidY = sumY / planned.size
+    // The centroid sits on the origin: the spiral is inherently balanced, so
+    // this is a tight bound rather than "somewhere near the middle".
+    expect(Math.abs(centroidX)).toBeLessThan(60)
+    expect(Math.abs(centroidY)).toBeLessThan(60)
+  })
+
+  it('grows a large wall into a disc, not a column or a strip', () => {
+    // A shelf packer grew one dimension: a 300-card wall became a kilometre-tall
+    // column. A phyllotaxis disc stays roughly square at every size, which is
+    // what lets the camera frame it by zooming instead of by scrolling.
+    for (const count of [12, 60, 300]) {
+      const notes = Array.from({ length: count }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
+      const planned = arrangeLayouts(notes)
+      const xs = [...planned.values()].map((layout) => layout.x)
+      const ys = [...planned.values()].map((layout) => layout.y)
+      const width = Math.max(...xs) - Math.min(...xs)
+      const height = Math.max(...ys) - Math.min(...ys)
+      const ratio = width / height
+      expect(ratio).toBeGreaterThan(0.7)
+      expect(ratio).toBeLessThan(1.4)
+    }
   })
 
   it('counts CJK text at two columns so a Chinese wall does not pack too tightly', () => {

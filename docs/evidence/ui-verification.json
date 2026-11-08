@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-07T01:24:43.286Z",
+  "capturedAt": "2026-11-08T03:05:10.510Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -84,7 +84,7 @@
     {
       "check": "canvas-positions-cards-absolutely",
       "ok": true,
-      "detail": "left=3.8px top=3.2px transform=rotate(-3.6deg)"
+      "detail": "left=-111px top=-100px transform=rotate(-0.3deg) id=8b586a43-b0bb-4eb3-bb79-308c8dee3641"
     },
     {
       "check": "canvas-tidy-repacks-the-wall",
@@ -97,14 +97,49 @@
       "detail": "2 cards, no overlap"
     },
     {
+      "check": "canvas-camera-frames-the-wall-centre",
+      "ok": true,
+      "detail": "offset=(-116,-83)px inside=true transform=translate3d(464.5px, 299.25px, 0px) scale(1)"
+    },
+    {
+      "check": "canvas-camera-is-a-transform-not-scroll",
+      "ok": true,
+      "detail": "transform=translate3d(464.5px, 299.25px, 0px) scale(1) overflow=hidden scroll=0"
+    },
+    {
       "check": "canvas-drag-persists-placement",
       "ok": true,
-      "detail": "26px,30px -> 122px,92px"
+      "detail": "-72.5px,-237.6px -> 23.5px,-175.6px"
     },
     {
       "check": "canvas-drag-keeps-rotation",
       "ok": true,
-      "detail": "translate3d(0px, 0px, 0px) rotate(-2.8deg)"
+      "detail": "rotate(-0.2deg)"
+    },
+    {
+      "check": "canvas-drag-on-paper-pans-the-camera",
+      "ok": true,
+      "detail": "(464.5,299.25) -> (584.5,239.25) cursor=grab"
+    },
+    {
+      "check": "canvas-wheel-zoom-keeps-the-pointer-anchored",
+      "ok": true,
+      "detail": "zoom 1.000 -> 1.396, world point (-384.5,314.8) -> (-384.5,314.8)"
+    },
+    {
+      "check": "canvas-reset-frames-the-whole-wall",
+      "ok": true,
+      "detail": "zoom=100% offset=(-1,5) fits=true"
+    },
+    {
+      "check": "canvas-large-wall-is-a-centred-disc",
+      "ok": true,
+      "detail": "14 cards (seeded 14), overlaps=0, offset=(-50,9), ratio=0.94, zoom=54%, fits=true"
+    },
+    {
+      "check": "canvas-large-wall-screenshot",
+      "ok": true,
+      "detail": "docs/evidence/sticky-wall-canvas-many.png"
     },
     {
       "check": "card-body-renders-markdown",
@@ -114,12 +149,12 @@
     {
       "check": "grid-view-renders-notes",
       "ok": true,
-      "detail": "cards=2"
+      "detail": "cards=14"
     },
     {
       "check": "list-view-renders-rows",
       "ok": true,
-      "detail": "rows=2"
+      "detail": "rows=14"
     },
     {
       "check": "theme-switches-note-palette",

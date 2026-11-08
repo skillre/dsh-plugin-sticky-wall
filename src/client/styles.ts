@@ -60,7 +60,7 @@ export const WALL_CSS = `
 .skw-count { margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .skw-body { flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; padding: 4px 22px 40px; }
-.skw-body[data-view="canvas"] { padding: 0; overflow: hidden; }
+.skw-body[data-view="canvas"] { padding: 0; overflow: hidden; position: relative; }
 /* Masonry-style columns, not a row grid: cards keep their natural height and
    short notes no longer sit in a tall row with dead space underneath. */
 .skw-grid { column-count: 5; column-gap: 14px; }
@@ -70,29 +70,44 @@ export const WALL_CSS = `
 @media (max-width: 560px)  { .skw-grid { column-count: 1; } }
 
 /* The free canvas.
-   A scroll container holding a world-sized surface; every card is absolutely
-   positioned in world coordinates. Scrolling pans, and ⌘/Ctrl + wheel scales
-   the world around its origin, so a wall keeps its spatial memory instead of
-   being re-flowed by the window width. */
-.skw-canvas-scroll { width: 100%; height: 100%; overflow: auto; overscroll-behavior: contain; }
+   One clipping viewport holding one transformed world. The camera is
+   translate3d(pan) scale(zoom) on .skw-world, written imperatively, so a pan or
+   a zoom never re-renders React and never triggers layout. Cards keep left/top
+   in world coordinates and a rotate(); the drag is the only thing that writes
+   their transform, and it is removed on drop. */
 .skw-canvas {
-  position: relative; min-width: 100%; min-height: 100%;
-  /* The same dot grid as the page, so the canvas reads as the paper itself. */
+  position: relative; width: 100%; height: 100%; overflow: hidden;
+  /* The dot grid lives on the viewport and is shifted/scaled with the camera, so
+     the paper moves under the cards instead of staying a screen texture. */
   background-image: radial-gradient(circle at 1px 1px, var(--dsw-alias-border-l1) 1px, transparent 0);
   background-size: 22px 22px;
+  cursor: grab; touch-action: none;
+  user-select: none; -webkit-user-select: none;
 }
-.skw-world { position: absolute; inset: 0; }
-.skw-note-slot { position: absolute; inset: 0; pointer-events: none; }
-/* Cards inside the canvas are absolutely placed by their stored layout, and
-   only the card itself takes pointer events, so empty paper stays scrollable. */
+.skw-canvas[data-panning="true"] { cursor: grabbing; }
+.skw-canvas[data-panning="true"] .skw-note { cursor: grabbing; }
+.skw-world {
+  position: absolute; left: 0; top: 0; width: 0; height: 0;
+  transform-origin: 0 0;
+  /* The world wrapper is a zero-sized origin marker; cards position themselves
+     from it. Promoting it once keeps pan/zoom on the compositor. */
+  will-change: transform;
+}
+/* A soft halo at the wall's middle. Decorative only: it marks where the camera
+   opens, and it is drawn under the cards so it never intercepts a pointer. */
+.skw-origin-glow {
+  position: absolute; width: 620px; height: 620px; margin: -310px 0 0 -310px;
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent) 0%, transparent 68%);
+}
 /* The canvas card.
    Performance note: transform must NEVER be transitioned here. The drag writes
    a new transform on every animation frame, and an active transition makes each
    write an animation target — the browser then interpolates toward it, so the
-   card visibly lags the pointer by ~160ms and reads as sticky. Only the
-   shadow is animated. */
+   card visibly lags the pointer by ~160ms and reads as sticky. Only the shadow
+   and the drop shadow animate. */
 .skw-canvas .skw-note {
-  position: absolute; pointer-events: auto; margin: 0;
+  position: absolute; margin: 0; pointer-events: auto;
   cursor: grab; touch-action: none;
   /* One layer per card, promoted once. Toggling will-change on drag would
      itself cost a style recalculation on the press. */
@@ -100,8 +115,8 @@ export const WALL_CSS = `
   transition: box-shadow .18s ease;
   /* The Host's tidy pass estimates card heights from text columns, so the
      rendered box has to honour the same budget: without a cap a long note grows
-     past its estimate and the shelf packing underneath it overlaps. The value
-     mirrors MAX_CARD_HEIGHT in src/layout.ts. */
+     past its estimate and the packing underneath it overlaps. The value mirrors
+     MAX_CARD_HEIGHT in src/layout.ts. */
   overflow: hidden;
 }
 .skw-canvas .skw-note[data-width="sm"] { max-height: 236px; }
@@ -109,11 +124,13 @@ export const WALL_CSS = `
 .skw-canvas .skw-note[data-width="lg"] { max-height: 336px; }
 /* While dragging: no hover lift, no text selection, a lifted shadow, and no
    pointer events on the card's own children so the drag cannot be interrupted
-   by a child capturing the pointer. */
+   by a child capturing the pointer. Containment keeps the lifted card's paint
+   out of the rest of the wall. */
 .skw-canvas .skw-note[data-dragging="true"] {
   cursor: grabbing; z-index: 20;
-  box-shadow: 0 4px 10px var(--dsw-alias-bg-mask-2), 0 26px 46px -14px var(--skw-note-glow);
+  box-shadow: 0 6px 14px var(--dsw-alias-bg-mask-2), 0 34px 60px -16px var(--skw-note-glow);
   user-select: none; -webkit-user-select: none;
+  contain: layout paint;
 }
 .skw-canvas .skw-note[data-dragging="true"] * { pointer-events: none; }
 /* The hover lift belongs to the grid view only. On the canvas the card already
@@ -176,7 +193,7 @@ export const WALL_CSS = `
      makes the wall read as paper rather than as flat rectangles. */
   box-shadow: 0 1px 2px var(--dsw-alias-bg-mask-2), 0 6px 16px -8px var(--skw-note-glow);
   cursor: default;
-  transition: box-shadow .18s ease, transform .18s ease;
+  transition: box-shadow .18s ease, transform .18s ease, opacity .18s ease;
   break-inside: avoid; -webkit-column-break-inside: avoid;
   margin: 0 0 14px;
 }
@@ -202,7 +219,13 @@ export const WALL_CSS = `
 .skw-note-body { margin: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 20px; flex: 1; color: var(--skw-note-ink); opacity: .92; }
 /* Clamp the rendered Markdown block, not a plain string: display:-webkit-box
    on the wrapper clips every child, so a long note stays a card and not a page. */
-.skw-note-body.is-clamped { display: -webkit-box; -webkit-line-clamp: 12; -webkit-box-orient: vertical; overflow: hidden; }
+.skw-note-body.is-clamped { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; -webkit-line-clamp: 12; }
+/* Clamp per width preset so the body ends on a whole line instead of being cut
+   mid-glyph by the card's own max-height. The numbers are what fits under the
+   budget once the action bar, title, tags and footer have taken their share. */
+.skw-note[data-width="sm"] .skw-note-body.is-clamped { -webkit-line-clamp: 5; }
+.skw-note[data-width="md"] .skw-note-body.is-clamped { -webkit-line-clamp: 8; }
+.skw-note[data-width="lg"] .skw-note-body.is-clamped { -webkit-line-clamp: 11; }
 .skw-note-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 1px; }
 /* Tags read as real labels: a tinted pill with the note's accent, not a grey
    block. */
