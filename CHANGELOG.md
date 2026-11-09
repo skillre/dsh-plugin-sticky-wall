@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+- Contour packing: a tidied wall is now a compact composition instead of a small ring seen from far away.
+
+  - Tidy packs against the reserved rectangle's own **contour** instead of concentric circles. A ring's first radius is the reserve's half-DIAGONAL, so the innermost cards sat at the rectangle's corner distance in all four directions — including the four where the rectangle is barely one card away. A contour keeps each card one half-size from the reserve, so the same fourteen notes now fill **1261x705 instead of 1645x1794**.
+  - Every candidate slot is scored by the **zoom the whole wall would need** in a reference viewport, then by how **window-shaped** the wall becomes, then by how **evenly spaced** it is. Packing for the frame rather than for the slot is what turns the result from a disc into a wide, low cluster: a 14-card wall now frames at **84% instead of 36%**, and the live 8-note wall at **86% instead of 51%**.
+  - The contour grows its height faster than its width until it matches the reference window's aspect, so extra frames add room on the short edges where cards are useful rather than lengthening the left and right columns.
+  - A never-placed note's derived position is now a **squashed** golden-angle spiral (1.4:1), so a wall written before the canvas existed also renders wide and framable instead of as a circle.
+  - Centring now alternates the exact shift with a reserve repair until the shift is negligible, then settles any remaining violators without shifting. A single shift left a 20-card wall ~56px off centre.
+
 ## 0.5.0
 
 ### Minor Changes

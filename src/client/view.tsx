@@ -9,7 +9,7 @@
  * The canvas has three view modes:
  * - `canvas` — the free board: cards sit where the Host says, drag a card to
  *   move it, drag the empty paper to pan, scroll to pan, ⌘/Ctrl + wheel to zoom,
- *   "整理" repacks them into a disc centred on the world origin.
+ *   "整理" repacks them into a compact cluster centred on the world origin.
  * - `grid` — the same notes as a responsive masonry grid, for scanning a lot of
  *   text without the spatial noise.
  * - `list` — a dense one-line-per-note index, for finding a note by title.
@@ -25,9 +25,9 @@
  * 2. **Panning and zooming never re-render.** They touch two style properties on
  *    two nodes. Cards keep their `left`/`top`/`width` and a `rotate()`, so a pan
  *    or a zoom costs zero React work and zero layout.
- * 3. **The wall has a middle.** `arrangeLayouts` packs a phyllotaxis disc around
- *    the origin, and the camera opens on the wall's centroid instead of on a
- *    top-left corner.
+ * 3. **The wall has a middle.** `arrangeLayouts` packs a compact cluster around
+ *    the origin, hugging the reserved centrepiece, and the camera opens on the
+ *    wall's bounding-box centre instead of on a top-left corner.
  * 4. **A drop is optimistic.** The card is written to its final world position
  *    on the node and in the note list before the Host round-trip, so the card
  *    never snaps back to where it started while the write is in flight.
@@ -1044,12 +1044,13 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     // this the user is better off seeing part of the wall at a legible size and
     // panning for the rest.
     //
-    // The floor is 42%, not 50%. A 14-card wall needs roughly 2300x2000 of world
-    // and a 1160x900 canvas has ~2100x1570 usable at 50%, so a 50% floor left the
-    // wall's outer cards permanently outside the viewport — which the framing
-    // assertion caught as `fits=false`. 42% still renders 13px note text at ~11px,
-    // which is legible; the previous value was chosen before the wall was a ring
-    // and the ring is denser in one dimension than a spiral.
+    // The floor is 42%, not 50%. It was chosen when the packer laid cards out in
+    // rings, whose first radius is the reserve's half-diagonal, so a 14-card wall
+    // needed ~2300x2000 of world and a 50% floor left its outer cards outside the
+    // viewport. The contour packer is roughly twice as tight (a 14-card wall now
+    // needs ~1290x670), so the floor is now a backstop rather than the normal
+    // case — kept because a genuinely huge wall must still stay legible rather
+    // than be shrunk into confetti.
     //
     // The bottom inset is the dock's own height: it floats OVER the canvas, so
     // framing against the raw viewport put the wall's bottom row behind it. The

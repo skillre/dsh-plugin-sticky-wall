@@ -5,17 +5,17 @@
  * rotation and a width preset. Two operations produce those numbers:
  *
  * - {@link arrangeLayouts} is the Host-side "tidy" pass. It packs the wall into
- *   a phyllotaxis (sunflower) disc **centred on the world origin**, so the wall
- *   has a middle instead of a top-left corner: the Client opens looking at that
- *   middle, and a tidied wall reads as one composition rather than a list that
- *   happens to wrap. It is deterministic — the same notes always produce the
- *   same wall — and it is collision-checked rather than estimated, so two cards
- *   can never overlap even at the height cap.
+ *   a compact cluster **centred on the world origin**, hugging the rectangle the
+ *   centrepiece reserves: the Client opens looking at that middle, and a tidied
+ *   wall reads as one composition rather than a list that happens to wrap. It is
+ *   deterministic — the same notes always produce the same wall — and it is
+ *   collision-checked rather than estimated, so two cards can never overlap even
+ *   at the height cap.
  * - {@link previewLayout} is the Client-side fallback for a note that was never
  *   placed (a wall written before the canvas existed, or a note created by the
- *   agent tool). It is the same spiral without the collision check: O(1) per
- *   note, index-stable, and centred, so the first render is already a scattered
- *   wall around the middle instead of one tall stack.
+ *   agent tool). It is a golden-angle spiral without the collision check: O(1)
+ *   per note, index-stable, and centred, so the first render is already a
+ *   scattered wall around the middle instead of one tall stack.
  *
  * Both halves import this module, so the geometry never drifts between the
  * value the Host persists and the value the Client previews.
@@ -44,10 +44,14 @@ export declare function layoutOf(note: Note, index: number): NoteLayout;
 /**
  * Derived position for a note the user never placed.
  *
- * Index-based so two never-placed notes cannot collide, golden-angle spiralled
- * so the result reads as a wall scattered around the middle rather than a grid.
- * The height used for centring is a nominal constant, not the real estimate:
- * a derived position must not move when the user edits the note's text.
+ * Index-based so two never-placed notes cannot collide, and laid out on a
+ * SQUASHED spiral — the same golden-angle walk with its radius stretched along
+ * the x axis — so the result reads as a wide cluster around the middle rather
+ * than a circle or a grid. The squash matters: a circle leaves the left and
+ * right of a wide window empty and the camera then has to zoom out to frame the
+ * empty corners, which is the same "everything looks small" failure the tidy
+ * pass fixes. The height used for centring is a nominal constant, not the real
+ * estimate: a derived position must not move when the user edits the text.
  */
 export declare function previewLayout(note: Note, index: number): NoteLayout;
 /**
@@ -83,25 +87,45 @@ export interface Box {
 /**
  * Deterministic tidy arrangement for the whole wall.
  *
- * The wall is packed into CONCENTRIC RINGS around the world origin, outside the
- * rectangle the centrepiece reserves. This replaced a phyllotaxis first-fit
- * spiral, and the reason is measurable rather than aesthetic: a sunflower spiral
- * has to keep every candidate clear of a card's full bounding circle, so it
- * saturates at roughly a quarter of the available area and the only way to place
- * the next card is to walk further out. A fourteen-card wall therefore spread
- * over ~2700px of paper while its cards covered ~430,000px² — a sparse scatter,
- * not a wall. Ring packing instead computes how many cards fit on each circle
- * (`2πR / pitch`) and fills that circle evenly, so the same fourteen cards fit
- * within ~1200px and the result reads as a ring around the middle.
+ * The wall is packed against a CONTOUR: the reserved rectangle's own outline,
+ * walked outward frame by frame. This is the third packer in this file's
+ * history and each replacement fixed a measured failure rather than a taste.
  *
- * Cards are sorted largest-first within the ring they land on, which is the
- * classic first-fit-decreasing heuristic: big cards claim the inner ring where
- * there is less room to waste, and small cards take up the slack outside.
+ * 1. A phyllotaxis first-fit spiral had to keep every candidate clear of a
+ *    card's full bounding circle, so it saturated at roughly a quarter of the
+ *    available area and the only way to place the next card was to walk further
+ *    out: fourteen cards spread over ~2700px of paper.
+ * 2. Concentric RINGS fixed that density but paid for it with distance. A ring
+ *    is a circle, and the first ring's radius is the reserve's half-DIAGONAL —
+ *    so the innermost cards sit at the rectangle's corner distance in every
+ *    direction, including the four directions where the rectangle is only a
+ *    card's width away. A fourteen-card wall then filled a 1645x1794 box, which
+ *    the camera could only frame at 36%: the cards were individually packed
+ *    tightly but the wall as a whole looked small and far away. That is the
+ *    complaint this packer answers.
+ * 3. A contour hugs the rectangle instead: along the left and right edges a card
+ *    sits one card-half-width from the reserve, and along the top and bottom one
+ *    card-half-height from it. Every card is therefore as close to the middle as
+ *    its own size allows, which is what makes the wall read as one composition.
+ *
+ * Two further decisions do the rest of the work:
+ *
+ * - **Score by how well the wall FRAMES, not by how free the slot is.** A
+ *   candidate slot is judged by the zoom the whole wall would need in a
+ *   reference viewport if the card went there. Filling a slot that widens the
+ *   wall's box costs zoom, so the packer prefers slots that keep the box close
+ *   to the window's own aspect — which is why the result is a wide, low cluster
+ *   instead of a disc that leaves the left and right of the window empty.
+ * - **The first frame with room wins.** Walking outward frame by frame and
+ *   taking the best-scoring slot on the first frame that has any is what makes
+ *   every card land near the middle: an outer frame is only reached when the
+ *   inner ones are genuinely full.
  *
  * A collision check still runs on every candidate rather than trusting the
  * height estimate, because the estimate is a line count and a code block's
- * padding is not something a line count can see. If a candidate does not fit the
- * check pushes to the next ring — the packer never produces an overlap.
+ * padding is not something a line count can see. The packer never produces an
+ * overlap, and the final centring passes repair any card the centring shift
+ * nudged into the reserved rectangle.
  *
  * Returns a map from note id to its new layout, for every note that needs to
  * move. Notes already at exactly that layout are omitted by the caller, so

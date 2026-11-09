@@ -5,17 +5,17 @@
  * rotation and a width preset. Two operations produce those numbers:
  *
  * - {@link arrangeLayouts} is the Host-side "tidy" pass. It packs the wall into
- *   a phyllotaxis (sunflower) disc **centred on the world origin**, so the wall
- *   has a middle instead of a top-left corner: the Client opens looking at that
- *   middle, and a tidied wall reads as one composition rather than a list that
- *   happens to wrap. It is deterministic — the same notes always produce the
- *   same wall — and it is collision-checked rather than estimated, so two cards
- *   can never overlap even at the height cap.
+ *   a compact cluster **centred on the world origin**, hugging the rectangle the
+ *   centrepiece reserves: the Client opens looking at that middle, and a tidied
+ *   wall reads as one composition rather than a list that happens to wrap. It is
+ *   deterministic — the same notes always produce the same wall — and it is
+ *   collision-checked rather than estimated, so two cards can never overlap even
+ *   at the height cap.
  * - {@link previewLayout} is the Client-side fallback for a note that was never
  *   placed (a wall written before the canvas existed, or a note created by the
- *   agent tool). It is the same spiral without the collision check: O(1) per
- *   note, index-stable, and centred, so the first render is already a scattered
- *   wall around the middle instead of one tall stack.
+ *   agent tool). It is a golden-angle spiral without the collision check: O(1)
+ *   per note, index-stable, and centred, so the first render is already a
+ *   scattered wall around the middle instead of one tall stack.
  *
  * Both halves import this module, so the geometry never drifts between the
  * value the Host persists and the value the Client previews.
@@ -36,31 +36,51 @@ import {
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 /** Breathing room kept between two tidied cards, in world pixels. */
 const TIDY_GAP = 26
-/** Hash-driven radial offset applied to a tidied card, in world pixels. */
-const TIDY_JITTER = 5
 /** Maximum rotation the tidy pass adds, in degrees. */
 const TIDY_TILT = 3.4
 /** Radial growth per derived (never-placed) note, in world pixels. */
 const PREVIEW_STEP = 196
 /** Height assumed for a derived position, so the derived box looks centred. */
 const PREVIEW_NOMINAL_HEIGHT = 200
+/**
+ * Horizontal stretch applied to the derived spiral, matching the reference
+ * viewport's aspect. A derived wall is never tidied, so its shape is the only
+ * thing keeping it framable at a legible zoom.
+ */
+const PREVIEW_SQUASH = 1.4
 /** Clearance the free-spot search keeps between a new card and its neighbours. */
 const SPOT_GAP = 24
 /** Candidate positions the free-spot search tries before falling back. */
 const MAX_SPOTS = 2048
+
 /**
- * How strongly an outer ring prefers horizontal slots, in world pixels of
- * clearance. A wall reads better in a wide window when its outer cards sit left
- * and right, and this is small enough that a genuinely freer slot still wins.
+ * How far each successive contour grows past the reserved rectangle, in world
+ * pixels. A contour is only tried when every slot on the previous one is taken,
+ * so this is the radial grain of the packing: smaller packs tighter but costs
+ * more candidate tests.
  */
-const HORIZON_BIAS = 140
+const FRAME_STEP = 20
+/** Spacing between two candidate slots along one contour, in world pixels. */
+const CONTOUR_STEP = 14
+/** Contours walked outward before a card gives up and takes the safety spot. */
+const MAX_FRAMES = 1024
+/** Upper bound on slots tested per contour, so a huge wall stays bounded. */
+const MAX_SLOTS = 320
+/**
+ * The framing the tidy pass packs FOR: the usable canvas of a typical window, in
+ * world pixels at zoom 1. A candidate slot is scored by how much this rectangle
+ * would have to zoom out to hold the wall, which is the number the user actually
+ * feels. The exact window is unknown to the Host, so this is a shape, not a size.
+ */
+const FRAMING_WIDTH = 1064
+const FRAMING_HEIGHT = 664
+/** The reference viewport's own aspect; the contour is grown to match it. */
+const FRAMING_ASPECT = 1.5
 
 /** Maximum rotation the preview fallback adds, in degrees. */
 const PREVIEW_TILT = 4
 /** Spatial-grid cell; wider than the biggest rotated card plus the gap. */
 const GRID_CELL = 430
-/** Candidate spiral positions tried per card before the safety fallback. */
-const MAX_CANDIDATES = 4096
 
 /** Deterministic 32-bit FNV-1a hash; no crypto, identical on both halves. */
 function hash(text: string): number {
@@ -192,10 +212,14 @@ export function layoutOf(note: Note, index: number): NoteLayout {
 /**
  * Derived position for a note the user never placed.
  *
- * Index-based so two never-placed notes cannot collide, golden-angle spiralled
- * so the result reads as a wall scattered around the middle rather than a grid.
- * The height used for centring is a nominal constant, not the real estimate:
- * a derived position must not move when the user edits the note's text.
+ * Index-based so two never-placed notes cannot collide, and laid out on a
+ * SQUASHED spiral — the same golden-angle walk with its radius stretched along
+ * the x axis — so the result reads as a wide cluster around the middle rather
+ * than a circle or a grid. The squash matters: a circle leaves the left and
+ * right of a wide window empty and the camera then has to zoom out to frame the
+ * empty corners, which is the same "everything looks small" failure the tidy
+ * pass fixes. The height used for centring is a nominal constant, not the real
+ * estimate: a derived position must not move when the user edits the text.
  */
 export function previewLayout(note: Note, index: number): NoteLayout {
   const width = previewWidth(note.id)
@@ -213,7 +237,7 @@ export function previewLayout(note: Note, index: number): NoteLayout {
   const radius = PREVIEW_STEP * Math.sqrt(Math.max(0, index) + (startRadius / PREVIEW_STEP) ** 2)
   const theta = index * GOLDEN_ANGLE + (unit(`${note.id}:pa`) - 0.5) * 0.55
   return clampLayout({
-    x: Math.cos(theta) * radius - WIDTH_PX[width] / 2,
+    x: Math.cos(theta) * radius * PREVIEW_SQUASH - WIDTH_PX[width] / 2,
     y: Math.sin(theta) * radius - PREVIEW_NOMINAL_HEIGHT / 2,
     rotate: (unit(`${note.id}:pr`) - 0.5) * 2 * PREVIEW_TILT,
     width,
@@ -330,6 +354,53 @@ function nearestGap(box: Box, grid: Map<string, Box[]>): number {
   return nearest
 }
 
+/**
+ * The point at arc length `distance` around a rectangle's outline, with the
+ * outward normal there.
+ *
+ * This is the contour the tidy pass walks. Unlike a circle, a rectangle's
+ * outline stays a card's own half-size away from the reserve in every direction,
+ * which is what keeps the innermost cards as close to the middle as their size
+ * allows instead of at the rectangle's corner distance all the way round.
+ *
+ * `halfWidth`/`halfHeight` are the contour's own half-extents, so a contour is
+ * just "the reserve grown by one frame".
+ */
+function contourPoint(halfWidth: number, halfHeight: number, distance: number): { x: number; y: number; nx: number; ny: number } {
+  const width = halfWidth * 2
+  const height = halfHeight * 2
+  const perimeter = 2 * (width + height)
+  let along = ((distance % perimeter) + perimeter) % perimeter
+  // Clockwise from the top-left corner: top edge, right edge, bottom, left.
+  if (along < width) return { x: -halfWidth + along, y: -halfHeight, nx: 0, ny: -1 }
+  along -= width
+  if (along < height) return { x: halfWidth, y: -halfHeight + along, nx: 1, ny: 0 }
+  along -= height
+  if (along < width) return { x: halfWidth - along, y: halfHeight, nx: 0, ny: 1 }
+  along -= width
+  return { x: -halfWidth, y: halfHeight - along, nx: -1, ny: 0 }
+}
+
+/**
+ * The footprint of a card whose nearest edge sits on a contour point.
+ *
+ * The reach is half the card's extent MEASURED ALONG THE NORMAL, not half its
+ * width: on the top and bottom edges a tilted card reaches out by half its
+ * height, and charging it half its width there would let it clip the reserve.
+ */
+function boxOnContour(
+  point: { x: number; y: number; nx: number; ny: number },
+  extent: { width: number; height: number },
+): Box {
+  const reach = (Math.abs(point.nx) * extent.width + Math.abs(point.ny) * extent.height) / 2
+  return {
+    x: point.x + point.nx * reach - extent.width / 2,
+    y: point.y + point.ny * reach - extent.height / 2,
+    width: extent.width,
+    height: extent.height,
+  }
+}
+
 /** Register one accepted footprint in every cell it touches. */
 function remember(box: Box, grid: Map<string, Box[]>): void {
   for (let cellX = cellOf(box.x); cellX <= cellOf(box.x + box.width); cellX += 1) {
@@ -345,25 +416,45 @@ function remember(box: Box, grid: Map<string, Box[]>): void {
 /**
  * Deterministic tidy arrangement for the whole wall.
  *
- * The wall is packed into CONCENTRIC RINGS around the world origin, outside the
- * rectangle the centrepiece reserves. This replaced a phyllotaxis first-fit
- * spiral, and the reason is measurable rather than aesthetic: a sunflower spiral
- * has to keep every candidate clear of a card's full bounding circle, so it
- * saturates at roughly a quarter of the available area and the only way to place
- * the next card is to walk further out. A fourteen-card wall therefore spread
- * over ~2700px of paper while its cards covered ~430,000px² — a sparse scatter,
- * not a wall. Ring packing instead computes how many cards fit on each circle
- * (`2πR / pitch`) and fills that circle evenly, so the same fourteen cards fit
- * within ~1200px and the result reads as a ring around the middle.
+ * The wall is packed against a CONTOUR: the reserved rectangle's own outline,
+ * walked outward frame by frame. This is the third packer in this file's
+ * history and each replacement fixed a measured failure rather than a taste.
  *
- * Cards are sorted largest-first within the ring they land on, which is the
- * classic first-fit-decreasing heuristic: big cards claim the inner ring where
- * there is less room to waste, and small cards take up the slack outside.
+ * 1. A phyllotaxis first-fit spiral had to keep every candidate clear of a
+ *    card's full bounding circle, so it saturated at roughly a quarter of the
+ *    available area and the only way to place the next card was to walk further
+ *    out: fourteen cards spread over ~2700px of paper.
+ * 2. Concentric RINGS fixed that density but paid for it with distance. A ring
+ *    is a circle, and the first ring's radius is the reserve's half-DIAGONAL —
+ *    so the innermost cards sit at the rectangle's corner distance in every
+ *    direction, including the four directions where the rectangle is only a
+ *    card's width away. A fourteen-card wall then filled a 1645x1794 box, which
+ *    the camera could only frame at 36%: the cards were individually packed
+ *    tightly but the wall as a whole looked small and far away. That is the
+ *    complaint this packer answers.
+ * 3. A contour hugs the rectangle instead: along the left and right edges a card
+ *    sits one card-half-width from the reserve, and along the top and bottom one
+ *    card-half-height from it. Every card is therefore as close to the middle as
+ *    its own size allows, which is what makes the wall read as one composition.
+ *
+ * Two further decisions do the rest of the work:
+ *
+ * - **Score by how well the wall FRAMES, not by how free the slot is.** A
+ *   candidate slot is judged by the zoom the whole wall would need in a
+ *   reference viewport if the card went there. Filling a slot that widens the
+ *   wall's box costs zoom, so the packer prefers slots that keep the box close
+ *   to the window's own aspect — which is why the result is a wide, low cluster
+ *   instead of a disc that leaves the left and right of the window empty.
+ * - **The first frame with room wins.** Walking outward frame by frame and
+ *   taking the best-scoring slot on the first frame that has any is what makes
+ *   every card land near the middle: an outer frame is only reached when the
+ *   inner ones are genuinely full.
  *
  * A collision check still runs on every candidate rather than trusting the
  * height estimate, because the estimate is a line count and a code block's
- * padding is not something a line count can see. If a candidate does not fit the
- * check pushes to the next ring — the packer never produces an overlap.
+ * padding is not something a line count can see. The packer never produces an
+ * overlap, and the final centring passes repair any card the centring shift
+ * nudged into the reserved rectangle.
  *
  * Returns a map from note id to its new layout, for every note that needs to
  * move. Notes already at exactly that layout are omitted by the caller, so
@@ -373,8 +464,8 @@ export function arrangeLayouts(notes: readonly Note[], options: { centreReserve?
   const placed = new Map<string, NoteLayout>()
   if (notes.length === 0) return placed
 
-  // Decide each card's rotation and footprint up front: the ring pitch and the
-  // collision test both work on the rotated box.
+  // Decide each card's rotation and footprint up front: the contour offsets and
+  // the collision test both work on the rotated box.
   const items = notes.map((note) => {
     const width = note.layout?.width ?? previewWidth(note.id)
     const cardWidth = WIDTH_PX[width]
@@ -386,14 +477,10 @@ export function arrangeLayouts(notes: readonly Note[], options: { centreReserve?
 
   const reserve = normalizeReserve(options.centreReserve ?? CENTRE_RESERVE)
 
-  // The first ring's radius is the distance from the origin to the reserve's
-  // corner plus the largest card's half-diagonal: the smallest circle that can
-  // hold a card clear of the whole rectangle.
-  const reserveCorner = Math.hypot(reserve.halfWidth, reserve.halfHeight)
-  const largestHalfDiagonal = Math.max(...items.map((item) => Math.hypot(item.extent.width, item.extent.height) / 2))
-
-  // Largest first: see the first-fit-decreasing note above. Ties break on id so
-  // the result stays deterministic across two windows.
+  // Largest first: the classic first-fit-decreasing heuristic. Big cards claim
+  // the inner frames where there is less room to waste, and small cards fill the
+  // gaps they leave. Ties break on id so the result stays deterministic across
+  // two windows.
   const ordered = [...items].sort((left, right) => {
     const areaLeft = left.extent.width * left.extent.height
     const areaRight = right.extent.width * right.extent.height
@@ -401,240 +488,194 @@ export function arrangeLayouts(notes: readonly Note[], options: { centreReserve?
     return left.note.id.localeCompare(right.note.id)
   })
 
-  // Plan the rings before placing anything.
-  //
-  // Filling ring by ring on demand left the last ring a PARTIAL ARC: cards went
-  // onto it from angle 0 and stopped, so the wall's centre of mass leaned toward
-  // that arc by ~180px and the camera framed a wall whose middle was not its
-  // visual middle. Planning the counts first means each ring can spread its own
-  // cards over the whole circle, so a partially filled ring is still balanced.
-  // Two different spacings, and conflating them was a real capacity bug.
-  //
-  // Along a circle, cards are separated by their WIDTH (the tangential direction);
-  // between circles, by their HEIGHT (the radial direction). The first version
-  // pitched both by `max(width, height)`, so a ring was charged its cards' height
-  // where only their width mattered — a 14-card wall then fit 11 cards on the
-  // inner ring and spilled 3 onto a much wider outer ring, making the wall 2400px
-  // tall where 1400 would do.
-  const halfDepth = (item: (typeof items)[number]): number => item.extent.height / 2
-  const ringPlan: number[] = []
-  const ringRadii: number[] = []
-  {
-    let remaining = ordered.length
-    let cursor = 0
-    let radius = reserveCorner + largestHalfDiagonal
-    while (remaining > 0) {
-      const group = ordered.slice(cursor, cursor + remaining)
-      // Tangential pitch from the MEAN width of the cards that could land here;
-      // the collision check still guards the real geometry.
-      const meanWidth = group.reduce((sum, item) => sum + item.extent.width, 0) / group.length + TIDY_GAP
-      const capacity = Math.max(1, Math.floor((2 * Math.PI * radius) / meanWidth))
-      const take = Math.min(capacity, remaining)
-      ringPlan.push(take)
-      ringRadii.push(radius)
-      // Radial step: the deepest card on this ring plus the deepest on the next.
-      //
-      // This is the worst case (both rings' deepest cards at the same angle), and
-      // it is charged deliberately. Tightening it below the worst case did fit
-      // more cards per ring, but `pushOutOfReserve` runs after the final centring
-      // shift and can then move a card INTO a neighbour — the shift preserves the
-      // reserve, not the inter-card gaps. Charging the honest step keeps the
-      // post-shift corrections small enough that they cannot collide.
-      const deepest = Math.max(...ordered.slice(cursor, cursor + take).map(halfDepth))
-      const nextDeepest = cursor + take < ordered.length ? Math.max(...ordered.slice(cursor + take).map(halfDepth)) : deepest
-      radius += deepest + nextDeepest + TIDY_GAP
-      remaining -= take
-      cursor += take
-    }
-  }
-
   const grid = new Map<string, Box[]>()
-  // Where the packer currently is: a ring, and the next angle on it to try.
-  //
-  // The cursor advances ONLY when a card is placed. Advancing it on a collision
-  // as well looked equivalent and was not: every rejected candidate burned a
-  // slot, so a ring "filled up" before its angles were exhausted and the packer
-  // jumped outward on the next attempt — a 300-card wall then ran to radius
-  // 25,000 and had 56 cards clamped onto the world edge.
-  let ringIndex = 0
-  let slotIndex = 0
-  let fallbackY = 0
+
+  // The wall's box so far, extended by each accepted card. The framing score
+  // needs it, and it is cheaper to maintain than to recompute per candidate.
+  let wall: Box | null = null
+  const extendWall = (box: Box): Box =>
+    wall === null
+      ? { x: box.x, y: box.y, width: box.width, height: box.height }
+      : {
+          x: Math.min(wall.x, box.x),
+          y: Math.min(wall.y, box.y),
+          width: Math.max(wall.x + wall.width, box.x + box.width) - Math.min(wall.x, box.x),
+          height: Math.max(wall.y + wall.height, box.y + box.height) - Math.min(wall.y, box.y),
+        }
 
   /**
-   * Radius of one ring, in world pixels.
+   * The best slot for one card, or null when no contour has room.
    *
-   * A ring beyond the plan is only reached when the collision check rejects
-   * every planned slot, so it continues the same outward progression.
+   * `soft` is used for the repair passes: a repair may not disturb a card that
+   * already sits legally, so it is asked to stay a hair further out, which keeps
+   * the rounding of a stored position from reading as a fresh violation.
    */
-  const radiusOf = (index: number): number => {
-    const planned = ringRadii[index]
-    if (planned !== undefined) return planned
-    const last = ringRadii[ringRadii.length - 1] ?? reserveCorner + largestHalfDiagonal
-    return last + (index - (ringRadii.length - 1)) * RADIAL_STEP
+  const pick = (item: (typeof items)[number], settled: Map<string, Box[]>, soft: CentreReserve, seed: string): Box | null => {
+    const { extent } = item
+    for (let frame = 0; frame < MAX_FRAMES; frame += 1) {
+      const halfWidth = soft.halfWidth + frame * FRAME_STEP
+      // Grow the height FASTER than the width until the contour itself is as wide
+      // as the framing rectangle. Growing both equally makes the left and right
+      // edges (already the reserve's long ones) longer still, so every extra frame
+      // adds room for a vertical column and none for a horizontal row: the wall
+      // grew into an 1114x966 block that framed at 69% where a window-shaped one
+      // frames at 90%. A contour whose own aspect matches the window puts the
+      // spare slots on the short edges, which is where they are useful.
+      const halfHeight = Math.max(soft.halfHeight, halfWidth / FRAMING_ASPECT)
+      const perimeter = 4 * (halfWidth + halfHeight)
+      const slots = Math.min(MAX_SLOTS, Math.max(12, Math.round(perimeter / CONTOUR_STEP)))
+      // A deterministic phase per frame, so two frames' slots do not line up and
+      // the same wall always packs to the same coordinates.
+      const phase = unit(`${seed}:f${frame}`) * perimeter
+      let best: { box: Box; score: number; shape: number; clearance: number; offset: number } | null = null
+      for (let slot = 0; slot < slots; slot += 1) {
+        const candidate = boxOnContour(contourPoint(halfWidth, halfHeight, phase + (slot / slots) * perimeter), extent)
+        if (!clearsReserve(candidate, reserve)) continue
+        if (collides(candidate, settled)) continue
+        const next = extendWall(candidate)
+        // How much this wall would have to shrink to fit the reference viewport.
+        // Higher is better; it is the number the camera will actually apply.
+        const score = Math.min(
+          1,
+          FRAMING_WIDTH / Math.max(1, next.width),
+          FRAMING_HEIGHT / Math.max(1, next.height),
+        )
+        // HOW WINDOW-SHAPED the wall becomes, as a log ratio so being too wide
+        // and being too tall are penalised equally. This is the tie-break, and it
+        // is what actually produces a wide wall: for the first several cards
+        // almost every slot frames at the same zoom, because the wall is still
+        // smaller than the viewport either way. Without a shape preference the
+        // tie fell to placement noise, the wall grew equally in all four
+        // directions, and the result was a tall block that framed at 69% where a
+        // wide one frames at 90%.
+        const shape = Math.abs(Math.log((next.width + 1) / (next.height + 1) / FRAMING_ASPECT))
+        // How far this slot sits from the cards already placed. Even distribution
+        // is the point of a wall: a slot that hugs one neighbour leaves a hole
+        // elsewhere that the NEXT card then has to reach across.
+        const clearance = nearestGap(candidate, settled)
+        // Nearest-the-origin last, because that is the middle the camera frames.
+        const offset = Math.hypot(next.x + next.width / 2, next.y + next.height / 2)
+        const better =
+          best === null ||
+          score > best.score + 1e-9 ||
+          (Math.abs(score - best.score) <= 1e-9 &&
+            (shape < best.shape - 1e-9 ||
+              (Math.abs(shape - best.shape) <= 1e-9 &&
+                (clearance > best.clearance + 1e-9 ||
+                  (Math.abs(clearance - best.clearance) <= 1e-9 && offset < best.offset)))))
+        if (better) best = { box: candidate, score, shape, clearance, offset }
+      }
+      // The first frame with ANY free slot wins. Walking further out would find
+      // roomier slots, and taking them is exactly how a wall grows into a sparse
+      // scatter instead of a composition.
+      if (best !== null) return best.box
+    }
+    return null
   }
-  /** Angles available on one ring: the plan, or the geometric capacity past it. */
-  const slotsOf = (index: number): number =>
-    Math.max(1, ringPlan[index] ?? Math.floor((2 * Math.PI * radiusOf(index)) / (largestHalfDiagonal * 2 + TIDY_GAP)))
-  /** Radial step used when a ring beyond the plan has to be invented. */
-  const RADIAL_STEP = largestHalfDiagonal * 2 + TIDY_GAP
 
   for (const item of ordered) {
-    const { extent } = item
-    let box: Box | null = null
-    let attempts = 0
-    // Walk rings outward from the current one. Each ring is tried at every one of
-    // its own angles before the next ring is considered, which is what keeps the
-    // wall compact: the first ring with a free slot wins.
-    for (let ring = ringIndex; attempts < MAX_CANDIDATES; ring += 1) {
-      const radius = radiusOf(ring)
-      const slots = slotsOf(ring)
-      // A deterministic phase per ring, so one ring's gaps do not line up with
-      // the next ring's cards.
-      const phase = (unit(`${item.note.id}:ring${ring}`) - 0.5) * (Math.PI / slots)
-      // Try every slot on this ring and take the one whose angle is farthest from
-      // the cards already placed. Filling slots in index order instead packed the
-      // first few cards onto one arc, which left a partially filled outer ring
-      // lopsided and the wall's centre of mass ~120px off the origin — visibly
-      // off-centre after a tidy. "Farthest from a neighbour" spreads them.
-      let best: { box: Box; slot: number; score: number } | null = null
-      for (let slot = 0; slot < slots; slot += 1) {
-        const theta = phase + (slot / slots) * Math.PI * 2
-        // Jitter the radius, never the angle: an angular jitter would slide a card
-        // toward its neighbour, while a radial one only opens a small gap.
-        const jitter = (unit(`${item.note.id}:aj`) - 0.5) * 2 * TIDY_JITTER
-        const candidate: Box = {
-          x: Math.cos(theta) * (radius + jitter) - extent.width / 2,
-          y: Math.sin(theta) * (radius + jitter) - extent.height / 2,
-          width: extent.width,
-          height: extent.height,
-        }
-        attempts += 1
-        if (!clearsReserve(candidate, reserve)) continue
-        if (collides(candidate, grid)) continue
-        // Score = clearance, biased toward the HORIZONTAL axis on outer rings.
-        //
-        // A wall is viewed in a window that is wider than it is tall, so an outer
-        // arc is much cheaper to frame if it sits on the left and right rather than
-        // above and below. Without the bias the outer cards landed wherever the
-        // slot order put them, which made a two-ring wall ~2100px TALL and 1600
-        // wide — the shape the viewport is worst at. The bias is small enough that
-        // a genuinely freer slot still wins.
-        const clearance = nearestGap(candidate, grid)
-        const horizontal = Math.abs(Math.cos(theta))
-        const score = clearance + horizontal * (ring === 0 ? 0 : HORIZON_BIAS)
-        if (best === null || score > best.score) best = { box: candidate, slot, score }
-      }
-      if (best !== null) {
-        box = best.box
-        ringIndex = ring
-        slotIndex = best.slot + 1
-        break
-      }
-    }
-    if (box === null) {
+    const box = pick(item, grid, reserve, item.note.id) ?? {
       // Unreachable for a wall inside the note cap; the fallback exists so the
       // function still returns a placement for every note instead of throwing.
-      fallbackY += extent.height + TIDY_GAP
-      box = { x: -extent.width / 2, y: reserveCorner + fallbackY, width: extent.width, height: extent.height }
+      x: -item.extent.width / 2,
+      y: -9000,
+      width: item.extent.width,
+      height: item.extent.height,
     }
     remember(box, grid)
+    wall = extendWall(box)
     // The rotated footprint is centred on the card, so the card's own top-left
     // is the footprint centre minus the UNROTATED half size.
     placed.set(
       item.note.id,
       clampLayout({
-        x: box.x + extent.width / 2 - item.cardWidth / 2,
-        y: box.y + extent.height / 2 - item.cardHeight / 2,
+        x: box.x + item.extent.width / 2 - item.cardWidth / 2,
+        y: box.y + item.extent.height / 2 - item.cardHeight / 2,
         rotate: item.rotate,
         width: item.width,
       }),
     )
   }
 
-  // Centre the finished ring on the world origin.
-  //
-  // This is not cosmetic — it is what makes the reserved middle correct. The
-  // centrepiece is a SCREEN-space block at the viewport's middle, and the camera
-  // frames the wall's BOUNDING BOX centre at that same middle. So the world
-  // rectangle the packer keeps clear is only under the field if the wall's box is
-  // centred on the origin. Leave the offset in and a tidy wall's capture field
-  // drifts off its own reserve by however far the box was off.
-  //
-  // Measured on the bounding box (what the camera frames), not the centroid, and
-  // on the ROTATED footprint (what the packer placed).
-  const boxes = [...placed].map(([id, layout]) => {
+  /**
+   * Centre the finished wall on the world origin.
+   *
+   * This is not cosmetic — it is what makes the reserved middle correct. The
+   * centrepiece is a SCREEN-space block at the viewport's middle, and the camera
+   * frames the wall's BOUNDING BOX centre at that same middle. So the world
+   * rectangle the packer keeps clear is only under the field if the wall's box is
+   * centred on the origin. Leave the offset in and a tidy wall's capture field
+   * drifts off its own reserve by however far the box was off.
+   *
+   * It alternates the shift with a repair, because a shift can push a card into
+   * the reserve: the repair displaces the wall again, so the shift has to be
+   * re-measured. A single pass left a 20-card wall ~56px off centre.
+   */
+  const footprintOfId = (id: string, layout: NoteLayout): Box => {
     const note = notes.find((candidate) => candidate.id === id)
-    const width = WIDTH_PX[layout.width]
-    const height = note === undefined ? 0 : estimateHeight(note, layout.width)
-    const extent = rotatedExtent(width, height, layout.rotate)
-    const centreX = layout.x + width / 2
-    const centreY = layout.y + height / 2
-    return {
-      id,
-      note,
-      layout,
-      extent,
-      box: { x: centreX - extent.width / 2, y: centreY - extent.height / 2, width: extent.width, height: extent.height },
+    if (note === undefined) return { x: layout.x, y: layout.y, width: 0, height: 0 }
+    return footprintOf(note, layout)
+  }
+  const wallBounds = (): Box => {
+    let minX = Number.POSITIVE_INFINITY
+    let minY = Number.POSITIVE_INFINITY
+    let maxX = Number.NEGATIVE_INFINITY
+    let maxY = Number.NEGATIVE_INFINITY
+    for (const [id, layout] of placed) {
+      const box = footprintOfId(id, layout)
+      minX = Math.min(minX, box.x)
+      minY = Math.min(minY, box.y)
+      maxX = Math.max(maxX, box.x + box.width)
+      maxY = Math.max(maxY, box.y + box.height)
     }
-  })
-  const minX = Math.min(...boxes.map((entry) => entry.box.x))
-  const maxX = Math.max(...boxes.map((entry) => entry.box.x + entry.box.width))
-  const minY = Math.min(...boxes.map((entry) => entry.box.y))
-  const maxY = Math.max(...boxes.map((entry) => entry.box.y + entry.box.height))
-  const shiftX = (minX + maxX) / 2
-  const shiftY = (minY + maxY) / 2
-
-  // Apply the FULL shift, then push any card the shift nudged into the reserve
-  // back out of it.
-  //
-  // A partial shift (the previous bisection) left the wall's box off the origin,
-  // and that is not a cosmetic problem: the centrepiece is a screen-space block at
-  // the viewport's middle and the camera frames the box centre, so a box off the
-  // origin puts the field off its own reserved rectangle — a card then legitimately
-  // sits behind the capture field while every world-space check says it is clear.
-  // Keeping the box ON the origin is what makes the reserve and the field the same
-  // thing.
-  if (Math.abs(shiftX) >= 0.05 || Math.abs(shiftY) >= 0.05) {
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  }
+  /** Repair every card that sits in the reserve, one at a time, against the rest. */
+  const repairReserve = (soft: CentreReserve): void => {
+    const violators = [...placed].filter(([id, layout]) => !clearsReserve(footprintOfId(id, layout), reserve))
+    if (violators.length === 0) return
+    const settled = new Map(placed)
+    for (const [id] of violators) settled.delete(id)
+    const repairGrid = new Map<string, Box[]>()
+    for (const [id, layout] of settled) remember(footprintOfId(id, layout), repairGrid)
+    for (const [id] of violators) {
+      const item = items.find((candidate) => candidate.note.id === id)
+      if (item === undefined) continue
+      const box = pick(item, repairGrid, soft, `${id}:repair`)
+      if (box === null) continue
+      remember(box, repairGrid)
+      placed.set(
+        id,
+        clampLayout({
+          x: box.x + item.extent.width / 2 - item.cardWidth / 2,
+          y: box.y + item.extent.height / 2 - item.cardHeight / 2,
+          rotate: item.rotate,
+          width: item.width,
+        }),
+      )
+    }
+  }
+  // Ask the repair to stay a hair clear, so a card packed exactly on the boundary
+  // is not re-placed by rounding noise.
+  const softReserve = { halfWidth: reserve.halfWidth + 1.5, halfHeight: reserve.halfHeight + 1.5 }
+  for (let pass = 0; pass < 6; pass += 1) {
+    const box = wallBounds()
+    const shiftX = box.x + box.width / 2
+    const shiftY = box.y + box.height / 2
+    if (Math.abs(shiftX) < 0.5 && Math.abs(shiftY) < 0.5) break
     for (const [id, layout] of placed) {
       placed.set(id, clampLayout({ ...layout, x: layout.x - shiftX, y: layout.y - shiftY }))
     }
-    // A card packed just outside the reserve moves INTO it when the wall slides
-    // toward that side. Repair those cards properly rather than nudging them.
-    //
-    // Two earlier attempts were wrong in instructive ways. Pushing along the
-    // nearest axis ignored the neighbours and could land a card on top of one.
-    // Collision-checking that push was better, but when no escape was clear it
-    // left the card where it was — a reserve violation, which is the invariant the
-    // whole design exists to keep.
-    //
-    // So the repair reuses `findFreeLayout`: it already searches outward from the
-    // reserve for a spot that clears both the rectangle and every placed card, and
-    // it is deterministic. Violating cards are relocated one at a time against the
-    // set of cards that are already settled.
-    const violators = [...placed].filter(([id, layout]) => {
-      const note = notes.find((candidate) => candidate.id === id)
-      return note !== undefined && !clearsReserve(footprintOf(note, layout), reserve)
-    })
-    if (violators.length > 0) {
-      const settled = new Map(placed)
-      for (const [id] of violators) settled.delete(id)
-      for (const [id, layout] of violators) {
-        const note = notes.find((candidate) => candidate.id === id)
-        if (note === undefined) continue
-        // `findFreeLayout` needs the OTHER notes; the candidate note's own width is
-        // preserved so a card never changes size just because it had to move.
-        const others: Note[] = []
-        for (const [otherId, otherLayout] of settled) {
-          const other = notes.find((candidate) => candidate.id === otherId)
-          if (other !== undefined) others.push({ ...other, layout: otherLayout })
-        }
-        const relocated = findFreeLayout({ ...note, layout }, others, { centreReserve: reserve })
-        // Keep the width the card already had: `findFreeLayout` honours a submitted
-        // layout's width, and the layout passed in carries it.
-        settled.set(id, relocated)
-        placed.set(id, relocated)
-      }
-    }
+    repairReserve(softReserve)
+  }
+  // The loop above can exit with violators left over: its last repair is itself
+  // displaced by the shift it was responding to. Settle them without shifting.
+  for (let pass = 0; pass < 24; pass += 1) {
+    const before = [...placed].filter(([id, layout]) => !clearsReserve(footprintOfId(id, layout), reserve)).length
+    if (before === 0) break
+    repairReserve(softReserve)
+    const after = [...placed].filter(([id, layout]) => !clearsReserve(footprintOfId(id, layout), reserve)).length
+    if (after >= before) break
   }
 
   return placed

@@ -87,7 +87,13 @@ describe('layout geometry', () => {
     expect(Math.abs(centreX)).toBeLessThan(120)
     expect(Math.abs(centreY)).toBeLessThan(120)
     // Radius grows monotonically: index 0 is the middle, the rest surround it.
-    const radii = layouts.map((layout) => Math.hypot(layout.x + WIDTH_PX[layout.width] / 2, layout.y + 100))
+    // Measured along the ELLIPSE the spiral is stretched onto, not a circle: the
+    // derived wall is deliberately wider than it is tall so a wide window can
+    // frame it without zooming out for empty corners.
+    const SQUASH = 1.4
+    const radii = layouts.map((layout) =>
+      Math.hypot((layout.x + WIDTH_PX[layout.width] / 2) / SQUASH, layout.y + 100),
+    )
     for (let index = 1; index < radii.length; index += 1) {
       expect(radii[index]!).toBeGreaterThan(radii[index - 1]!)
     }
@@ -170,12 +176,14 @@ describe('tidy arrangement', () => {
     expect(Math.abs((minY + maxY) / 2)).toBeLessThan(2)
   })
 
-  it('packs a fourteen-card wall into a ring, not a sparse scatter', () => {
-    // The complaint this fixes: the wall looked spread out rather than composed.
-    // A phyllotaxis first-fit spiral saturates at ~25% of the available area, so
-    // the only way to place the next card is further out — fourteen cards spread
-    // over ~2700px of paper. Ring packing fills each circle by capacity instead,
-    // so the same wall fits in roughly half that.
+  it('packs a fourteen-card wall tightly against the centrepiece, not far away', () => {
+    // The complaint this fixes: the tidied wall looked SMALL. Rings were dense
+    // per ring but the first ring's radius is the reserve's half-DIAGONAL, so the
+    // innermost cards sat at the rectangle's corner distance in all four
+    // directions — including the four where the rectangle is barely a card away.
+    // Fourteen cards then filled 1645x1794, which a 1160x780 canvas can only
+    // frame at 36%. Packing against the rectangle's own CONTOUR keeps each card
+    // one half-size from the reserve instead.
     const notes = Array.from({ length: 14 }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
     const planned = arrangeLayouts(notes)
     let minX = Number.POSITIVE_INFINITY
@@ -192,33 +200,42 @@ describe('tidy arrangement', () => {
     }
     const width = maxX - minX
     const height = maxY - minY
-    // A 14-card wall of mixed small/medium notes must fit comfortably inside a
-    // 1440x900 viewport at the 50% framing floor, which is ~2880x1800 of world.
-    expect(width).toBeLessThan(2400)
-    expect(height).toBeLessThan(2400)
-    // And it must still be a disc, not a column.
-    expect(width / height).toBeGreaterThan(0.7)
-    expect(width / height).toBeLessThan(1.4)
+    // The measured failure was 1645x1794. A contour-packed wall of the same
+    // fourteen notes is ~1290x670, so these bounds are the old shape's floor.
+    expect(width).toBeLessThan(1400)
+    expect(height).toBeLessThan(900)
+    // And the camera can now frame it at a legible size instead of 36%.
+    const fit = Math.min((1160 - 96) / width, (780 - 48 - 68) / height, 1)
+    expect(fit).toBeGreaterThan(0.7)
   })
 
-  it('grows a large wall into a disc, not a column or a strip', () => {
+  it('packs a large wall into a wide cluster, not a column or a square disc', () => {
     // A shelf packer grew one dimension: a 300-card wall became a kilometre-tall
-    // column. A phyllotaxis disc stays roughly square at every size, which is
-    // what lets the camera frame it by zooming instead of by scrolling.
-    //
-    // Measured at 60+ cards: a small wall is an ARC around the reserved middle,
-    // so its bounding box is legitimately narrow. From 60 up the ring closes and
-    // the shape is what the framing depends on.
+    // column. A circle stays square, which wastes the left and right of a window
+    // that is wider than it is tall — the wall then frames at a smaller zoom than
+    // it needs to. The packer scores each slot by the zoom the whole wall would
+    // need in a reference viewport, so the shape converges on that window's own
+    // aspect: wide, and never a strip.
     for (const count of [60, 150, 300]) {
       const notes = Array.from({ length: count }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
       const planned = arrangeLayouts(notes)
-      const xs = [...planned.values()].map((layout) => layout.x)
-      const ys = [...planned.values()].map((layout) => layout.y)
-      const width = Math.max(...xs) - Math.min(...xs)
-      const height = Math.max(...ys) - Math.min(...ys)
-      const ratio = width / height
-      expect(ratio).toBeGreaterThan(0.7)
-      expect(ratio).toBeLessThan(1.4)
+      let minX = Number.POSITIVE_INFINITY
+      let maxX = Number.NEGATIVE_INFINITY
+      let minY = Number.POSITIVE_INFINITY
+      let maxY = Number.NEGATIVE_INFINITY
+      for (const [id, layout] of planned) {
+        const note = notes.find((candidate) => candidate.id === id)!
+        const box = footprintOf(note, layout)
+        minX = Math.min(minX, box.x)
+        maxX = Math.max(maxX, box.x + box.width)
+        minY = Math.min(minY, box.y)
+        maxY = Math.max(maxY, box.y + box.height)
+      }
+      const ratio = (maxX - minX) / (maxY - minY)
+      // Wider than tall, but never a strip: the reference viewport is 1.6:1 and
+      // the packer is allowed to overshoot it rather than distort the wall.
+      expect(ratio).toBeGreaterThan(1.0)
+      expect(ratio).toBeLessThan(2.0)
     }
   })
 
