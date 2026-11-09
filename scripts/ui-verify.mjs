@@ -809,15 +809,20 @@ try {
       })(),
     };
   })()`)
-  record('canvas-large-wall-is-a-centred-disc', {
+  record('canvas-large-wall-is-a-centred-cluster', {
     // What must hold: the wall is CENTRED, legible, free of overlaps, and its cards
     // are not hidden behind the dock. It does NOT have to fit entirely — the
-    // readable zoom floor exists precisely so a large wall is shown at a legible
+    // readable zoom floor exists precisely so a huge wall is shown at a legible
     // size and panned, rather than shrunk into confetti. The wall's own bounding
     // box is centred on the viewport, which is what the camera frames.
+    //
+    // The shape is a wide, low CLUSTER, not a disc: the packer scores each slot by
+    // the zoom the whole wall would need, so it fills the window's long axis
+    // instead of leaving its sides empty. Hence ratio > 1.0 rather than ~1.0, and
+    // the zoom floor here is the framing floor's own number.
     ok: bigWall.cards >= 10 && bigWall.overlaps === 0 &&
       Math.abs(bigWall.offsetX) < 340 && Math.abs(bigWall.offsetY) < 340 &&
-      bigWall.ratio > 0.5 && bigWall.ratio < 2 && bigWall.zoomPercent >= 42 && bigWall.behindDock === 0,
+      bigWall.ratio > 1.0 && bigWall.ratio < 2.4 && bigWall.zoomPercent >= 42 && bigWall.behindDock === 0,
     detail: `${bigWall.cards} cards (seeded ${seeded}), overlaps=${bigWall.overlaps}, offset=(${Math.round(bigWall.offsetX)},${Math.round(bigWall.offsetY)}), ratio=${bigWall.ratio.toFixed(2)}, zoom=${bigWall.zoom}, fits=${bigWall.fits}, behindDock=${bigWall.behindDock}, world=${bigWall.worldSize.w}x${bigWall.worldSize.h}`,
   })
   const bigShot = await page.shot('sticky-wall-canvas-many.png')

@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-09T13:38:21.831Z",
+  "capturedAt": "2026-11-09T13:45:04.992Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -84,7 +84,7 @@
     {
       "check": "canvas-positions-cards-absolutely",
       "ok": true,
-      "detail": "left=-269.1px top=303.5px transform=rotate(-3.2deg) id=bde78e28-2660-4308-bf70-b50b3aebb390"
+      "detail": "left=-394.3px top=214.1px transform=rotate(2.1deg) id=83fdfeb6-b367-4594-981a-cb74f3819b4d"
     },
     {
       "check": "canvas-tidy-repacks-the-wall",
@@ -99,42 +99,42 @@
     {
       "check": "canvas-camera-frames-the-wall-centre",
       "ok": true,
-      "detail": "offset=(-1,-32)px inside=true transform=translate3d(943.5px, 570px, 0px) scale(1)"
+      "detail": "offset=(0,-34)px inside=true transform=translate3d(760.5px, 582px, 0px) scale(1)"
     },
     {
       "check": "canvas-camera-is-a-transform-not-scroll",
       "ok": true,
-      "detail": "transform=translate3d(943.5px, 570px, 0px) scale(1) overflow=hidden scroll=0"
+      "detail": "transform=translate3d(760.5px, 582px, 0px) scale(1) overflow=hidden scroll=0"
     },
     {
       "check": "canvas-drag-persists-placement",
       "ok": true,
-      "detail": "-514.6px,-97.9px -> -513.1px,-35.9px"
+      "detail": "15.5px,-411.2px -> 111.5px,-349.2px"
     },
     {
       "check": "canvas-drag-keeps-rotation",
       "ok": true,
-      "detail": "rotate(-3.2deg)"
+      "detail": "rotate(2.1deg)"
     },
     {
       "check": "canvas-drag-on-paper-pans-the-camera",
       "ok": true,
-      "detail": "(943.5,570) -> (1063.5,510) cursor=grab"
+      "detail": "(760.5,582) -> (880.5,522) cursor=grab"
     },
     {
       "check": "canvas-wheel-zoom-keeps-the-pointer-anchored",
       "ok": true,
-      "detail": "zoom 1.000 -> 1.396, world point (-863.5,170.0) -> (-863.5,170.0)"
+      "detail": "zoom 1.000 -> 1.396, world point (-680.5,158.0) -> (-680.5,158.0)"
     },
     {
       "check": "canvas-reset-frames-the-whole-wall",
       "ok": true,
-      "detail": "zoom=100% offset=(-2,-32) fits=true"
+      "detail": "zoom=100% offset=(0,-34) fits=true"
     },
     {
-      "check": "canvas-large-wall-is-a-centred-disc",
+      "check": "canvas-large-wall-is-a-centred-cluster",
       "ok": true,
-      "detail": "14 cards (seeded 14), overlaps=0, offset=(0,-31), ratio=1.54, zoom=76%, fits=true, behindDock=0, world=1399x903"
+      "detail": "14 cards (seeded 14), overlaps=0, offset=(0,-34), ratio=1.37, zoom=91%, fits=true, behindDock=0, world=1165x853"
     },
     {
       "check": "canvas-centrepiece-is-at-the-middle",
@@ -159,7 +159,7 @@
     {
       "check": "centre-capture-lands-visible-and-clear-of-the-field",
       "ok": true,
-      "detail": "onScreen=true inReserve=false distance=558px cardsOverField=0/15 zoom=0.76"
+      "detail": "onScreen=true inReserve=false distance=496px cardsOverField=0/15 zoom=0.91"
     },
     {
       "check": "no-card-covers-the-centrepiece",
