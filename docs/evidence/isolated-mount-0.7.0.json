@@ -1,0 +1,58 @@
+{
+  "package": "@skillre/dsh-plugin-sticky-wall",
+  "version": "0.7.0",
+  "dsh": "0.2.2-rc.1",
+  "tarball": {
+    "path": "/Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.7.0.tgz",
+    "sha256": "9eeef63cfd8c06d7ceec5c7a08cf4093c7b717faa313af276a0316b92a45e018"
+  },
+  "profile": "sticky-wall-test-a5d844c7",
+  "checks": [
+    "command: dsh --version -> exit 0",
+    "dsh-version",
+    "command: dsh --profile sticky-wall-test-a5d844c7 --from-default-profile web --dump-config -> exit 0",
+    "profile-template-created",
+    "command: dsh plugin --profile sticky-wall-test-a5d844c7 add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.7.0.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-19nMAP/pnpm-store -> exit 0",
+    "profile-tarball-install",
+    "packed-dependency-and-selection",
+    "command: dsh --profile sticky-wall-test-a5d844c7 --dump-config -> exit 0",
+    "dump-config",
+    "packed-payload-present",
+    "bounded-startup",
+    "api-list",
+    "api-create",
+    "api-update",
+    "api-move",
+    "api-move-clamped",
+    "api-move-bounds",
+    "api-arrange",
+    "api-archive",
+    "api-archive-hides-note",
+    "storage-persistence-across-restart",
+    "storage-persistence-layout",
+    "api-delete",
+    "api-delete-verified",
+    "api-auth-fence"
+  ],
+  "endpoint": {
+    "list": {
+      "notes": 1
+    },
+    "create": {
+      "id": "f446877e-0d54-4b69-b61e-9dfb601015cb"
+    },
+    "move": {
+      "x": 168,
+      "y": 112,
+      "rotate": -3,
+      "width": "lg"
+    }
+  },
+  "cleanup": {
+    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-19nMAP",
+    "profile": "sticky-wall-test-a5d844c7",
+    "processesStopped": true,
+    "rootRemoved": true,
+    "verified": true
+  }
+}

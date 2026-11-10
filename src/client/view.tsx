@@ -890,23 +890,24 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   }, [])
 
   /**
-   * Animate the camera to a target, so the wall glides instead of jumping.
+   * Animate the camera to an exact zoom and pan, so the wall glides instead of
+   * jumping.
    *
    * A hard cut when a new card arrives outside the viewport is disorienting: the
    * user cannot tell whether the wall moved or a different wall appeared. A short
    * ease makes the relationship between "where I was" and "where the card is"
    * legible, which is the whole point of revealing it.
+   *
+   * This takes the PAN rather than a world point because the reveal has to aim at
+   * a screen position that is deliberately NOT the middle of the viewport: the
+   * centrepiece occupies that middle, so a card "centred" there is a card hidden
+   * behind the field.
    */
-  const glideTo = useCallback((zoomTarget: number, worldX: number, worldY: number): void => {
-    const viewport = viewportRefCurrent.current
-    if (viewport === null) return
+  const glideCameraTo = useCallback((zoomTarget: number, panX: number, panY: number): void => {
+    const target = clampZoom(zoomTarget)
+    const to = { zoom: target, panX, panY }
     stopTween()
     const from = { ...camera.current }
-    const to = {
-      zoom: clampZoom(zoomTarget),
-      panX: viewport.clientWidth / 2 - worldX * clampZoom(zoomTarget),
-      panY: viewport.clientHeight / 2 - worldY * clampZoom(zoomTarget),
-    }
     if (typeof requestAnimationFrame !== 'function') {
       camera.current = { ...to }
       setZoom(to.zoom)
@@ -939,6 +940,19 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     // the whole wall during the animation.
     setZoom(to.zoom)
   }, [applyCamera, stopTween])
+
+  /**
+   * Put one world point in the middle of the visible area, at the current zoom.
+   *
+   * This is for FRAMING a wall (first open, reset, tidy), never for revealing a
+   * single card: the middle of the viewport is where the centrepiece is drawn.
+   */
+  const glideTo = useCallback((zoomTarget: number, worldX: number, worldY: number): void => {
+    const viewport = viewportRefCurrent.current
+    if (viewport === null) return
+    const target = clampZoom(zoomTarget)
+    glideCameraTo(target, viewport.clientWidth / 2 - worldX * target, viewport.clientHeight / 2 - worldY * target)
+  }, [glideCameraTo])
 
   /** Put one world point in the middle of the visible area, at the current zoom. */
   const centreOn = useCallback((worldX: number, worldY: number): void => {
@@ -1081,57 +1095,170 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   /**
    * The clear rectangle the wall must leave for its centrepiece, in WORLD pixels.
    *
-   * This is deliberately ZOOM-INDEPENDENT, and that is the whole point. The first
+   * The SIZE is fixed and zoom-independent, and that is deliberate. The first
    * version derived it from the rendered overlay divided by the zoom, which made
    * the reserve grow as the camera zoomed out — but placements are PERSISTED, so
    * a card packed clear at 100% became an offender at 50%, and a single zoom-out
-   * put a card behind the capture field. A reserve that moves when the camera
+   * put a card behind the capture field. A reserve that resizes when the camera
    * moves cannot be an invariant.
    *
-   * The fixed rectangle works because the overlay is counter-scaled to match it
-   * (see `applyCamera`): at zoom 1 the centrepiece exactly fills the reserve, and
-   * zoomed out it shrinks on screen to cover the same world rectangle. So "no card
-   * in the reserve" and "no card behind the field" are the same statement at every
-   * zoom level.
+   * The POSITION, though, is the camera's business. The centrepiece is a
+   * screen-space overlay pinned to the middle of the viewport, so as the paper
+   * pans and zooms the patch of world it covers travels with it. Reporting only
+   * half-extents made the Host keep the world ORIGIN clear while the field sat
+   * somewhere else entirely: a capture on a panned or zoomed wall was placed —
+   * and then revealed — directly behind the field. Converting the field's own
+   * screen rectangle through the camera gives the world patch it really covers.
    */
-  const centreReserve = useCallback((): CentreReserve => CENTRE_RESERVE, [])
+  const centreReserve = useCallback((): CentreReserve => {
+    const base = CENTRE_RESERVE
+    const viewport = viewportRefCurrent.current
+    const centre = centreRef.current
+    if (viewport === null || centre === null) return base
+    const view = viewport.getBoundingClientRect()
+    const block = centre.getBoundingClientRect()
+    if (view.width === 0 || view.height === 0 || block.width === 0 || block.height === 0) return base
+    const zoomNow = camera.current.zoom
+    // The overlay is counter-scaled by `min(1, zoom)` (see `applyCamera`), so its
+    // painted box already spans the fixed world rectangle. Convert its screen
+    // centre back through the camera to find WHERE that rectangle sits.
+    const screenX = block.left + block.width / 2 - view.left
+    const screenY = block.top + block.height / 2 - view.top
+    return {
+      x: (screenX - camera.current.panX) / zoomNow,
+      y: (screenY - camera.current.panY) / zoomNow,
+      halfWidth: base.halfWidth,
+      halfHeight: base.halfHeight,
+    }
+  }, [])
 
   /**
-   * Bring one world box into view, zooming out only as far as it takes.
+   * Bring one world box into view, without parking it behind the centrepiece.
    *
    * Creating a card must never be a guess: if the nearest free gap is off screen,
-   * the wall glides so the card is visible, and it zooms out only when the card
-   * genuinely does not fit. A card that is already visible moves nothing, because
-   * stealing the view from someone who is reading is worse than the card being
-   * slightly off-centre.
+   * the wall glides so the card is visible. But "visible" cannot mean "centred on
+   * the viewport", because the centrepiece is a screen-space overlay pinned to
+   * that exact middle — centring the new card put it directly BEHIND the capture
+   * field it was just typed into. That was the reported defect, and it reproduced
+   * at 41% of the card's own area on the default camera.
+   *
+   * So the card is placed in the free space AROUND the field instead: one of four
+   * positions hugging the field's projected rectangle (above, below, left, right),
+   * choosing the one that needs the least camera movement and still fits on
+   * screen. A card that is already visible and clear of the field moves nothing,
+   * because stealing the view from someone who is reading is worse than the card
+   * being slightly off-centre.
    */
   const revealBox = useCallback((box: { x: number; y: number; width: number; height: number }): void => {
     const viewport = viewportRefCurrent.current
     if (viewport === null) return
-    const zoomNow = camera.current.zoom
-    const centreX = box.x + box.width / 2
-    const centreY = box.y + box.height / 2
-    // Where the box centre currently sits in viewport space.
-    const screenX = centreX * zoomNow + camera.current.panX
-    const screenY = centreY * zoomNow + camera.current.panY
+    const width = viewport.clientWidth || 960
+    const height = viewport.clientHeight || 640
     const margin = 72
-    const visible =
-      screenX > margin &&
-      screenX < viewport.clientWidth - margin &&
-      screenY > margin &&
-      screenY < viewport.clientHeight - margin
-    if (visible) return
-    // Fit the card with room for its neighbours, but never magnify: a card that
-    // already fits at the current zoom just needs the camera to move.
-    const targetZoom = Math.min(
-      zoomNow,
-      Math.max(ZOOM_MIN, Math.min(
-        (viewport.clientWidth - margin * 2) / Math.max(1, box.width),
-        (viewport.clientHeight - margin * 2) / Math.max(1, box.height),
-      )),
-    )
-    glideTo(targetZoom, centreX, centreY)
-  }, [glideTo])
+    // The dock floats over the bottom of the canvas, so the usable area stops
+    // above it: revealing a card underneath the dock fails the same way as
+    // revealing it underneath the field.
+    const dock = dockRef.current
+    const bottomInset = dock === null ? 0 : dock.offsetHeight + 24
+    const usableBottom = height - margin - bottomInset
+
+    // Where the centrepiece is DRAWN, in canvas coordinates.
+    //
+    // The overlay is pinned to the viewport middle, so its screen position does
+    // not depend on the camera pan at all — which is exactly why centring a card
+    // on the viewport middle hid it behind the field, and why the fix has to work
+    // in screen space rather than in world space.
+    const view = viewport.getBoundingClientRect()
+    const centre = centreRef.current
+    const blockRect = centre === null ? null : centre.getBoundingClientRect()
+    const fieldX = blockRect === null ? width / 2 : blockRect.left + blockRect.width / 2 - view.left
+    const fieldY = blockRect === null ? height / 2 : blockRect.top + blockRect.height / 2 - view.top
+    const reserve = CENTRE_RESERVE
+
+    /** The field's screen half-extents at a given zoom. */
+    const blockHalf = (zoom: number): { halfW: number; halfH: number } => ({
+      // The painted overlay is counter-scaled by `min(1, zoom)`, while its world
+      // footprint stays fixed; taking the larger of the two keeps the card clear
+      // of whichever is actually on screen.
+      halfW: reserve.halfWidth * Math.max(1, zoom),
+      halfH: reserve.halfHeight * Math.max(1, zoom),
+    })
+
+    const cardX = box.x + box.width / 2
+    const cardY = box.y + box.height / 2
+    const screenX = cardX * camera.current.zoom + camera.current.panX
+    const screenY = cardY * camera.current.zoom + camera.current.panY
+
+    /** Whether the card, centred at a screen point, is fully inside the usable area. */
+    const fitsAt = (x: number, y: number, zoom: number): boolean =>
+      x - (box.width * zoom) / 2 >= margin &&
+      x + (box.width * zoom) / 2 <= width - margin &&
+      y - (box.height * zoom) / 2 >= margin &&
+      y + (box.height * zoom) / 2 <= usableBottom
+
+    /** Whether the card, centred at a screen point, would be drawn behind the field. */
+    const hiddenAt = (x: number, y: number, zoom: number): boolean => {
+      const { halfW, halfH } = blockHalf(zoom)
+      return x - (box.width * zoom) / 2 < fieldX + halfW &&
+        x + (box.width * zoom) / 2 > fieldX - halfW &&
+        y - (box.height * zoom) / 2 < fieldY + halfH &&
+        y + (box.height * zoom) / 2 > fieldY - halfH
+    }
+
+    // Already visible and clear of the field: move nothing. Stealing the view
+    // from someone who is reading is worse than the card being off-centre.
+    if (fitsAt(screenX, screenY, camera.current.zoom) && !hiddenAt(screenX, screenY, camera.current.zoom)) return
+
+    /**
+     * The best place to show the card, trying the current zoom first and then
+     * progressively smaller ones.
+     *
+     * The four candidates hug the field's rectangle — above, below, left, right —
+     * so a revealed card is always NEXT TO the field rather than behind it. When
+     * none of them fits at the current zoom the card is simply too big for the
+     * gap beside the field, and zooming out is the honest answer: it enlarges the
+     * usable area without ever moving the field.
+     */
+    const gap = 26
+    for (let step = 0; step <= 8; step += 1) {
+      const zoom = step === 0
+        ? camera.current.zoom
+        : Math.max(ZOOM_MIN, camera.current.zoom * 0.88 ** step)
+      const { halfW, halfH } = blockHalf(zoom)
+      const halfCardW = (box.width * zoom) / 2
+      const halfCardH = (box.height * zoom) / 2
+      const candidates = [
+        { x: fieldX, y: fieldY - halfH - gap - halfCardH },
+        { x: fieldX, y: fieldY + halfH + gap + halfCardH },
+        { x: fieldX - halfW - gap - halfCardW, y: fieldY },
+        { x: fieldX + halfW + gap + halfCardW, y: fieldY },
+      ]
+      let best: { x: number; y: number; zoom: number; cost: number } | null = null
+      for (const candidate of candidates) {
+        if (!fitsAt(candidate.x, candidate.y, zoom)) continue
+        if (hiddenAt(candidate.x, candidate.y, zoom)) continue
+        const cost = Math.hypot(candidate.x - screenX, candidate.y - screenY)
+        if (best === null || cost < best.cost) best = { x: candidate.x, y: candidate.y, zoom, cost }
+      }
+      if (best !== null) {
+        // Convert the chosen SCREEN position back into a camera pan, and glide.
+        glideCameraTo(best.zoom, best.x - cardX * best.zoom, best.y - cardY * best.zoom)
+        return
+      }
+      if (zoom <= ZOOM_MIN) break
+    }
+
+    // A card bigger than the whole usable area: frame it on the side with the
+    // most room instead of leaving it off screen entirely.
+    const targetZoom = Math.max(ZOOM_MIN, Math.min(
+      camera.current.zoom,
+      (width - margin * 2) / Math.max(1, box.width),
+      (usableBottom - margin) / Math.max(1, box.height),
+    ))
+    const { halfH } = blockHalf(targetZoom)
+    const y = fieldY + halfH + gap + (box.height * targetZoom) / 2
+    glideCameraTo(targetZoom, width / 2 - cardX * targetZoom, y - cardY * targetZoom)
+  }, [glideCameraTo])
 
   /** The card that just arrived, so it can be highlighted and revealed once. */
   const arrival = useRef<{ id: string; token: number } | null>(null)

@@ -66,8 +66,37 @@ export declare const CENTRE_RESERVE: Readonly<{
     halfWidth: 330;
     halfHeight: 136;
 }>;
-/** Half-extents of a clear rectangle around the wall's centrepiece. */
+/**
+ * A clear rectangle around the wall's centrepiece, in WORLD pixels.
+ *
+ * The size is fixed, but the POSITION is not, and that distinction is the whole
+ * point. The centrepiece is a screen-space overlay: it stays at the middle of
+ * the viewport while the paper pans and zooms underneath it, so the patch of
+ * world it covers moves with the camera even though the patch keeps its size.
+ *
+ * A reserve that only carried half-extents therefore described the wrong place
+ * as soon as the camera moved: the Host kept the world ORIGIN clear while the
+ * field sat somewhere else, and a note captured from the field was placed —
+ * and then revealed — directly behind it. `x`/`y` are that missing position;
+ * they default to the origin, which is exactly where a freshly framed wall puts
+ * the field.
+ */
 export interface CentreReserve {
+    /** World x of the reserve's centre; defaults to the origin. */
+    x?: number | undefined;
+    /** World y of the reserve's centre; defaults to the origin. */
+    y?: number | undefined;
+    /** Half-width in world pixels. */
+    halfWidth: number;
+    /** Half-height in world pixels. */
+    halfHeight: number;
+}
+/** A reserve with its position resolved: what the geometry actually works on. */
+export interface ReserveRect {
+    /** World x of the reserve's centre. */
+    x: number;
+    /** World y of the reserve's centre. */
+    y: number;
     /** Half-width in world pixels. */
     halfWidth: number;
     /** Half-height in world pixels. */

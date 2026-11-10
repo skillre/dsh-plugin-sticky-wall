@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+### Patch Changes
+
+- A note captured from the centre field no longer lands behind that field.
+
+  - The clear rectangle around the centrepiece now carries a **world position**, not only half-extents. The centrepiece is a screen-space overlay, so as the paper pans and zooms the patch of world it covers travels with it; the Host used to keep the world **origin** clear instead, and on a moved camera that is a different place entirely. A capture was therefore placed beside a point the user could not see.
+  - The reveal no longer centres a new card on the viewport middle. That middle is exactly where the capture field is drawn, so "bringing the card into view" put it directly behind the field the user had just typed into. The card is now shown in the free space **beside** the field (above, below, left or right), choosing the side that needs the least camera movement, and zooming out only when no side fits.
+  - Measured on the shipped build: the defect reproduced at **41% of the new card's own area** overlapping the field on the default camera, and 6 of 10 probed camera states left the card behind the field or off screen. After the fix all 10 land clear and on screen.
+  - Tidy still anchors its contour on the origin, deliberately: it refits the camera afterwards, which puts the centrepiece back over the origin. Only the single-card placement follows the field's live position.
+  - New regression coverage drives the real UI with a **panned** and a **zoomed** camera and measures the painted rectangles, because the old suite only ever captured on the default camera — which is why this shipped.
+
 ## 0.6.0
 
 ### Minor Changes

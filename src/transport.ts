@@ -92,13 +92,23 @@ const layoutSchema = z
 /**
  * The clear rectangle the Client reserves around the wall's centrepiece.
  *
+ * The half-extents describe its SIZE and `x`/`y` its POSITION in world space: the
+ * centrepiece is a screen-space overlay, so on a panned or zoomed wall the patch
+ * of world it covers is not the origin. Omitting the position means the origin,
+ * which is where a freshly framed wall puts the field.
+ *
  * Bounds are NOT enforced here for the same reason the layout's are not: the
  * store normalizes with `normalizeReserve`, which caps an absurd value instead of
  * erroring, so a deeply zoomed-out wall still gets a wall. Non-finite values are
  * refused, because there is no sensible clamp for NaN.
  */
 const reserveSchema = z
-  .object({ halfWidth: z.number().finite(), halfHeight: z.number().finite() })
+  .object({
+    x: z.number().finite().optional(),
+    y: z.number().finite().optional(),
+    halfWidth: z.number().finite(),
+    halfHeight: z.number().finite(),
+  })
   .strict()
 
 const requestSchema = z.discriminatedUnion('action', [

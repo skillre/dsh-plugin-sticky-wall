@@ -985,6 +985,112 @@ try {
         : `covered by: ${arrivalState.covering.join(' | ')}`,
   })
 
+  // 8e. THE REPORTED DEFECT, asserted directly.
+  //
+  // Capturing from the centre field put the new card BEHIND that field. Two
+  // things had to be wrong at once for that to ship, and the old suite caught
+  // neither because it only ever captured on the DEFAULT camera:
+  //
+  // 1. The Host was told to keep the world ORIGIN clear. The centrepiece is a
+  //    screen-space overlay, so on a panned or zoomed wall the world patch it
+  //    covers is nowhere near the origin, and the card was placed beside a point
+  //    the user could not see.
+  // 2. The reveal centred the new card on the viewport middle, which is exactly
+  //    where the field is drawn.
+  //
+  // So this captures under a MOVED camera and measures the PAINTED rectangles,
+  // which is what the user actually sees. A world-space footprint comparison
+  // cannot catch a screen-space overlay sitting on top of a correctly-placed
+  // card, so the test is deliberately in screen coordinates.
+  const captureBehind = async (label, needle) => {
+    await page.evaluate(`(() => {
+      const input = document.querySelector('.skw-capture-input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(needle)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`)
+    await page.wait(250)
+    await page.evaluate(`(() => {
+      const go = document.querySelector('.skw-capture-go');
+      go?.click();
+      return !!go;
+    })()`)
+    // The reveal is an animated glide plus a 900ms arrival highlight; measure the
+    // LANDED position, not a frame in the middle of the move.
+    await page.wait(1800)
+    const state = await page.evaluate(`(() => {
+      const canvas = document.querySelector('.skw-canvas').getBoundingClientRect();
+      const field = document.querySelector('.skw-capture').getBoundingClientRect();
+      const cards = [...document.querySelectorAll('.skw-canvas .skw-note')];
+      const target = cards.find((node) => (node.innerText || '').includes(${JSON.stringify(needle)}));
+      if (!target) return { ok: false, reason: 'the captured card is not rendered' };
+      const card = target.getBoundingClientRect();
+      const overlapX = Math.max(0, Math.min(card.right, field.right) - Math.max(card.left, field.left));
+      const overlapY = Math.max(0, Math.min(card.bottom, field.bottom) - Math.max(card.top, field.top));
+      const cx = card.left + card.width / 2;
+      const cy = card.top + card.height / 2;
+      return {
+        ok: true,
+        overlapRatio: card.width * card.height > 0 ? (overlapX * overlapY) / (card.width * card.height) : 0,
+        onScreen: cx > canvas.left && cx < canvas.right && cy > canvas.top && cy < canvas.bottom,
+        // Clear of the dock too: a card revealed underneath the floating dock is
+        // hidden in the same way the field hid it.
+        behindDock: (() => {
+          const dock = document.querySelector('.skw-dock')?.getBoundingClientRect();
+          return dock === undefined ? false : cy > dock.top && cy < dock.bottom;
+        })(),
+        zoom: (() => {
+          const world = document.querySelector('.skw-world');
+          return world ? +new DOMMatrix(getComputedStyle(world).transform).a.toFixed(2) : 1;
+        })(),
+      };
+    })()`)
+    record(label, {
+      ok: state.ok === true && state.overlapRatio < 0.02 && state.onScreen === true && state.behindDock === false,
+      detail: state.ok === false
+        ? state.reason
+        : `overlap=${(state.overlapRatio * 100).toFixed(0)}% onScreen=${state.onScreen} behindDock=${state.behindDock} zoom=${state.zoom}`,
+    })
+    return state
+  }
+
+  // Pan the paper so the field's world position is far from the origin. This is
+  // the camera state in which the old placement logic was wrong.
+  const panAway = await page.evaluate(`(() => {
+    const rect = document.querySelector('.skw-canvas').getBoundingClientRect();
+    return { x: rect.left + 40, y: rect.top + rect.height - 160 };
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: panAway.x, y: panAway.y, button: 'none', buttons: 0 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: panAway.x, y: panAway.y, button: 'left', buttons: 1, clickCount: 1 })
+  for (let step = 1; step <= 6; step += 1) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: panAway.x + step * 48, y: panAway.y - step * 36, button: 'left', buttons: 1 })
+  }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: panAway.x + 288, y: panAway.y - 216, button: 'left', buttons: 0, clickCount: 1 })
+  await page.wait(500)
+  await captureBehind('capture-on-a-panned-wall-stays-clear-of-the-field', '平移后记录')
+
+  // Zoom in, so the field covers a much smaller world patch than the reserve the
+  // old code assumed. This is the second half of the same defect.
+  await page.evaluate(`(() => {
+    const viewport = document.querySelector('.skw-canvas');
+    viewport.dispatchEvent(new WheelEvent('wheel', {
+      deltaY: -360, ctrlKey: true, bubbles: true, cancelable: true,
+      clientX: window.innerWidth / 2, clientY: window.innerHeight / 2,
+    }));
+    return true;
+  })()`)
+  await page.wait(500)
+  await captureBehind('capture-on-a-zoomed-wall-stays-clear-of-the-field', '放大后记录')
+
+  // Back to a framed wall for the remaining assertions.
+  await page.evaluate(`(() => {
+    const reset = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '重置视图');
+    reset?.click();
+    return !!reset;
+  })()`)
+  await page.wait(700)
+
   // The dock must be a single floating row over the canvas, and the canvas must
   // occupy the whole page (no header/toolbar rows eating vertical space).
   const layoutState = await page.evaluate(`(() => {

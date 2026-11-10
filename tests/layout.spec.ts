@@ -13,6 +13,7 @@ import {
   layoutOf,
   previewLayout,
   previewWidth,
+  pushOutOfReserve,
   sameLayout,
 } from '../src/layout.js'
 import { CENTRE_RESERVE, LAYOUT_LIMITS, LIMITS, WIDTH_PX, type Note, type NoteLayout } from '../src/types.js'
@@ -270,12 +271,20 @@ describe('tidy arrangement', () => {
   })
 
   it('clamps a nonsensical reserve instead of leaving no paper for the cards', () => {
-    // The Client sends a zoom-corrected reserve, so it can arrive as Infinity,
-    // as a negative number, or as an absurdly large one. None of those may make
-    // the packer throw or push every card past the world bounds.
-    expect(normalizeReserve({ halfWidth: Number.NaN, halfHeight: -5 })).toEqual({ halfWidth: 0, halfHeight: 0 })
+    // The Client sends a positioned, zoom-corrected reserve, so it can arrive with
+    // Infinity or a negative number in ANY field, or with an absurdly large one.
+    // None of those may make the packer throw or push every card past the world
+    // bounds. A missing position resolves to the origin.
+    expect(normalizeReserve({ halfWidth: Number.NaN, halfHeight: -5 })).toEqual({ x: 0, y: 0, halfWidth: 0, halfHeight: 0 })
+    expect(normalizeReserve({ x: Number.NaN, y: Number.POSITIVE_INFINITY, halfWidth: 10, halfHeight: 10 }))
+      .toEqual({ x: 0, y: 0, halfWidth: 10, halfHeight: 10 })
     const capped = normalizeReserve({ halfWidth: 10_000_000, halfHeight: 10_000_000 })
     expect(capped.halfWidth).toBe(LAYOUT_LIMITS.coord / 4)
+    // A position is clamped to the world bounds, not snapped to the origin: a
+    // panned wall legitimately puts the field far away, and snapping it back would
+    // reintroduce the bug the position exists to fix.
+    expect(normalizeReserve({ x: 10_000_000, y: -10_000_000, halfWidth: 10, halfHeight: 10 }))
+      .toEqual({ x: LAYOUT_LIMITS.coord, y: -LAYOUT_LIMITS.coord, halfWidth: 10, halfHeight: 10 })
     const notes = Array.from({ length: 6 }, (_, index) => makeNote({ id: `n${index}` }))
     const planned = arrangeLayouts(notes, { centreReserve: capped })
     expect(planned.size).toBe(6)
@@ -447,6 +456,64 @@ describe('free spot for a new card', () => {
     const existing = Array.from({ length: 5 }, (_, index) => makeNote({ id: `n${index}`, body: `body ${index}` }))
     const fresh = makeNote({ id: 'fresh' })
     expect(findFreeLayout(fresh, existing)).toEqual(findFreeLayout(fresh, existing))
+  })
+
+  it('places a new card beside the field where the field ACTUALLY is', () => {
+    // The reported defect: capturing from the centre field put the card behind
+    // that field. The field is a screen-space overlay, so on a panned wall the
+    // world patch it covers is nowhere near the origin — and a reserve that only
+    // carried half-extents kept the origin clear instead, placing the card next
+    // to a point the user could not see.
+    const fresh = makeNote({ id: 'fresh', body: 'captured while panned' })
+    // A wall panned far from the origin: the field now covers (1800, -1200).
+    const positioned = { x: 1800, y: -1200, halfWidth: CENTRE_RESERVE.halfWidth, halfHeight: CENTRE_RESERVE.halfHeight }
+    const layout = findFreeLayout(fresh, [], { centreReserve: positioned })
+    const box = noteBox({ ...fresh, layout }, 0)
+    // Clear of the field's REAL rectangle ...
+    const insideField =
+      box.x < positioned.x + positioned.halfWidth &&
+      box.x + box.width > positioned.x - positioned.halfWidth &&
+      box.y < positioned.y + positioned.halfHeight &&
+      box.y + box.height > positioned.y - positioned.halfHeight
+    expect(insideField).toBe(false)
+    // ... and NEXT TO it, not next to the origin: the whole point of the position
+    // is that the card lands where the user is looking.
+    const distance = Math.hypot(
+      box.x + box.width / 2 - positioned.x,
+      box.y + box.height / 2 - positioned.y,
+    )
+    expect(distance).toBeLessThan(620)
+    // It must be nowhere near the origin, or the field's position was ignored.
+    const fromOrigin = Math.hypot(box.x + box.width / 2, box.y + box.height / 2)
+    expect(fromOrigin).toBeGreaterThan(1200)
+  })
+
+  it('places a panned-wall capture on the same side regardless of the origin', () => {
+    // Determinism plus position-awareness: the SAME field position must always
+    // produce the SAME card position, and two different field positions must not
+    // produce the same answer (which would mean the position is being dropped).
+    const fresh = makeNote({ id: 'fresh', body: 'same id, different field' })
+    const here = findFreeLayout(fresh, [], { centreReserve: { x: 0, y: 0, halfWidth: 330, halfHeight: 136 } })
+    const there = findFreeLayout(fresh, [], { centreReserve: { x: 2400, y: 900, halfWidth: 330, halfHeight: 136 } })
+    expect(findFreeLayout(fresh, [], { centreReserve: { x: 2400, y: 900, halfWidth: 330, halfHeight: 136 } })).toEqual(there)
+    expect(here).not.toEqual(there)
+    // The offset between them is the field's own offset: the card follows the field.
+    expect(there.x - here.x).toBeCloseTo(2400, 0)
+    expect(there.y - here.y).toBeCloseTo(900, 0)
+  })
+
+  it('keeps a dragged card clear of a field that is not at the origin', () => {
+    // The drag path uses `pushOutOfReserve`, which must also honour the position:
+    // a card dropped onto a panned field has to be pushed off THAT field.
+    const note = makeNote({ id: 'dragged', body: 'dropped on the field' })
+    const field = { x: 900, y: 400, halfWidth: 330, halfHeight: 136 }
+    const onField = { x: field.x - 60, y: field.y - 40, rotate: 0, width: 'md' as const }
+    const pushed = pushOutOfReserve(note, onField, field)
+    const box = footprintOf(note, pushed)
+    expect(intersectsReserve(box, field)).toBe(false)
+    // A card that was already clear must not be moved at all.
+    const clear = { x: field.x + 2000, y: field.y + 2000, rotate: 0, width: 'md' as const }
+    expect(pushOutOfReserve(note, clear, field)).toEqual(clear)
   })
 
   it('finds a gap between existing cards instead of always the outermost ring', () => {

@@ -30,6 +30,7 @@ import {
   type Note,
   type NoteLayout,
   type NoteWidth,
+  type ReserveRect,
 } from './types.js'
 
 /** Golden angle: the phyllotaxis constant that keeps a spiral from lining up. */
@@ -270,8 +271,7 @@ export function rotatedExtent(width: number, height: number, rotate: number): { 
  * cards in from the sides.
  */
 export function intersectsReserve(box: Box, reserve: CentreReserve = CENTRE_RESERVE): boolean {
-  const clear = clearsReserve(box, reserve)
-  return !clear
+  return !clearsReserve(box, normalizeReserve(reserve))
 }
 
 /**
@@ -285,12 +285,21 @@ export function intersectsReserve(box: Box, reserve: CentreReserve = CENTRE_RESE
  */
 const RESERVE_EPSILON = 0.05
 
-function clearsReserve(box: Box, reserve: CentreReserve): boolean {
+/**
+ * Whether a footprint stays out of the clear rectangle.
+ *
+ * The rectangle has a POSITION as well as a size. The centrepiece is a
+ * screen-space overlay, so the world patch it covers moves as the camera pans
+ * and zooms; a reserve that only knew its half-extents therefore described the
+ * world origin, and a card captured from a panned wall was placed clear of the
+ * wrong place — which is exactly how a fresh card ended up behind the field.
+ */
+function clearsReserve(box: Box, reserve: ReserveRect): boolean {
   return !(
-    box.x < reserve.halfWidth - RESERVE_EPSILON &&
-    box.x + box.width > -reserve.halfWidth + RESERVE_EPSILON &&
-    box.y < reserve.halfHeight - RESERVE_EPSILON &&
-    box.y + box.height > -reserve.halfHeight + RESERVE_EPSILON
+    box.x < reserve.x + reserve.halfWidth - RESERVE_EPSILON &&
+    box.x + box.width > reserve.x - reserve.halfWidth + RESERVE_EPSILON &&
+    box.y < reserve.y + reserve.halfHeight - RESERVE_EPSILON &&
+    box.y + box.height > reserve.y - reserve.halfHeight + RESERVE_EPSILON
   )
 }
 
@@ -475,7 +484,20 @@ export function arrangeLayouts(notes: readonly Note[], options: { centreReserve?
     return { note, width, cardWidth, cardHeight, rotate, extent }
   })
 
-  const reserve = normalizeReserve(options.centreReserve ?? CENTRE_RESERVE)
+  // The contour is anchored on the ORIGIN, deliberately, even when the caller
+  // sends a positioned reserve.
+  //
+  // Tidy ends by centring the finished wall's bounding box on the origin, and the
+  // Client then refits the camera so that box fills the viewport — which puts the
+  // centrepiece back over the origin. So the origin is where the field is going to
+  // be, not where it happens to be at the instant tidy was pressed. Honouring a
+  // transient camera position here would pack the wall around a point the refit is
+  // about to move away from. The SIZE is still honoured, because that is the part
+  // that does not change.
+  //
+  // `findFreeLayout` is the opposite case: it places one card on the CURRENT view,
+  // with no refit to follow, so it orbits the reserve's real position.
+  const reserve: ReserveRect = { ...normalizeReserve(options.centreReserve ?? CENTRE_RESERVE), x: 0, y: 0 }
 
   // Largest first: the classic first-fit-decreasing heuristic. Big cards claim
   // the inner frames where there is less room to waste, and small cards fill the
@@ -697,14 +719,38 @@ export function normalizeWidth(raw: unknown): NoteWidth {
  * capped well inside the world bounds so the packer can never be asked to keep
  * a middle clear that leaves no paper for the cards.
  */
-export function normalizeReserve(raw: CentreReserve): CentreReserve {
+/**
+ * Clamp a reserve into something the packer can actually honour.
+ *
+ * The Client sends a reserve positioned where the centrepiece currently sits in
+ * world space, so it can arrive with huge coordinates (a deeply zoomed-out wall)
+ * or as garbage. Both extremes are refused here: a non-finite coordinate becomes
+ * the origin, and the half-extents are capped well inside the world bounds so the
+ * packer can never be asked to keep a middle clear that leaves no paper for the
+ * cards.
+ *
+ * The position is clamped to the world bounds rather than to zero: a panned wall
+ * legitimately puts the field far from the origin, and snapping it back to the
+ * origin would reintroduce the very bug this position exists to fix.
+ */
+export function normalizeReserve(raw: CentreReserve): ReserveRect {
   const cap = LAYOUT_LIMITS.coord / 4
   const clampHalf = (value: unknown): number => {
     const number = Number(value)
     if (!Number.isFinite(number) || number <= 0) return 0
     return Math.min(cap, number)
   }
-  return { halfWidth: clampHalf(raw?.halfWidth), halfHeight: clampHalf(raw?.halfHeight) }
+  const clampCoord = (value: unknown): number => {
+    const number = Number(value)
+    if (!Number.isFinite(number)) return 0
+    return Math.min(LAYOUT_LIMITS.coord, Math.max(-LAYOUT_LIMITS.coord, number))
+  }
+  return {
+    x: clampCoord(raw?.x ?? 0),
+    y: clampCoord(raw?.y ?? 0),
+    halfWidth: clampHalf(raw?.halfWidth),
+    halfHeight: clampHalf(raw?.halfHeight),
+  }
 }
 
 /**
@@ -717,11 +763,19 @@ export function normalizeReserve(raw: CentreReserve): CentreReserve {
  * the user could not see it, which reads exactly like the capture silently
  * failing.
  *
- * This searches outward from the middle instead: the spiral is walked from just
+ * This searches outward from the field instead: the spiral is walked from just
  * outside the centrepiece's reserve, and the first candidate that clears every
  * existing card (plus a gap) and stays out of the reserve is the answer. The
- * result is therefore the gap nearest the centre of the wall, which is both
- * where the user is looking and where the wall has room.
+ * result is therefore the gap nearest the place the user is actually looking at,
+ * which is where the wall has room.
+ *
+ * The spiral orbits the RESERVE, not the world origin. That distinction is the
+ * fix for a note appearing behind the capture field: the field is a screen-space
+ * overlay, so on a panned wall it covers a patch of world that is nowhere near
+ * the origin. Orbiting the origin placed the card beside a point the user could
+ * not see, and the reveal then centred that point — with the field drawn on top
+ * of it. Orbiting the reserve puts the card next to the field, which is both
+ * visible and the only placement that can never be hidden by it.
  *
  * Deterministic for the same inputs, so two windows creating at once cannot
  * disagree about the free spot for the same wall.
@@ -761,7 +815,8 @@ export function findFreeLayout(
   // Start just outside the reserve so the first candidate is the closest legal
   // ring, then walk the same golden-angle spiral the tidy pass uses. A step near
   // the card's own size keeps the search local: the answer is the first gap, not
-  // a far-away hole.
+  // a far-away hole. The whole spiral is offset by the reserve's centre, because
+  // the field it protects is wherever the camera has put it.
   const step = Math.max(64, Math.sqrt(extent.width * extent.height) * 0.92)
   const startRadius = Math.hypot(reserve.halfWidth, reserve.halfHeight)
   const startIndex = (startRadius / step) ** 2
@@ -770,8 +825,8 @@ export function findFreeLayout(
     const radius = step * Math.sqrt(index)
     const theta = index * GOLDEN_ANGLE
     const candidate: Box = {
-      x: Math.cos(theta) * radius - extent.width / 2,
-      y: Math.sin(theta) * radius - extent.height / 2,
+      x: reserve.x + Math.cos(theta) * radius - extent.width / 2,
+      y: reserve.y + Math.sin(theta) * radius - extent.height / 2,
       width: extent.width,
       height: extent.height,
     }
@@ -788,8 +843,8 @@ export function findFreeLayout(
   // than a real path: place just outside the reserve on the first ring.
   const fallbackRadius = startRadius + Math.max(extent.width, extent.height)
   return clampLayout({
-    x: -cardWidth / 2,
-    y: -fallbackRadius - cardHeight / 2,
+    x: reserve.x - cardWidth / 2,
+    y: reserve.y + fallbackRadius - cardHeight / 2,
     rotate,
     width,
   })
@@ -831,12 +886,13 @@ export function noteBox(note: Note, index: number): Box {
  * collisions needs the whole ordered list, not just the first answer.
  */
 export function escapesFromReserve(note: Note, layout: NoteLayout, reserve: CentreReserve = CENTRE_RESERVE): NoteLayout[] {
+  const rect = normalizeReserve(reserve)
   const box = footprintOf(note, layout)
   const moves = [
-    { dx: -reserve.halfWidth - (box.x + box.width), dy: 0 },
-    { dx: reserve.halfWidth - box.x, dy: 0 },
-    { dx: 0, dy: -reserve.halfHeight - (box.y + box.height) },
-    { dx: 0, dy: reserve.halfHeight - box.y },
+    { dx: rect.x - rect.halfWidth - (box.x + box.width), dy: 0 },
+    { dx: rect.x + rect.halfWidth - box.x, dy: 0 },
+    { dx: 0, dy: rect.y - rect.halfHeight - (box.y + box.height) },
+    { dx: 0, dy: rect.y + rect.halfHeight - box.y },
   ]
   return moves
     .sort((left, right) => (Math.abs(left.dx) + Math.abs(left.dy)) - (Math.abs(right.dx) + Math.abs(right.dy)))
@@ -844,15 +900,16 @@ export function escapesFromReserve(note: Note, layout: NoteLayout, reserve: Cent
 }
 
 export function pushOutOfReserve(note: Note, layout: NoteLayout, reserve: CentreReserve = CENTRE_RESERVE): NoteLayout {
+  const rect = normalizeReserve(reserve)
   const box = footprintOf(note, layout)
-  if (!intersectsReserve(box, reserve)) return layout
+  if (clearsReserve(box, rect)) return layout
   // Four ways out, one per edge; the shortest wins so the card slides to the
   // nearest side instead of jumping around the rectangle.
   const moves = [
-    { dx: -reserve.halfWidth - (box.x + box.width), dy: 0 },
-    { dx: reserve.halfWidth - box.x, dy: 0 },
-    { dx: 0, dy: -reserve.halfHeight - (box.y + box.height) },
-    { dx: 0, dy: reserve.halfHeight - box.y },
+    { dx: rect.x - rect.halfWidth - (box.x + box.width), dy: 0 },
+    { dx: rect.x + rect.halfWidth - box.x, dy: 0 },
+    { dx: 0, dy: rect.y - rect.halfHeight - (box.y + box.height) },
+    { dx: 0, dy: rect.y + rect.halfHeight - box.y },
   ]
   let best = moves[0]!
   for (const move of moves) {

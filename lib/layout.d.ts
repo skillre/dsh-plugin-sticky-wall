@@ -20,7 +20,7 @@
  * Both halves import this module, so the geometry never drifts between the
  * value the Host persists and the value the Client previews.
  */
-import { type CentreReserve, type Note, type NoteLayout, type NoteWidth } from './types.js';
+import { type CentreReserve, type Note, type NoteLayout, type NoteWidth, type ReserveRect } from './types.js';
 /** Clamp one layout into the declared world bounds. */
 export declare function clampLayout(layout: NoteLayout): NoteLayout;
 /** True when two layouts describe the same position (rounded comparison). */
@@ -145,7 +145,21 @@ export declare function normalizeWidth(raw: unknown): NoteWidth;
  * capped well inside the world bounds so the packer can never be asked to keep
  * a middle clear that leaves no paper for the cards.
  */
-export declare function normalizeReserve(raw: CentreReserve): CentreReserve;
+/**
+ * Clamp a reserve into something the packer can actually honour.
+ *
+ * The Client sends a reserve positioned where the centrepiece currently sits in
+ * world space, so it can arrive with huge coordinates (a deeply zoomed-out wall)
+ * or as garbage. Both extremes are refused here: a non-finite coordinate becomes
+ * the origin, and the half-extents are capped well inside the world bounds so the
+ * packer can never be asked to keep a middle clear that leaves no paper for the
+ * cards.
+ *
+ * The position is clamped to the world bounds rather than to zero: a panned wall
+ * legitimately puts the field far from the origin, and snapping it back to the
+ * origin would reintroduce the very bug this position exists to fix.
+ */
+export declare function normalizeReserve(raw: CentreReserve): ReserveRect;
 /**
  * The nearest free spot for one new card, in world coordinates.
  *
@@ -156,11 +170,19 @@ export declare function normalizeReserve(raw: CentreReserve): CentreReserve;
  * the user could not see it, which reads exactly like the capture silently
  * failing.
  *
- * This searches outward from the middle instead: the spiral is walked from just
+ * This searches outward from the field instead: the spiral is walked from just
  * outside the centrepiece's reserve, and the first candidate that clears every
  * existing card (plus a gap) and stays out of the reserve is the answer. The
- * result is therefore the gap nearest the centre of the wall, which is both
- * where the user is looking and where the wall has room.
+ * result is therefore the gap nearest the place the user is actually looking at,
+ * which is where the wall has room.
+ *
+ * The spiral orbits the RESERVE, not the world origin. That distinction is the
+ * fix for a note appearing behind the capture field: the field is a screen-space
+ * overlay, so on a panned wall it covers a patch of world that is nowhere near
+ * the origin. Orbiting the origin placed the card beside a point the user could
+ * not see, and the reveal then centred that point — with the field drawn on top
+ * of it. Orbiting the reserve puts the card next to the field, which is both
+ * visible and the only placement that can never be hidden by it.
  *
  * Deterministic for the same inputs, so two windows creating at once cannot
  * disagree about the free spot for the same wall.
