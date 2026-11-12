@@ -406,6 +406,10 @@ export const WALL_CSS = `
 .skw-note-foot { display: flex; align-items: center; gap: 5px; font-size: 11px; line-height: 16px; color: var(--skw-note-ink); opacity: .58; margin-top: 2px; }
 .skw-note-foot .skw-spacer { flex: 1; }
 .skw-note-badge { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; height: 17px; border-radius: 999px; background: color-mix(in srgb, var(--skw-note-accent) 26%, transparent); font-weight: 550; opacity: 1; }
+/* A note whose frontmatter could not be read stays visible with defaults, so the
+   card has to WARN. The app's own error colour makes it read as a fault rather
+   than as another decorative badge. */
+.skw-note-badge[data-warn="true"] { background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 20%, transparent); color: var(--skw-note-ink); font-weight: 600; }
 /* In-flow, never absolute: the buttons can no longer sit on top of the text.
    They fade in on hover/focus for calm cards, and stay visible where hover is
    not a thing (touch/coarse pointers) so the actions remain reachable. */

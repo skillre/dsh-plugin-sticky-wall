@@ -22,7 +22,8 @@
     "src/types.ts",
     "src/layout.ts",
     "tests/view.spec.tsx",
-    "tests/markdown.spec.tsx"
+    "tests/markdown.spec.tsx",
+    "tests/editor.spec.tsx"
   ],
   "exclude": []
 }

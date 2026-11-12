@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "便签墙",
-    "description": "DSH 侧栏便签墙：随手记灵感与临时工作，拖动摆放、自动整理，正文支持 Markdown。",
+    "description": "DSH 侧栏便签墙：每张便签都是一个真正的 Markdown 文件，随手记录、拖动摆放、一键整理。",
     "detail": "docs/DETAIL.zh.md"
   }
 }

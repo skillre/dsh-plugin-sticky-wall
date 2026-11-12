@@ -26,7 +26,16 @@ export class ActionError extends Error {
 
 /** The one API face the view uses. */
 export interface ClientApi {
-  list(includeArchived: boolean, sort: 'pinned' | 'created' | 'updated', signal?: AbortSignal): Promise<Note[]>
+  list(includeArchived: boolean, sort: 'pinned' | 'created' | 'updated', signal?: AbortSignal): Promise<WallSnapshot>
+  /**
+   * Read the Host's change counter without paying for the whole wall.
+   *
+   * The panel refreshes on focus, on becoming visible, and on a slow interval.
+   * A refresh that pulled every note body each time would dominate the channel
+   * for a wall nobody has touched, so the poll asks for the counter alone and
+   * only refetches when it differs from the revision the Client already holds.
+   */
+  revision(signal?: AbortSignal): Promise<number>
   create(input: NoteInput, signal?: AbortSignal, options?: { centreReserve?: CentreReserve | undefined }): Promise<Note>
   update(id: string, patch: NotePatch, signal?: AbortSignal): Promise<Note>
   archive(ids: string[], archived: boolean, signal?: AbortSignal): Promise<Note[]>
@@ -52,7 +61,21 @@ export function createApi(connection: ClientConnectionLike, lifetime: AbortSigna
   return {
     async list(includeArchived, sort, signal) {
       const value = await call<WallSnapshot>({ action: 'list', includeArchived, sort }, signal)
-      return Array.isArray(value?.notes) ? value.notes : []
+      // The Host always answers with the full snapshot shape. A malformed reply
+      // is normalised into an empty-but-typed snapshot rather than left as
+      // `undefined`, so a caller can never crash on `snapshot.notes`.
+      return {
+        notes: Array.isArray(value?.notes) ? value.notes : [],
+        revision: typeof value?.revision === 'number' ? value.revision : 0,
+        notesDir: typeof value?.notesDir === 'string' ? value.notesDir : '',
+        domain: value?.domain ?? { name: '', version: 0 },
+      }
+    },
+    async revision(signal) {
+      const value = await call<{ revision: number }>({ action: 'revision' }, signal)
+      // `-1` means "the Host did not answer with a counter", which the caller
+      // treats as "unknown, so refetch rather than assume nothing changed".
+      return typeof value?.revision === 'number' ? value.revision : -1
     },
     async create(input, signal, options) {
       const value = await call<MutationResult>(

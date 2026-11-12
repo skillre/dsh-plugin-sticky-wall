@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import * as plugin from '../src/index.js'
 import { Config, resolveConfig } from '../src/config.js'
 
@@ -9,12 +12,15 @@ describe('@skillre/dsh-plugin-sticky-wall', () => {
     expect('default' in plugin).toBe(false)
   })
 
-  it('declares the storage and connection services it cannot run without', () => {
-    expect(plugin.inject).toEqual(['storageDomain', 'connection'])
+  it('declares only the connection service as a hard dependency', () => {
+    // `storageDomain` became OPTIONAL in 0.8.0: notes live on disk, and the domain
+    // is opened only when a 0.7.x install needs migrating. Declaring it required
+    // would refuse to mount on a profile that never had it.
+    expect(plugin.inject).toEqual(['connection'])
   })
 
   it('resolves declared config defaults and rejects an out-of-range cap', () => {
-    expect(resolveConfig({})).toEqual({ maxNotes: 400, enableAgentTool: true, seedWelcomeNote: true })
+    expect(resolveConfig({})).toEqual({ notesDir: '', maxNotes: 400, enableAgentTool: true, seedWelcomeNote: true })
     expect(resolveConfig({ maxNotes: 3, enableAgentTool: false }).maxNotes).toBe(3)
     // Schemastery's schema callable rejects a value outside the declared range.
     expect(() => (Config as unknown as (value: unknown) => unknown)({ maxNotes: 0 })).toThrow()
@@ -49,7 +55,7 @@ describe('@skillre/dsh-plugin-sticky-wall', () => {
     expect(definition.name).toBe('sticky_wall')
     expect(definition.timeoutMs).toBe(20_000)
     const properties = definition.parameters.properties as Record<string, { enum?: string[] }>
-    expect(properties.action?.enum).toEqual(['list', 'create', 'update', 'archive', 'delete', 'clear-archived', 'arrange'])
+    expect(properties.action?.enum).toEqual(['list', 'read', 'create', 'update', 'move', 'archive', 'delete', 'clear-archived', 'arrange'])
     expect((definition.parameters as { required: string[] }).required).toEqual(['action'])
 
     definitions.length = 0
@@ -73,28 +79,14 @@ describe('@skillre/dsh-plugin-sticky-wall', () => {
     expect(definitions).toEqual([])
   })
 
-  it('opens the domain, registers the route and releases both on disposal', async () => {
+  it('registers the route, opens the notes directory and releases it on disposal', async () => {
     const disposers: Array<() => void> = []
     const routes: Array<{ path: string }> = []
-    const opened: unknown[] = []
-    let closed = false
-    const store = {
-      table: () => ({
-        get: () => undefined,
-        entries: () => [][Symbol.iterator](),
-        keys: () => [][Symbol.iterator](),
-        get size() { return 0 },
-        put: async () => {},
-        update: async () => undefined,
-        delete: async () => false,
-      }),
-      async close() { closed = true },
-    }
+    const logs: string[] = []
     const ctx = {
-      logger: { error: () => {} },
+      logger: { error: (message: string) => { logs.push(message) }, warn: (message: string) => { logs.push(message) } },
       get: (key: string) => {
         if (key === 'connection') return { fetch: { register: (route: { path: string }) => { routes.push(route); return async () => {} } } }
-        if (key === 'storageDomain') return { open: async (spec: unknown) => { opened.push(spec); return store } }
         return undefined
       },
       effect: (callback: () => unknown) => {
@@ -103,14 +95,18 @@ describe('@skillre/dsh-plugin-sticky-wall', () => {
         return () => {}
       },
     }
-    ;(plugin.apply as (context: unknown, config?: unknown) => void)(ctx, { enableAgentTool: false })
-    expect(opened).toHaveLength(1)
-    expect((opened[0] as { name: string }).name).toBe('skillre_sticky_wall')
+    // An explicit directory: an empty `notesDir` means "follow the DSH home", and
+    // a test must never aim at the developer's real notes directory.
+    const notesDir = await mkdtemp(join(tmpdir(), 'sw-plugin-'))
+    ;(plugin.apply as (context: unknown, config?: unknown) => void)(ctx, { enableAgentTool: false, notesDir })
+    // The route is registered synchronously; the directory is opened lazily, so a
+    // filesystem failure surfaces on the first request instead of at mount time.
     expect(routes.map((route) => route.path)).toEqual(['/api/skillre-sticky-wall/execute'])
-    // Let the open promise settle, then dispose the Fiber and verify the domain closed.
+    // Let the open promise settle, then dispose the Fiber. Nothing should throw,
+    // and no error should have been logged for an ordinary open.
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (const dispose of disposers.reverse()) dispose()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(closed).toBe(true)
+    expect(logs.filter((line) => line.startsWith('sticky-wall: notes directory failed'))).toEqual([])
   })
 })

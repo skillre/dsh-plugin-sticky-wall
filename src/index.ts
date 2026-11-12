@@ -9,24 +9,30 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { Config, resolveConfig } from './config.js'
+import { homedir } from 'node:os'
+import { Config, resolveConfig, resolveNotesDir } from './config.js'
 import type { WallConfig } from './config.js'
 import { StickyWallStore } from './store.js'
 import type { DomainHandle } from './store.js'
 import { createExecuteRoute } from './transport.js'
 import type { HostConnection } from './transport.js'
-import { LIMITS, type Note, type NoteColor, type NoteLayout } from './types.js'
+import { LEGACY_DOMAIN_NAME, LEGACY_DOMAIN_VERSION, LIMITS, type Note, type NoteColor } from './types.js'
 
 export { Config, StickyWallStore }
 export const name = 'skillre-sticky-wall'
 
 /**
- * Required services. `storageDomain` provides the durable note table;
- * `connection` provides the authenticated Client route. Both are declared hard
- * dependencies so a profile missing either fails loudly instead of mounting a
- * wall that can never persist or be reached.
+ * Required services.
+ *
+ * `connection` provides the authenticated Client route and is a hard dependency:
+ * without it the wall could never be reached, so mounting should fail loudly.
+ *
+ * `storageDomain` is deliberately NOT listed. Notes live on disk now, and the
+ * domain is consulted only when a 0.7.x install still needs migrating, so it is
+ * read through `ctx.get()` and its absence is a normal, supported state (a fresh
+ * install has nothing to migrate).
  */
-export const inject = ['storageDomain', 'connection']
+export const inject = ['connection']
 
 /**
  * The storage-domain facility face this plugin uses. `open` is the only
@@ -62,6 +68,34 @@ function service<T>(ctx: Context, key: string): T | undefined {
   return ctx.get(key) as T | undefined
 }
 
+/**
+ * Drain a 0.7.x install's storage-domain notes so they can be migrated.
+ *
+ * The domain's `notes` table is the ONLY thing read here: the migration writes
+ * `.md` files and never writes back, so a failed migration leaves the legacy
+ * records untouched and the next start retries. The handle is always closed,
+ * even when reading throws, because an open domain reserves its name for the
+ * whole process.
+ */
+async function readLegacyNotes(facility: DomainFacility): Promise<Note[]> {
+  const domain: DomainHandle = await facility.open({
+    name: LEGACY_DOMAIN_NAME,
+    version: LEGACY_DOMAIN_VERSION,
+    layout: 'per-record',
+    invalidRecords: 'backup-and-skip',
+    tables: { notes: {} },
+  })
+  try {
+    const notes: Note[] = []
+    for (const [, value] of domain.table('notes').entries()) {
+      if (value !== null && typeof value === 'object' && 'id' in value) notes.push(value as Note)
+    }
+    return notes
+  } finally {
+    await domain.close()
+  }
+}
+
 /** Model-facing text for one tool result; short, deterministic and readable. */
 function renderWall(value: unknown): string {
   const data = (value ?? {}) as Record<string, unknown>
@@ -78,6 +112,21 @@ function renderWall(value: unknown): string {
     })
     return [`${String(data.total ?? notes.length)} notes (${String(data.archived ?? 0)} archived):`, ...lines].join('\n')
   }
+  if (action === 'read') {
+    // The whole point of this action: the model gets the note's FULL text, not a
+    // 140-character head. Without it an agent asked to expand a note had to ask
+    // the user to paste it back, which is exactly the friction this removes.
+    const note = data.note as Note | undefined
+    if (note === undefined) return 'No such note.'
+    const meta = [
+      `id: ${note.id}`,
+      note.title !== '' ? `title: ${note.title}` : '',
+      `color: ${note.color}${note.pinned ? ' · pinned' : ''}${note.archived ? ' · archived' : ''}`,
+      note.tags.length > 0 ? `tags: ${note.tags.join(', ')}` : '',
+      typeof data.path === 'string' ? `file: ${data.path}` : '',
+    ].filter((line) => line !== '')
+    return [...meta, '', note.body].join('\n')
+  }
   if (action === 'arrange') {
     const notes = Array.isArray(data.changed) ? (data.changed as Note[]) : []
     return notes.length === 0 ? 'The wall was already tidy.' : `Tidied ${notes.length} note${notes.length === 1 ? '' : 's'} into the shelf arrangement.`
@@ -91,7 +140,10 @@ function renderWall(value: unknown): string {
     return notes.length === 0 ? 'No note changed.' : notes.map((note) => `${note.id} ${note.archived ? 'archived' : 'restored'}`).join('\n')
   }
   const note = data.note as Note | undefined
-  if (note) return `${action === 'create' ? 'Created' : 'Updated'} note ${note.id}${note.title ? ` (${note.title})` : ''}: ${note.body.replace(/\s+/g, ' ').slice(0, 140)}`
+  if (note) {
+    const where = note.layout === null ? '' : ` at (${String(note.layout.x)}, ${String(note.layout.y)})`
+    return `${action === 'create' ? 'Created' : 'Updated'} note ${note.id}${note.title ? ` (${note.title})` : ''}${where}: ${note.body.replace(/\s+/g, ' ').slice(0, 140)}`
+  }
   return 'Done.'
 }
 
@@ -103,30 +155,47 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
     const disposer = tools.register({
       name: 'sticky_wall',
       description:
-        "Capture and manage sticky notes on the user's DSH note wall (便签墙): quick inspiration, temporary tasks and short reminders. Use it when the user asks to note something down, list their notes, update or pin one, or clean up archived notes.",
+        "Capture and manage sticky notes on the user's DSH note wall (便签墙): quick inspiration, temporary tasks and short reminders. " +
+        'Each note is a real Markdown file under the notes directory: its attributes (title, colour, tags, pin, size, canvas position) live in the YAML frontmatter block at the top, and everything after that block is the note body. ' +
+        "Use `read` to get a note's full text, `list` to scan titles, `create`/`update` to write attributes or text, and `move` to place a card on the canvas. " +
+        "To revise a note's PROSE you may edit the backing file directly with the file tools — but never modify the frontmatter between the `---` lines; change attributes with this tool's `update` action instead.",
       parameters: {
         type: 'object',
         additionalProperties: false,
         required: ['action'],
         properties: {
-          action: { type: 'string', enum: ['list', 'create', 'update', 'archive', 'delete', 'clear-archived', 'arrange'] },
-          id: { type: 'string', description: 'Exact note id; required by update.' },
-          ids: { type: 'array', items: { type: 'string' }, description: 'Note ids; required by archive and delete (1–200 entries).' },
-          body: { type: 'string', description: `The note text (1–${LIMITS.body} characters). Required by create; optional patch field for update.` },
-          title: { type: 'string', description: `Optional short heading (max ${LIMITS.title} characters).` },
-          tags: { type: 'array', items: { type: 'string' }, description: `Optional lowercase tags (max ${LIMITS.tags}).` },
-          color: { type: 'string', enum: ['yellow', 'pink', 'green', 'blue', 'purple', 'orange'], description: 'Optional pastel note color.' },
+          action: {
+            type: 'string',
+            enum: ['list', 'read', 'create', 'update', 'move', 'archive', 'delete', 'clear-archived', 'arrange'],
+            description: 'list: scan notes. read: one note in full. create/update: write attributes or text. move: place one card on the canvas. archive/delete: batch state changes. clear-archived: permanent sweep. arrange: tidy the whole wall.',
+          },
+          id: { type: 'string', description: 'Exact note id; required by read, update and move.' },
+          ids: { type: 'array', items: { type: 'string' }, description: `Note ids; required by archive and delete (1–${LIMITS.bulk} entries).` },
+          body: { type: 'string', description: `The note text. Required by create; optional patch field for update. Max ${LIMITS.body} characters.` },
+          title: { type: 'string', description: `Short heading (max ${LIMITS.title} characters); '' clears it.` },
+          tags: { type: 'array', items: { type: 'string' }, description: `Lowercase tags (max ${LIMITS.tags}, each max ${LIMITS.tag} characters); [] clears them.` },
+          color: { type: 'string', enum: ['yellow', 'pink', 'green', 'blue', 'purple', 'orange'], description: 'Pastel note colour.' },
           pinned: { type: 'boolean', description: 'Pin the note to the top of the wall.' },
-          archived: { type: 'boolean', description: 'Archive (true) or restore (false) one note on update.' },
-          includeArchived: { type: 'boolean', description: 'list only: include archived notes.' },
-          x: { type: 'number', description: 'Free-canvas horizontal position of the card, in canvas pixels. Optional on create.' },
-          y: { type: 'number', description: 'Free-canvas vertical position of the card, in canvas pixels. Optional on create.' },
-          limit: { type: 'integer', description: 'list only: how many notes to return (1–50, default 20).' },
+          archived: {
+            type: 'boolean',
+            // Required rather than defaulted: a model asked to RESTORE a note that
+            // merely omits this field used to re-archive it, silently doing the
+            // opposite of the request. A destructive flag must never default.
+            description: 'Required by archive: true archives, false restores. Never omitted.',
+          },
+          includeArchived: { type: 'boolean', description: 'list only: include archived notes (default false).' },
+          x: { type: 'number', description: 'Canvas horizontal position of the card, in canvas pixels. Used by create and move.' },
+          y: { type: 'number', description: 'Canvas vertical position of the card, in canvas pixels. Used by create and move.' },
+          width: { type: 'string', enum: ['sm', 'md', 'lg'], description: 'Card width preset. Used by create and move.' },
+          rotate: { type: 'number', description: 'Card tilt in degrees, clamped to ±12. Used by create and move.' },
+          limit: { type: 'integer', description: `list only: how many notes to return (1–${LIMITS.listLimit}, default 20).` },
         },
       },
       timeoutMs: 20_000,
       isConcurrencySafe(args) {
-        return typeof args === 'object' && args !== null && (args as { action?: unknown }).action === 'list'
+        if (typeof args !== 'object' || args === null) return false
+        const action = (args as { action?: unknown }).action
+        return action === 'list' || action === 'read'
       },
       output: {
         schema: { type: 'object', additionalProperties: true },
@@ -138,10 +207,29 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
         execution.signal.throwIfAborted()
         const store = await ready
         const args = (raw ?? {}) as Record<string, unknown>
+        /** A complete placement from the flat coordinates, when all of them exist. */
+        const layoutFrom = (): { x: number; y: number; rotate: number; width: 'sm' | 'md' | 'lg' } | undefined => {
+          if (typeof args.x !== 'number' || typeof args.y !== 'number') return undefined
+          const width = args.width === 'sm' || args.width === 'md' || args.width === 'lg' ? args.width : 'md'
+          return { x: args.x, y: args.y, rotate: typeof args.rotate === 'number' ? args.rotate : 0, width }
+        }
         switch (args.action) {
-          case 'list':
-            return { action: 'list', ...store.summary(typeof args.limit === 'number' ? args.limit : 20) }
-          case 'create':
+          case 'list': {
+            // `includeArchived` was declared but ignored: `summary()` always read
+            // every note, so the tool's own description was false. Filter here so
+            // the flag means what it says.
+            const summary = store.summary(typeof args.limit === 'number' ? args.limit : 20)
+            const notes = args.includeArchived === true ? summary.notes : summary.notes.filter((note) => !note.archived)
+            return { action: 'list', ...summary, notes, archived: summary.archived, total: summary.total }
+          }
+          case 'read': {
+            const id = String(args.id ?? '')
+            const note = store.read(id)
+            if (note === null) throw new Error(`No note with id ${JSON.stringify(id)}.`)
+            return { action: 'read', note, path: store.pathOf(id) }
+          }
+          case 'create': {
+            const placement = layoutFrom()
             return {
               action: 'create',
               note: await store.create({
@@ -150,11 +238,10 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
                 ...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
                 ...(typeof args.color === 'string' ? { color: args.color as NoteColor } : {}),
                 ...(typeof args.pinned === 'boolean' ? { pinned: args.pinned } : {}),
-                ...(typeof args.x === 'number' && typeof args.y === 'number'
-                  ? { layout: { x: args.x, y: args.y, rotate: 0, width: 'md' as const } }
-                  : {}),
+                ...(placement === undefined ? {} : { layout: placement }),
               }),
             }
+          }
           case 'update':
             return {
               action: 'update',
@@ -167,8 +254,25 @@ function registerAgentTool(ctx: Context, ready: Promise<StickyWallStore>): void 
                 ...(typeof args.archived === 'boolean' ? { archived: args.archived } : {}),
               }),
             }
+          case 'move': {
+            const id = String(args.id ?? '')
+            const current = store.read(id)
+            if (current === null) throw new Error(`No note with id ${JSON.stringify(id)}.`)
+            // A move keeps whatever the caller did not restate, so positioning a
+            // card does not silently change its size or straighten its tilt.
+            const base = current.layout
+            const layout = {
+              x: typeof args.x === 'number' ? args.x : base?.x ?? 0,
+              y: typeof args.y === 'number' ? args.y : base?.y ?? 0,
+              rotate: typeof args.rotate === 'number' ? args.rotate : base?.rotate ?? 0,
+              width: args.width === 'sm' || args.width === 'md' || args.width === 'lg' ? args.width : base?.width ?? 'md',
+            }
+            return { action: 'move', note: await store.move(id, layout) }
+          }
           case 'archive':
-            return { action: 'archive', notes: await store.setArchived((args.ids as string[] | undefined) ?? [], args.archived === true) }
+            // A destructive flag must be stated, never inferred.
+            if (typeof args.archived !== 'boolean') throw new Error('archive requires `archived: true` to archive or `archived: false` to restore.')
+            return { action: 'archive', notes: await store.setArchived((args.ids as string[] | undefined) ?? [], args.archived) }
           case 'delete':
             return { action: 'delete', removed: await store.remove((args.ids as string[] | undefined) ?? []) }
           case 'clear-archived':
@@ -188,17 +292,25 @@ export function apply(ctx: Context, rawConfig: Partial<WallConfig> = {}): void {
   const config = resolveConfig(rawConfig)
   const connection = service<HostConnection>(ctx, 'connection')
   if (!connection?.fetch?.register) throw new Error('Sticky wall requires the current DSH Connection exact Fetch-route registry.')
-  const facility = service<DomainFacility>(ctx, 'storageDomain')
-  if (!facility?.open) throw new Error('Sticky wall requires the DSH storageDomain facility.')
 
-  const ready = StickyWallStore.open((spec) => facility.open(spec), {
+  const notesDir = resolveNotesDir(config.notesDir, process.env, homedir())
+
+  // The legacy storage domain is now OPTIONAL: notes live on disk, and the
+  // domain is only opened once, to drain a 0.7.x install's records into `.md`
+  // files. A profile that never had the domain simply has nothing to migrate.
+  const facility = service<DomainFacility>(ctx, 'storageDomain')
+
+  const ready = StickyWallStore.open({
+    notesDir,
     maxNotes: config.maxNotes,
     seedWelcomeNote: config.seedWelcomeNote,
+    readLegacy: facility?.open === undefined ? undefined : () => readLegacyNotes(facility),
+    log: (message: string) => ctx.logger?.warn?.(`sticky-wall: ${message}`),
   })
   ready.catch((error: unknown) => {
     // The route and the tool both await `ready`, so the failure also reaches the
     // first caller; log it once so it is never silent in the Host log.
-    ctx.logger?.error?.(`sticky-wall: storage domain failed to open: ${error instanceof Error ? error.message : String(error)}`)
+    ctx.logger?.error?.(`sticky-wall: notes directory failed to open: ${error instanceof Error ? error.message : String(error)}`)
   })
 
   ctx.effect(() => () => {
@@ -212,13 +324,15 @@ export function apply(ctx: Context, rawConfig: Partial<WallConfig> = {}): void {
           const store = await ready
           return {
             list: (includeArchived, sort) => store.list(includeArchived, sort),
-            create: (input) => store.create(input),
+            revisionOf: () => store.revision,
+            notesDir: store.notesDir,
+            create: (input, id, options) => store.create(input, id, options),
             update: (id, patch) => store.update(id, patch as Parameters<StickyWallStore['update']>[1]),
             setArchived: (ids, archived) => store.setArchived(ids, archived),
             remove: (ids) => store.remove(ids),
             clearArchived: () => store.clearArchived(),
             move: (id, layout) => store.move(id, layout),
-            arrange: () => store.arrange(),
+            arrange: (options) => store.arrange(options),
           }
         }),
       ),

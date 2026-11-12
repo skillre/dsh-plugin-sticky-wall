@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Sticky Wall",
-    "description": "A free-canvas note board in the DSH sidebar: drag cards into place, tidy them, and write Markdown.",
+    "description": "A sticky-note wall in the DSH sidebar where every note is a real Markdown file you can drag, tidy and open anywhere.",
     "detail": "docs/DETAIL.md"
   }
 }

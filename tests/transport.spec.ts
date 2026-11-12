@@ -13,6 +13,11 @@ import { ENDPOINT, LIMITS, type Note } from '../src/types.js'
 
 const store = {
   notes: new Map<string, Note>(),
+  /** Absolute directory the notes would live in; the route echoes it back. */
+  notesDir: '/tmp/notes',
+  /** The Host's change counter, echoed on `list` and answered by `revision`. */
+  revision: 7,
+  revisionOf: () => store.revision,
   list: (includeArchived = false) => [...store.notes.values()].filter((note) => includeArchived || !note.archived),
   async create(input: { body: string }, _id?: string, options?: { centreReserve?: { halfWidth: number; halfHeight: number } }) {
     store.lastCreateOptions = options
@@ -138,10 +143,9 @@ describe('sticky-wall transport', () => {
       {},
       { action: 'nope' },
       { action: 'create' },
-      { action: 'create', note: { body: '' } },
       { action: 'create', note: { body: 'x'.repeat(LIMITS.body + 1) } },
       { action: 'create', note: { body: 'ok', color: 'chartreuse' } },
-      { action: 'update', id: 'n1' },
+      { action: 'update', id: 'n1', patch: { body: 'x'.repeat(LIMITS.body + 1) } },
       { action: 'archive', ids: [] },
       { action: 'delete', ids: Array.from({ length: LIMITS.bulk + 1 }, (_, index) => `id-${index}`) },
       { action: 'list', extra: true },
@@ -151,6 +155,17 @@ describe('sticky-wall transport', () => {
       expect(document.rpcId, JSON.stringify(payload)).toBe('rpc-bad')
       expect(document.result, JSON.stringify(payload)).toMatchObject({ ok: false })
     }
+  })
+
+  it('accepts an empty body at the envelope and lets the store judge it', async () => {
+    // Clearing the editor and saving must be possible, so `update` accepts an
+    // empty body. `create` still requires text, but that is the STORE's rule, not
+    // the envelope's: keeping the line here would move a product decision into the
+    // transport and make the error code unreachable.
+    const route = createExecuteRoute(actions)
+    const response = await route.fetch(request({ action: 'update', id: 'n1', patch: { body: '' } }))
+    const document = await body(response)
+    expect(document.result).toMatchObject({ ok: true })
   })
 
   it('maps a store failure onto a stable plugin-owned error code', async () => {

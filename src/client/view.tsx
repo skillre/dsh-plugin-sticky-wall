@@ -41,9 +41,24 @@ import type { ClientApi } from './api.js'
 import { ActionError } from './api.js'
 import type { ClientLocaleLike } from './contracts.js'
 import { clampLayout, estimateHeight, footprintOf, layoutOf, pushOutOfReserve, rotatedExtent } from '../layout.js'
-import { Markdown } from './markdown.jsx'
+import { Markdown, plainTextSummary } from './markdown.jsx'
+import { MarkdownEditor, EDITOR_CSS } from './editor.jsx'
 import { SWATCHES, WALL_CSS } from './styles.js'
 import type { Translate } from './text.js'
+
+/**
+ * True when a key event arrives mid-composition.
+ *
+ * This mirrors the guard DSH's own shipped `observeComposition` primitive
+ * applies, and it is duplicated here (rather than imported) because the sheet's
+ * own key handler needs the synchronous check without owning a listener. Getting
+ * this wrong is not cosmetic: the first Escape while typing Chinese dismisses the
+ * IME candidate window, and without the guard it also destroyed the draft.
+ */
+function isComposingEvent(event: KeyboardEvent | React.KeyboardEvent): boolean {
+  const native = 'nativeEvent' in event ? event.nativeEvent : event
+  return native.isComposing === true || native.keyCode === 229
+}
 
 /** Which notes the wall shows. */
 type Filter = 'all' | 'pinned' | 'archived'
@@ -86,6 +101,15 @@ const WHEEL_PAN = 1
 const REVEAL_MS = 340
 /** How long the arrival highlight stays on a freshly created card, in ms. */
 const ARRIVAL_MS = 900
+/**
+ * Background refresh period, in ms.
+ *
+ * Slow on purpose. The revision check is cheap and an unchanged revision touches
+ * no React state, so the cost of being wrong here is almost nothing — but the
+ * cost of being fast is competing with an editor for the main thread, and the
+ * focus/visibility triggers already cover the common case.
+ */
+const REFRESH_MS = 4000
 
 /** The sidebar glyph: a small stack of notes, sized by the sidebar slot. */
 export function SidebarGlyph({ size = 18 }: { size?: number }): JSX.Element {
@@ -173,45 +197,90 @@ function reconcileNotes(previous: readonly Note[], next: readonly Note[]): Note[
   return changed ? merged : (previous as Note[])
 }
 
-/** The composer sheet: create or edit one note. */
+/**
+ * The composer sheet: create or edit one note.
+ *
+ * Three behaviours here are repairs of real, user-visible defects:
+ *
+ * 1. **IME safety.** The sheet's own key handling used to close the editor on
+ *    Escape with no composition guard, so cancelling an IME candidate window
+ *    (the natural first Escape while typing Chinese) destroyed the whole draft.
+ *    Every key path is now gated on {@link isComposingEvent}, and the body field
+ *    is the shared `MarkdownEditor`, which owns the full composition contract.
+ *
+ * 2. **A save failure is visible.** The error is rendered INSIDE the sheet, next
+ *    to the buttons the user is pressing. It used to go to the page-level banner,
+ *    which the sheet's scrim covers — pressing Save appeared to do nothing.
+ *
+ * 3. **Leaving is deliberate.** Escape, a scrim click and Cancel all go through
+ *    {@link requestClose}, which confirms when the draft holds unsaved edits.
+ */
 function Composer({
   draft,
   t,
+  locale,
   busy,
   error,
+  status,
   onChange,
   onSave,
   onCancel,
 }: {
   draft: Draft
   t: Translate
+  locale: string
   busy: boolean
   error: string
+  status: 'idle' | 'saving' | 'saved' | 'failed'
   onChange(patch: Partial<Draft>): void
   onSave(): void
   onCancel(): void
 }): JSX.Element {
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null)
   const [preview, setPreview] = useState(false)
-  useEffect(() => {
-    bodyRef.current?.focus()
-  }, [])
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  /** The draft as it was when the sheet opened, to decide whether it holds edits. */
+  const initial = useRef(JSON.stringify(draft))
+  const dirty = JSON.stringify(draft) !== initial.current
+
+  /**
+   * Close, asking first when there is unsaved work.
+   *
+   * Not a confirm() dialog: this is a modal we own, so the prompt is our own
+   * sheet with an explicit "keep editing" escape.
+   */
+  const requestClose = (): void => {
+    if (busy) return
+    if (dirty) {
+      setConfirmDiscard(true)
+      return
+    }
+    onCancel()
+  }
+
+  const save = (): void => {
+    if (busy) return
+    onSave()
+  }
+
   return (
-    <div className="skw-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel() }}>
+    <div className="skw-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
       <div className="skw-sheet" role="dialog" aria-modal="true" aria-label={draft.id ? t('edit') : t('new')}
         onKeyDown={(event) => {
           if (event.repeat) return
-          if (event.key === 'Escape' && !busy) onCancel()
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !busy) {
+          // An Escape that dismisses an IME candidate window must never also close
+          // the sheet; the composition guard is what separates the two.
+          if (isComposingEvent(event.nativeEvent)) return
+          if (event.key === 'Escape') requestClose()
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
-            onSave()
+            save()
           }
         }}>
         <div className="skw-sheet-head">
           {draft.id ? t('edit') : t('new')}
           <span className="skw-spacer" />
           <button className="skw-btn skw-btn-quiet" type="button" data-on={preview} aria-pressed={preview}
-            onClick={() => setPreview((value) => !value)}>{preview ? t('edit') : t('preview')}</button>
+            onClick={() => setPreview((value) => !value)}>{preview ? t('editorSource') : t('editorPreview')}</button>
         </div>
         <div className="skw-sheet-body">
           <input className="skw-input" value={draft.title} placeholder={t('titlePlaceholder')} maxLength={LIMITS.title}
@@ -221,8 +290,17 @@ function Composer({
               {draft.body.trim() === '' ? <p className="skw-preview-empty">{t('bodyPlaceholder')}</p> : <Markdown source={draft.body} />}
             </div>
           ) : (
-            <textarea ref={bodyRef} className="skw-textarea" value={draft.body} placeholder={t('bodyPlaceholder')} maxLength={LIMITS.body}
-              onChange={(event) => onChange({ body: event.target.value })} aria-label={t('bodyPlaceholder')} />
+            <MarkdownEditor
+              value={draft.body}
+              onChange={(body) => onChange({ body })}
+              onSave={save}
+              onEscape={requestClose}
+              maxLength={LIMITS.body}
+              placeholder={t('bodyPlaceholder')}
+              label={t('bodyPlaceholder')}
+              locale={locale.toLowerCase().startsWith('zh') ? 'zh' : 'en'}
+              disabled={busy}
+            />
           )}
           <input className="skw-input" value={draft.tags} placeholder={t('tagsPlaceholder')}
             onChange={(event) => onChange({ tags: event.target.value })} aria-label={t('tagsPlaceholder')} />
@@ -242,15 +320,30 @@ function Composer({
               ))}
             </div>
           </div>
+          {/* The save failure belongs HERE: this is what the user is looking at
+              while pressing Save, and the page banner is behind the scrim. */}
           {error !== '' && <p className="skw-error" role="alert">{error}</p>}
         </div>
         <div className="skw-sheet-foot">
-          <span className="skw-hint">{t('saveHint')}</span>
+          <span className="skw-hint" data-status={status}>
+            {status === 'saving' ? t('editorSaving') : status === 'saved' ? t('editorSaved') : dirty ? t('editorUnsaved') : t('saveHint')}
+          </span>
           <span className="skw-spacer" />
-          <button className="skw-btn" type="button" onClick={onCancel} disabled={busy}>{t('cancel')}</button>
-          <button className="skw-btn skw-btn-primary" type="button" onClick={onSave} disabled={busy}>{t('save')}</button>
+          <button className="skw-btn" type="button" onClick={requestClose} disabled={busy}>{t('cancel')}</button>
+          <button className="skw-btn skw-btn-primary" type="button" onClick={save} disabled={busy}>{t('save')}</button>
         </div>
       </div>
+      {confirmDiscard && (
+        <ConfirmDialog
+          title={t('discardDraft')}
+          message={t('discardDraft')}
+          confirmLabel={t('discard')}
+          cancelLabel={t('keepEditing')}
+          busy={false}
+          onConfirm={() => { setConfirmDiscard(false); onCancel() }}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      )}
     </div>
   )
 }
@@ -358,6 +451,16 @@ const NoteCard = memo(function NoteCard({
   arrived?: boolean
 }): JSX.Element {
   const layout = layoutOf(note, index)
+  /**
+   * The frontmatter problem this note carries, if any.
+   *
+   * `newer-schema:N` means a newer build wrote the file; anything else means the
+   * block was malformed. Both keep the note visible, so the card flags it rather
+   * than pretending the parsed defaults were the author's choice.
+   */
+  const metaIssue = note.metaError === undefined
+    ? undefined
+    : note.metaError.startsWith('newer-schema') ? 'newer' as const : note.metaError
   const style: React.CSSProperties = surface === 'canvas'
     ? {
       left: `${layout.x}px`,
@@ -384,7 +487,7 @@ const NoteCard = memo(function NoteCard({
       data-width={layout.width}
       data-arrived={arrived}
       style={style}
-      aria-label={note.title || note.body.slice(0, 40)}
+      aria-label={note.title || plainTextSummary(note.body, 60)}
       tabIndex={0}
       onPointerDown={(event) => actions.drag(note, event)}
       onDoubleClick={() => actions.edit(note)}
@@ -435,6 +538,17 @@ const NoteCard = memo(function NoteCard({
       <div className="skw-note-foot">
         <span>{formatTime(note.updatedAt, locale)}</span>
         <span className="skw-spacer" />
+        {/*
+          A note whose frontmatter could not be read keeps rendering with default
+          attributes rather than disappearing. That fail-soft choice is only
+          honest if the user can SEE that something is off, so the card carries a
+          badge instead of silently showing the wrong colour or placement.
+        */}
+        {metaIssue !== undefined && (
+          <span className="skw-note-badge" data-warn="true" title={metaIssue}>
+            {metaIssue === 'newer' ? t('metaErrorNewer') : t('metaErrorBadge')}
+          </span>
+        )}
         {note.archived && <span className="skw-note-badge">{t('archive')}</span>}
         {note.pinned && <span className="skw-note-badge" aria-hidden="true">★ {t('pin')}</span>}
       </div>
@@ -442,12 +556,20 @@ const NoteCard = memo(function NoteCard({
   )
 })
 
-/** One row in the dense list view. */
+/**
+ * One row in the dense list view.
+ *
+ * The title line falls back to a PLAIN-TEXT digest of the body, not its first
+ * raw line. A note beginning with `## Heading`, `- [ ] task` or `**bold**` used
+ * to show that Markdown syntax verbatim in the list, which read as noise in the
+ * one place the user is scanning for a title.
+ */
 function NoteRow({ note, t, locale, onEdit }: { note: Note; t: Translate; locale: string; onEdit(note: Note): void }): JSX.Element {
+  const summary = plainTextSummary(note.body, 80)
   return (
     <button className="skw-row" type="button" data-color={note.color} data-archived={note.archived} onClick={() => onEdit(note)}>
       <span className="skw-row-dot" aria-hidden="true" />
-      <span className="skw-row-title">{note.title || note.body.split('\n')[0]}</span>
+      <span className="skw-row-title">{note.title || summary}</span>
       {note.tags.length > 0 && <span className="skw-row-tags">{note.tags.map((tag) => `#${tag}`).join(' ')}</span>}
       <span className="skw-spacer" />
       {note.pinned && <span className="skw-row-badge" aria-hidden="true">★</span>}
@@ -469,6 +591,10 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [error, setError] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [draftError, setDraftError] = useState('')
+  /** The composer's save state, shown beside the buttons the user is pressing. */
+  const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  /** Absolute directory the notes live in, disclosed so the user can find them. */
+  const [notesDir, setNotesDir] = useState('')
   const [confirming, setConfirming] = useState<'clear' | Note | null>(null)
   /** Zoom is state because the readout is rendered; pan is not (see below). */
   const [zoom, setZoom] = useState(1)
@@ -488,6 +614,23 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const sequence = useRef(0)
   /** Synchronous write fence: React state is too late for same-tick events. */
   const inFlight = useRef(false)
+  /**
+   * The mutation queue.
+   *
+   * Every write chains onto this, so two writes issued in one tick run in the
+   * order the user performed them instead of one being discarded (see
+   * {@link mutate}).
+   */
+  const queue = useRef<Promise<void>>(Promise.resolve())
+  /** The Host's change counter as last observed, for the background refresh. */
+  const revision = useRef(0)
+  /**
+   * Whether the composer sheet is mounted right now.
+   *
+   * Read synchronously from a mutation's failure path, where the `draft` state
+   * would still be the pre-flush value.
+   */
+  const draftOpen = useRef(false)
   /**
    * The canvas node.
    *
@@ -589,6 +732,11 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
 
   const activeLocale = locale.getSnapshot().active
 
+  // Mirror the sheet's presence into a ref every render: a mutation's failure
+  // handler runs from a promise callback, where the React state it captured is
+  // already stale.
+  draftOpen.current = draft !== null
+
   /**
    * A note's stable index for the derived preview position.
    *
@@ -646,9 +794,13 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     const seq = ++sequence.current
     setLoading(true)
     try {
-      const next = await api.list(options.includeArchived, options.sort, life.current.signal)
+      const snapshot = await api.list(options.includeArchived, options.sort, life.current.signal)
       if (alive.current && seq === sequence.current) {
-        setNotes((previous) => reconcileNotes(previous, next))
+        setNotes((previous) => reconcileNotes(previous, snapshot.notes))
+        // Remember what the Host said, so the background poll can tell "nothing
+        // changed" from "something changed" without refetching the whole wall.
+        if (snapshot.revision > 0) revision.current = snapshot.revision
+        if (snapshot.notesDir !== '') setNotesDir(snapshot.notesDir)
         if (options.clearError !== false) setError('')
       }
     } catch (cause) {
@@ -676,31 +828,96 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   }, [reload, includeArchived, sort])
 
   /**
+   * Refresh when the wall may have changed OUTSIDE this component.
+   *
+   * The wall used to refetch only after its own mutations, so a note written by
+   * the agent tool — or by a second window — never appeared until the user
+   * happened to toggle a filter. Three cheap triggers close that gap, and each
+   * one is gated so a refresh can never interrupt someone mid-edit:
+   *
+   * - `window.focus` and `visibilitychange` cover the common "came back to the
+   *   tab" case for free;
+   * - a slow interval covers a wall left visible while an agent works;
+   * - every trigger asks for the REVISION only, and an unchanged revision leaves
+   *   React state completely untouched. That is what makes polling safe with an
+   *   open editor: nothing re-renders, so no composition is disturbed.
+   */
+  useEffect(() => {
+    let timer = 0
+    const check = async (): Promise<void> => {
+      if (!alive.current || life.current.signal.aborted) return
+      // A hidden tab and an in-flight mutation both mean "do not disturb".
+      if (typeof document !== 'undefined' && document.hidden) return
+      if (inFlight.current) return
+      try {
+        const next = await api.revision(life.current.signal)
+        if (!alive.current) return
+        // `-1` means the Host could not answer with a counter; refetching is the
+        // safe interpretation, but only when nothing else is happening.
+        if (next === -1 || next !== revision.current) {
+          if (next !== -1) revision.current = next
+          await reload({ includeArchived, sort, clearError: false })
+        }
+      } catch {
+        // A background refresh failing is not worth an error banner: the wall
+        // still shows what it last knew, and the next trigger tries again.
+      }
+    }
+    const onFocus = (): void => { void check() }
+    const onVisible = (): void => { if (!document.hidden) void check() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+    timer = window.setInterval(() => { void check() }, REFRESH_MS)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.clearInterval(timer)
+    }
+  }, [api, reload, includeArchived, sort])
+
+  /**
    * Run one mutation, reconcile with the Host, and surface a failure inline.
    *
    * The reload runs on BOTH outcomes: a rejected request may still have written
    * something (a batch that failed midway), and the wall must never keep
    * showing a snapshot the Host no longer has.
+   *
+   * Mutations are QUEUED, not dropped. Dropping was a real defect: a drag that
+   * landed while another write was in flight was discarded after its optimistic
+   * placement had already been painted, so the card sat at the drop point until
+   * the next reload snapped it back with no explanation. A serial queue keeps
+   * the ordering the user performed and guarantees every write is attempted.
    */
-  async function mutate(run: () => Promise<Note[] | string[] | void>): Promise<boolean> {
-    // A ref, not the `busy` state: two events in one tick would both read the
-    // pre-flush state value and both fire.
-    if (inFlight.current) return false
-    inFlight.current = true
-    setBusy(true)
-    setError('')
-    try {
-      await run()
-    } catch (cause) {
-      if (alive.current && !life.current.signal.aborted) setError(errorText(cause, t))
-    } finally {
-      if (alive.current) {
-        await reload({ includeArchived, sort, clearError: false }).catch(() => {})
-        setBusy(false)
+  function mutate(run: () => Promise<Note[] | string[] | void>): Promise<boolean> {
+    queue.current = queue.current.then(async () => {
+      if (!alive.current) return
+      inFlight.current = true
+      setBusy(true)
+      setError('')
+      try {
+        await run()
+      } catch (cause) {
+        if (alive.current && !life.current.signal.aborted) {
+          const message = errorText(cause, t)
+          // While the composer sheet is open its scrim covers the page banner, so
+          // a failure has to be shown INSIDE the sheet. Putting it only on the
+          // page made pressing Save look like a no-op.
+          if (draftOpen.current) {
+            setDraftError(message)
+            setDraftStatus('failed')
+          } else {
+            setError(message)
+          }
+        }
+      } finally {
+        if (alive.current) {
+          await reload({ includeArchived, sort, clearError: false }).catch(() => {})
+          setBusy(false)
+        }
+        inFlight.current = false
       }
-      inFlight.current = false
-    }
-    return true
+    })
+    return queue.current.then(() => true, () => false)
   }
 
   /**
@@ -723,6 +940,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
 
   function openComposer(note?: Note): void {
     setDraftError('')
+    setDraftStatus('idle')
     setDraft(note
       ? { id: note.id, title: note.title, body: note.body, tags: note.tags.join(' '), color: note.color, width: layoutOf(note, 0).width }
       : { id: null, title: '', body: '', tags: '', color: 'yellow', width: 'md' })
@@ -733,9 +951,11 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     const body = draft.body.trim()
     if (body === '') {
       setDraftError(t('emptyBody'))
+      setDraftStatus('failed')
       return
     }
     setDraftError('')
+    setDraftStatus('saving')
     await mutate(async () => {
       const tags = parseTags(draft.tags)
       if (draft.id === null) {
@@ -757,6 +977,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
         }
       }
       setDraft(null)
+      setDraftStatus('idle')
     })
   }
 
@@ -1604,6 +1825,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   return (
     <section className="skw-page" aria-label={t('title')}>
       <style>{WALL_CSS}</style>
+      <style>{EDITOR_CSS}</style>
 
       <div className="skw-body" data-view={view}>
         {error !== '' && (
@@ -1832,7 +2054,7 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       </div>
 
       {draft && (
-        <Composer draft={draft} t={t} busy={busy} error={draftError}
+        <Composer draft={draft} t={t} locale={activeLocale} busy={busy} error={draftError} status={draftStatus}
           onChange={(patch) => setDraft((current) => (current === null ? current : { ...current, ...patch }))}
           onSave={() => void saveDraft()}
           onCancel={() => { if (!busy) { setDraft(null); setDraftError('') } }} />

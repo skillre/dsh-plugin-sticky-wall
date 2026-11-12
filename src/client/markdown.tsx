@@ -154,6 +154,111 @@ export function parseBlocks(source: string): Block[] {
 }
 
 /**
+ * Strip inline Markdown syntax while keeping the text it wraps.
+ *
+ * This is deliberately NOT a second parser. `parseBlocks` already decided what
+ * the block IS; this only has to erase the characters that are syntax rather
+ * than content, so a digest can never drift from what the card renders. Bare
+ * URLs are left alone on purpose: a URL is the one inline construct whose
+ * visible text is the whole token, so stripping it would delete information.
+ */
+function stripInlineMarkdown(text: string): string {
+  let out = text
+  // Images first: their alt text is the closest thing to content they carry.
+  out = out.replace(/!\[([^\]]*)\]\([^)\s]*\)/g, '$1')
+  // `[label](url)` becomes just the label.
+  out = out.replace(/\[([^\]]*)\]\([^)\s]*\)/g, '$1')
+  // Code spans: drop the backticks, keep what they wrap.
+  out = out.replace(/`+([^`]*)`+/g, '$1')
+  // Longest emphasis markers first, so `***x***` never loses only half a pair.
+  out = out.replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
+  out = out.replace(/\*\*([^*]+)\*\*/g, '$1')
+  out = out.replace(/\*([^*]+)\*/g, '$1')
+  out = out.replace(/~~([^~]+)~~/g, '$1')
+  // Underscore emphasis only between word boundaries: `snake_case_name` is an
+  // identifier, not italics, and a digest of a code-heavy note must say so.
+  out = out.replace(/(^|[^A-Za-z0-9])__([^_]+)__(?![A-Za-z0-9])/g, '$1$2')
+  out = out.replace(/(^|[^A-Za-z0-9])_([^_]+)_(?![A-Za-z0-9])/g, '$1$2')
+  return out
+}
+
+/** Collapse every whitespace run to one space and trim both edges. */
+function flattenWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Cut a digest to `limit` characters, appending the ellipsis.
+ *
+ * The ellipsis sits OUTSIDE the budget so `max` always means "characters of the
+ * note that survive", which is what a CSS-clamped row needs. The trailing space
+ * of a break-at-a-space cut is dropped so the result never reads "word …".
+ */
+function truncateDigest(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  let cut = limit
+  // `slice` counts UTF-16 units, so a cut can land between the two halves of an
+  // emoji and leave a lone surrogate that renders as a replacement glyph. Back
+  // off one unit when the boundary splits a pair.
+  const code = text.charCodeAt(cut - 1)
+  if (code >= 0xd800 && code <= 0xdbff) cut -= 1
+  return `${text.slice(0, cut).replace(/\s+$/, '')}…`
+}
+
+/**
+ * One plain-text digest of a note, for lists, aria-labels and search.
+ * Strips Markdown syntax: no `##`, no `**`, no `- [ ]`, no ``` fences, no pipes.
+ *
+ * The FIRST block that yields visible text wins, because a digest is one line:
+ * a rule carries none, and an empty heading or paragraph is what a half-typed
+ * note looks like. Picking the first *visible* block means a note that opens
+ * with `---` still summarises its actual first line instead of returning ''.
+ */
+export function plainTextSummary(source: string, max = 90): string {
+  // A caller asking for zero characters gets nothing: returning the ellipsis
+  // alone would claim the note has content it does not.
+  const limit = Number.isFinite(max) ? Math.floor(max) : 0
+  if (limit <= 0) return ''
+
+  const raw = typeof source === 'string' ? source : ''
+
+  let blocks: Block[]
+  try {
+    blocks = parseBlocks(raw)
+  } catch {
+    // A digest is decoration on a list row, so it must never be the thing that
+    // breaks a render: degrade to the raw text rather than throwing.
+    return truncateDigest(flattenWhitespace(stripInlineMarkdown(raw)), limit)
+  }
+
+  for (const block of blocks) {
+    if (block.kind === 'rule') continue
+
+    let candidate: string
+    if (block.kind === 'code') {
+      // Code that opens a note is usually the point of the note, and one line is
+      // all a card or a row can honestly show.
+      candidate = block.text.split('\n')[0] ?? ''
+    } else if (block.kind === 'list') {
+      // The first item is the closest thing a one-line digest can claim; the
+      // `[ ]` of a task is syntax, not content.
+      candidate = (block.items[0] ?? '').replace(/^\[[ xX]\]\s*/, '')
+    } else if (block.kind === 'table') {
+      candidate = block.header.join(' ')
+    } else {
+      candidate = block.text
+    }
+
+    const digest = flattenWhitespace(stripInlineMarkdown(candidate))
+    // An empty heading/paragraph (or an empty first list item) has no visible
+    // text, so the search continues instead of stopping on ''.
+    if (digest !== '') return truncateDigest(digest, limit)
+  }
+
+  return ''
+}
+
+/**
  * Normalize a link target.
  *
  * Only http(s) and mailto survive. A `javascript:` or `data:` URL degrades to

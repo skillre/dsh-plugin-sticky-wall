@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Markdown, parseBlocks, renderInline, safeHref } from '../src/client/markdown.jsx'
+import { Markdown, parseBlocks, plainTextSummary, renderInline, safeHref } from '../src/client/markdown.jsx'
 
 /**
  * Markdown renderer tests.
@@ -144,5 +144,85 @@ describe('markdown rendering', () => {
   it('marks the compact variant so card bodies drop outer block margins', () => {
     const { container } = render(<Markdown source="body" compact />)
     expect(container.querySelector('.skw-md')?.getAttribute('data-compact')).toBe('true')
+  })
+})
+
+describe('plainTextSummary', () => {
+  it('strips a heading marker but keeps its text', () => {
+    expect(plainTextSummary('## Heading')).toBe('Heading')
+  })
+
+  it('drops the task marker of a to-do list item', () => {
+    expect(plainTextSummary('- [ ] task')).toBe('task')
+    expect(plainTextSummary('- [x] done')).toBe('done')
+  })
+
+  it('strips emphasis markers but keeps the words they wrap', () => {
+    expect(plainTextSummary('**bold** text')).toBe('bold text')
+    expect(plainTextSummary('*italic* and ~~gone~~ and `code`')).toBe('italic and gone and code')
+  })
+
+  it('summarises a leading code block with its first line', () => {
+    expect(plainTextSummary('```ts\nconst a = 1\nconst b = 2\n```')).toBe('const a = 1')
+  })
+
+  it('summarises a table with its header cells', () => {
+    expect(plainTextSummary('| a | b |\n| --- | --- |\n| 1 | 2 |')).toBe('a b')
+  })
+
+  it('reduces a link to its label and leaves a bare URL alone', () => {
+    expect(plainTextSummary('[label](https://x)')).toBe('label')
+    // A bare URL is the visible text, so deleting it would lose information.
+    expect(plainTextSummary('see https://x for details')).toBe('see https://x for details')
+  })
+
+  it('skips a leading rule and summarises the first visible block', () => {
+    // `---` carries no text, so a digest that stopped there would be empty.
+    expect(plainTextSummary('---\n\n## After the rule')).toBe('After the rule')
+  })
+
+  it('skips an empty heading instead of returning nothing', () => {
+    // `## ` (with the space) IS a heading with no text; a bare `##` is a
+    // paragraph that the renderer prints literally, so it is not skipped.
+    expect(plainTextSummary('## \n\nA real line')).toBe('A real line')
+    expect(plainTextSummary('##')).toBe('##')
+  })
+
+  it('truncates to max characters and appends an ellipsis', () => {
+    const long = 'word '.repeat(40).trim()
+    const digest = plainTextSummary(long, 10)
+    expect(digest).toBe(`${'word '.repeat(40).trim().slice(0, 10).trimEnd()}…`)
+    // `max` counts the returned TEXT, never the ellipsis on top of it.
+    expect(digest.replace(/…$/, '').length).toBeLessThanOrEqual(10)
+  })
+
+  it('leaves a short note untouched and does not add an ellipsis', () => {
+    expect(plainTextSummary('short note')).toBe('short note')
+    expect(plainTextSummary('short note', 90)).toBe('short note')
+  })
+
+  it('returns an empty string for empty input', () => {
+    expect(plainTextSummary('')).toBe('')
+    expect(plainTextSummary('   \n\n  ')).toBe('')
+    expect(plainTextSummary('---')).toBe('')
+  })
+
+  it('collapses whitespace runs into single spaces', () => {
+    // The digest is one block's text, and a blank line starts a new block, so
+    // the run to collapse is the one INSIDE a block.
+    expect(plainTextSummary('a  b\t\tc')).toBe('a b c')
+  })
+
+  it('never throws and guards a non-positive or unusable max', () => {
+    expect(plainTextSummary('text', 0)).toBe('')
+    expect(plainTextSummary('text', -5)).toBe('')
+    expect(plainTextSummary('text', Number.NaN)).toBe('')
+    // Weird-but-typed-as-string input still produces a best-effort digest.
+    expect(plainTextSummary('**\n```\n|')).toBeTypeOf('string')
+  })
+
+  it('uses a 90 character default budget', () => {
+    const digest = plainTextSummary('x'.repeat(200))
+    expect(digest).toBe(`${'x'.repeat(90)}…`)
   })
 })

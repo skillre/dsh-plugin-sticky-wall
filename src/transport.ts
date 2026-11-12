@@ -50,14 +50,17 @@ export interface HostConnection {
 /** The store operations the route dispatches onto. */
 export interface WallActions {
   list(includeArchived?: boolean, sort?: NoteSort): Note[]
-  create(input: NoteInput): Promise<Note>
+  /** The Host's current change counter, for the Client's cheap poll. */
+  revisionOf(): number
+  /** Absolute directory the notes live in. */
+  readonly notesDir: string
+  create(input: NoteInput, id?: string, options?: { centreReserve?: CentreReserve | undefined }): Promise<Note>
   update(id: string, patch: NotePatch): Promise<Note>
   setArchived(ids: string[], archived: boolean): Promise<Note[]>
   remove(ids: string[]): Promise<string[]>
   clearArchived(): Promise<string[]>
   move(id: string, layout: NoteLayout): Promise<Note>
   arrange(options?: { centreReserve?: CentreReserve | undefined }): Promise<Note[]>
-  create(input: NoteInput, id?: string, options?: { centreReserve?: CentreReserve | undefined }): Promise<Note>
 }
 
 const envelopeSchema = z.object({
@@ -113,12 +116,13 @@ const reserveSchema = z
 
 const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list'), includeArchived: z.boolean().optional(), sort: sortSchema.optional() }).strict(),
+  z.object({ action: z.literal('revision') }).strict(),
   z
     .object({
       action: z.literal('create'),
       note: z
         .object({
-          body: z.string().min(1).max(LIMITS.body),
+          body: z.string().max(LIMITS.body),
           title: z.string().max(LIMITS.title).optional(),
           tags: z.array(z.string().max(LIMITS.tag)).max(LIMITS.tags).optional(),
           color: colorSchema.optional(),
@@ -137,7 +141,10 @@ const requestSchema = z.discriminatedUnion('action', [
       id: idSchema,
       patch: z
         .object({
-          body: z.string().min(1).max(LIMITS.body).optional(),
+          // An empty body is accepted on update: clearing the editor and saving
+          // must work instead of trapping the user in a validation error. Create
+          // still requires text, which the store enforces.
+          body: z.string().max(LIMITS.body).optional(),
           title: z.string().max(LIMITS.title).optional(),
           tags: z.array(z.string().max(LIMITS.tag)).max(LIMITS.tags).optional(),
           color: colorSchema.optional(),
@@ -178,7 +185,14 @@ function correlation(body: unknown): string {
 async function dispatch(actions: WallActions, request: WallRequest): Promise<unknown> {
   switch (request.action) {
     case 'list':
-      return { notes: actions.list(request.includeArchived, request.sort) }
+      return {
+        notes: actions.list(request.includeArchived, request.sort),
+        revision: actions.revisionOf(),
+        notesDir: actions.notesDir,
+        domain: { name: 'sticky-wall', version: 2 },
+      }
+    case 'revision':
+      return { revision: actions.revisionOf() }
     case 'create':
       return { action: 'create', changed: [await actions.create(request.note, undefined, { centreReserve: request.centreReserve })], removed: [] } satisfies MutationResult
     case 'update':

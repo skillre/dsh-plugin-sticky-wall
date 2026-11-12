@@ -1,21 +1,28 @@
 /**
- * Durable note store over the DSH storage domain.
+ * Durable note store over the real `.md` files under the notes directory.
  *
  * The Host owns all data: the Client renders snapshots and submits intents, and
  * every write goes through {@link StickyWallStore} — validate, persist, then
- * hand back the changed records. The storage domain provides a single
- * per-domain write chain, so concurrent writes cannot interleave, and its
- * `per-record` layout keeps one file per note: one damaged record cannot take
- * the whole wall down.
+ * hand back the changed records.
  *
- * The domain spec is mirrored structurally instead of imported: importing
- * `@deepseek-ai/dsh-storage-domain` would install a second copy of the domain
- * package (and its zod) inside the plugin instead of resolving the host's. The
- * mirrored shape is the contract the live Host validates at `open()`:
- * `{ name, version, layout, invalidRecords, tables: { <name>: { valueSchema } } }`
- * with zod record schemas.
+ * 0.8.0 moved the notes off the storage domain and onto plain files the user can
+ * open in any editor: one `.md` per note, frontmatter for the attributes, the
+ * body being the note text itself. That shape is why this store looks the way it
+ * does:
+ *
+ * - **Reads are synchronous.** Every note is loaded once at `open()` into the
+ *   in-memory map, which stays the AUTHORITATIVE cache. The wall polls with the
+ *   cheap `revision` call, so a read must never touch the disk.
+ * - **Writes go to disk FIRST, then to the cache.** A resolved mutation means
+ *   the bytes are on disk; the cache can never run ahead of the file, and a
+ *   failed write leaves the previous state intact.
+ * - **Every mutation is serialised** on one chain, so a check-then-write pair —
+ *   the `maxNotes` count followed by the write — cannot interleave with another
+ *   request. The filesystem gives us no such guarantee on its own.
+ * - **One unreadable file never takes the wall down.** A file that is too large,
+ *   misnamed or carries a broken frontmatter block is skipped, or degraded to a
+ *   note with `metaError`, but never thrown away.
  */
-import { z } from 'zod';
 import { type CentreReserve, type Note, type NoteInput, type NoteLayout, type NotePatch } from './types.js';
 /** Failure carrying a stable code the transport maps onto the RPC envelope. */
 export declare class WallError extends Error {
@@ -23,46 +30,16 @@ export declare class WallError extends Error {
     readonly details: Record<string, unknown>;
     constructor(code: string, message: string, details?: Record<string, unknown>);
 }
-/** The domain declaration handed to `ctx.storageDomain.open()`. */
-export declare const DOMAIN_SPEC: {
-    name: string;
-    version: number;
-    layout: "per-record";
-    invalidRecords: "backup-and-skip";
-    tables: {
-        notes: {
-            valueSchema: z.ZodObject<{
-                id: z.ZodString;
-                title: z.ZodDefault<z.ZodString>;
-                body: z.ZodString;
-                tags: z.ZodDefault<z.ZodArray<z.ZodString>>;
-                color: z.ZodDefault<z.ZodEnum<{
-                    yellow: "yellow";
-                    pink: "pink";
-                    green: "green";
-                    blue: "blue";
-                    purple: "purple";
-                    orange: "orange";
-                }>>;
-                pinned: z.ZodDefault<z.ZodBoolean>;
-                archived: z.ZodDefault<z.ZodBoolean>;
-                createdAt: z.ZodString;
-                updatedAt: z.ZodString;
-                layout: z.ZodDefault<z.ZodNullable<z.ZodObject<{
-                    x: z.ZodNumber;
-                    y: z.ZodNumber;
-                    rotate: z.ZodNumber;
-                    width: z.ZodEnum<{
-                        sm: "sm";
-                        md: "md";
-                        lg: "lg";
-                    }>;
-                }, z.core.$strip>>>;
-            }, z.core.$loose>;
-        };
-    };
-};
-/** The minimal domain table face this store uses; the rest is unused here. */
+/**
+ * The legacy storage-domain table face, kept only so the one-time migration can
+ * read what a 0.7.x install left behind.
+ *
+ * The store itself no longer touches a domain: the caller opens the legacy
+ * domain, drains its `notes` table into `Note[]`, and hands that array to
+ * `open()` as `readLegacy`. Mirroring the two-method shape here means the Host
+ * entry does not have to re-declare it, and keeps the old file's public surface
+ * importable while the migration exists.
+ */
 export interface DomainTable {
     get(key: string): unknown;
     entries(): Iterable<[string, unknown]>;
@@ -72,40 +49,106 @@ export interface DomainTable {
     update(key: string, transform: (value: Note) => Note): Promise<Note>;
     delete(key: string): Promise<boolean>;
 }
-/** The opened-domain handle the facility returns. */
+/** The opened-domain handle a legacy migration reads through. */
 export interface DomainHandle {
     table(name: string): DomainTable;
     close(): Promise<void>;
 }
+/** Everything `open()` needs to build a store. */
+export interface StoreOptions {
+    /** Directory holding one `.md` per note; created recursively when absent. */
+    notesDir: string;
+    /** Reject a write that would take the live (non-archived) note count past this. */
+    maxNotes: number;
+    /** Write the built-in welcome note when the wall is empty. */
+    seedWelcomeNote: boolean;
+    /**
+     * Reader for the legacy storage-domain notes.
+     *
+     * When present, `open()` runs the one-time migration BEFORE scanning the
+     * directory. Leave it out and the store opens whatever `.md` files are there
+     * and nothing else — which is what the tests and any non-DSH caller want.
+     */
+    readLegacy?: (() => Promise<Note[]>) | undefined;
+    /** Injectable clock; tests use a stepping clock so timestamps are distinct. */
+    now?: (() => Date) | undefined;
+    /** Sink for non-fatal problems (an oversized or unreadable note file). */
+    log?: ((message: string) => void) | undefined;
+}
 /** The store facade the Host endpoint and the agent tool share. */
 export declare class StickyWallStore {
-    private readonly domain;
+    /** Absolute directory the notes live in. */
+    readonly notesDir: string;
+    private readonly notes;
     private readonly maxNotes;
     private readonly now;
-    private readonly notes;
+    private readonly log;
+    /** Backing counter for {@link revision}. */
+    private counter;
     private closed;
     /**
      * Store-level mutation chain.
      *
-     * The storage domain serializes its own writes, but a read-then-write pair
-     * (the `maxNotes` check followed by the `put`) is two steps: two concurrent
-     * creates at the boundary would both read the pre-write count and both
-     * succeed. Every mutation therefore runs on this chain, so each check and its
-     * write are one indivisible step.
+     * A read-then-write pair (the `maxNotes` check followed by the file write) is
+     * two steps, and two concurrent creates at the boundary would both read the
+     * pre-write count and both succeed. Every mutation therefore runs on this
+     * chain, so each check and its write are one indivisible step.
      */
     private chain;
-    constructor(domain: DomainHandle, maxNotes: number, now?: () => Date);
-    /** Open one domain and wrap it in a store. */
-    static open(open: (spec: typeof DOMAIN_SPEC) => Promise<DomainHandle>, options: {
-        maxNotes: number;
-        seedWelcomeNote: boolean;
-        now?: () => Date;
-    }): Promise<StickyWallStore>;
-    /** Release the domain handle; later writes fail instead of silently dropping. */
+    private constructor();
+    /**
+     * Open the notes directory and load every note.
+     *
+     * Order matters: the one-time migration runs BEFORE the directory is created,
+     * because the migration publishes its result with a single atomic `rename` of
+     * a staging directory and would otherwise have to rename over a directory this
+     * method had just made. Once the directory and the cache agree, the store is
+     * usable; every later read is served from memory.
+     */
+    static open(options: StoreOptions): Promise<StickyWallStore>;
+    /**
+     * Monotonic change counter; bumps once per mutation that actually changed
+     * something.
+     *
+     * The Client cannot be pushed to, so it polls. An unchanged number means the
+     * caller must not touch component state at all — that is what keeps a
+     * background refresh from interrupting someone mid-composition in the editor.
+     */
+    get revision(): number;
+    /**
+     * Close the store: drain queued writes, then refuse new ones.
+     *
+     * Draining is the point. A mutation that started before `close()` may still be
+     * writing its file; dropping the chain would acknowledge a note to the Client
+     * and then lose it on shutdown.
+     */
     close(): Promise<void>;
     private assertOpen;
     /** Queue one mutation so its checks and writes cannot interleave with another. */
     private mutate;
+    /** Absolute `.md` path for a note id. */
+    pathOf(id: string): string;
+    /**
+     * Read every note file into the cache.
+     *
+     * The directory is the source of truth, so this is deliberately forgiving: a
+     * subdirectory, a file that is not named after a valid note id, a file too
+     * large to be a note, or one that cannot be read is skipped with a log line
+     * and the rest of the wall still opens.
+     */
+    private load;
+    /**
+     * Persist one note.
+     *
+     * The bytes go to a sibling temp file and are then `rename`d over the target:
+     * within one directory that is atomic, so a reader — or a crash — sees either
+     * the old note or the new one and never a half-written file. Writing the
+     * target directly would truncate it first, and a crash in that window loses
+     * the note outright.
+     */
+    private writeNote;
+    /** Remove one note file; already gone is not an error. */
+    private dropFile;
     private liveCount;
     /**
      * Reject a write that would take the live (non-archived) note count past
@@ -118,8 +161,20 @@ export declare class StickyWallStore {
     private assertRoom;
     /** Write the one-time welcome note on a brand-new wall. */
     private seedWelcomeNote;
+    /** One note by id, or `null` when the wall has no such note. */
+    read(id: string): Note | null;
     /** Every stored note, newest-relevant first; archived ones only on request. */
     list(includeArchived?: boolean, sort?: 'pinned' | 'created' | 'updated'): Note[];
+    /**
+     * The snapshot the store's own mutations work from.
+     *
+     * Deliberately does NOT check `closed`: {@link close} drains queued writes
+     * AFTER flipping the flag, so a mutation that was already acknowledged still
+     * has to run to completion — refusing it here would lose a note the caller
+     * was told was saved. It is private for exactly that reason: an outside caller
+     * always goes through {@link list}, which does check.
+     */
+    private gathered;
     /**
      * Create one note from a Client or agent submission.
      *

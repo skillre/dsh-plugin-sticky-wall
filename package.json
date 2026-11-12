@@ -1,6 +1,6 @@
 {
   "name": "@skillre/dsh-plugin-sticky-wall",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "便签墙：DSH 侧栏的自由画布便签板，可拖动摆放、一键整理，正文按 Markdown 渲染",
   "icon": "./icon.svg",
   "type": "module",
@@ -37,11 +37,11 @@
     "docs/DETAIL.zh.md",
     "docs/preview.svg",
     "docs/preview.zh.svg",
-    "docs/PREVIEW.md",
     "README.md",
     "README.en.md",
     "UNINSTALL.md",
-    "LICENSE"
+    "LICENSE",
+    "!docs/PREVIEW.md"
   ],
   "publishConfig": {
     "access": "public"

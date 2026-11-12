@@ -11,13 +11,42 @@ export declare const ENDPOINT = "skillre-sticky-wall/execute";
 /** Sidebar panel id, main panel key, and locale namespace. */
 export declare const PANEL_ID = "skillre-sticky-wall";
 export declare const LOCALE_NAMESPACE = "skillreStickyWall";
-/** Storage domain name; the per-record layout gives one file per note. */
-export declare const DOMAIN_NAME = "skillre_sticky_wall";
-export declare const DOMAIN_VERSION = 1;
+/**
+ * LEGACY storage-domain identity, kept only so the one-time migration can still
+ * open the JSON domain a 0.7.x install left behind.
+ *
+ * 0.8.0 moved the notes onto real `.md` files under the notes directory, so
+ * nothing else reads this any more. Removing it would strand an existing user's
+ * wall in a format the plugin can no longer name, so it stays until the
+ * migration is retired.
+ */
+export declare const LEGACY_DOMAIN_NAME = "skillre_sticky_wall";
+export declare const LEGACY_DOMAIN_VERSION = 1;
+/** The private directory, under the DSH home, that holds one `.md` per note. */
+export declare const NOTES_DIR_NAME = "sticky-notes";
+/** Every note file carries this suffix; the id alone is the basename. */
+export declare const NOTE_FILE_SUFFIX = ".md";
+/** Marker written once, after a successful migration, beside the notes. */
+export declare const MIGRATION_MARKER = "migration.json";
+/**
+ * The frontmatter schema generation this build writes.
+ *
+ * `schema:` is a forward-compatibility marker, not a migration trigger: a file
+ * written by a NEWER build parses with its known keys and keeps the rest in
+ * `extra` rather than being silently rewritten.
+ */
+export declare const FRONTMATTER_SCHEMA = 1;
 /** Hard limits, enforced on both halves so a bad payload never reaches storage. */
 export declare const LIMITS: Readonly<{
-    /** One note's body, in characters. */
-    body: 4000;
+    /**
+     * One note's body, in characters.
+     *
+     * 0.8.0 lifted the old 4000-character cap, because the body now lives in a
+     * plain `.md` file rather than a JSON record and a note is allowed to be a
+     * real document. This is a resource guard against a pathological file, not a
+     * product limit: at 200k characters a note is a short book.
+     */
+    body: 200000;
     /** One note's title, in characters. */
     title: 120;
     /** A note's free-form tag list. */
@@ -28,6 +57,10 @@ export declare const LIMITS: Readonly<{
     notes: 400;
     /** Note ids accepted in one request. */
     bulk: 200;
+    /** One note file's size on disk, in bytes; larger files are refused unread. */
+    fileBytes: number;
+    /** Newest notes the agent `list` action returns. */
+    listLimit: 50;
 }>;
 /** Pastel note colors the wall offers; the Client renders them as literal hex. */
 export declare const COLORS: readonly ["yellow", "pink", "green", "blue", "purple", "orange"];
@@ -129,7 +162,7 @@ export interface NoteLayout {
 }
 /** One sticky note as stored and as sent over the wire. */
 export interface Note {
-    /** Stable id; `crypto.randomUUID()` for locally created notes. */
+    /** Stable id; `crypto.randomUUID()` for locally created notes. Also the file's basename. */
     id: string;
     /** Optional short heading; the body alone is enough for a quick capture. */
     title: string;
@@ -149,21 +182,69 @@ export interface Note {
     updatedAt: string;
     /** Free-canvas placement, or `null` for a note the user never positioned. */
     layout: NoteLayout | null;
+    /**
+     * Why this note's frontmatter could not be read, when it could not.
+     *
+     * A note with a broken frontmatter block is NOT dropped and NOT rejected: the
+     * body still renders and the card keeps default attributes, with this message
+     * carried so the wall can flag it. Losing a user's note because they (or the
+     * model) mangled a YAML line would be far worse than showing it with the
+     * wrong color — this is the fail-soft contract the storage domain used to
+     * provide through `invalidRecords: 'backup-and-skip'`.
+     */
+    metaError?: string | undefined;
+    /**
+     * Frontmatter keys this build does not understand, preserved verbatim.
+     *
+     * A newer build may add keys, or the user may hand-add their own (a `due:`
+     * date, a link). Rewriting the file without them would silently destroy that
+     * data, so they are carried through every read/write cycle untouched.
+     */
+    extra?: Readonly<Record<string, string>> | undefined;
 }
 /** The complete wall state a Client renders. */
 export interface WallSnapshot {
     notes: Note[];
+    /**
+     * Monotonic change counter.
+     *
+     * The Client cannot be pushed to (the Connection envelope has no
+     * server-initiated variant), so it polls. This is what makes a poll cheap and
+     * SAFE: an unchanged revision means the caller must not touch component state
+     * at all, which is what stops a background refresh from interrupting someone
+     * mid-composition in the editor.
+     */
+    revision: number;
+    /** Absolute directory the notes live in, so the UI can reveal/copy it. */
+    notesDir: string;
     /** Schema marker so a Client never renders an unknown future shape. */
     domain: {
         name: string;
         version: number;
     };
 }
+/** Everything the agent-side `read` action returns for one note. */
+export interface NoteDocument {
+    note: Note;
+    /** Absolute path of the backing `.md` file, for native `read`/`edit`. */
+    path: string;
+}
 /** Request kinds accepted by the Host endpoint. */
 export type WallRequest = {
     action: 'list';
     includeArchived?: boolean;
     sort?: NoteSort;
+}
+/**
+ * The cheap poll.
+ *
+ * The wall refreshes while visible, and a refresh that re-sends every note
+ * body just to learn that nothing changed would dominate the channel. This
+ * action returns the revision and the note count only; the Client refetches
+ * the wall solely when the number it gets back differs from what it holds.
+ */
+ | {
+    action: 'revision';
 } | {
     action: 'create';
     note: NoteInput;

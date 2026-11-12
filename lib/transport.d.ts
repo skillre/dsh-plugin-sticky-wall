@@ -30,7 +30,13 @@ export interface HostConnection {
 /** The store operations the route dispatches onto. */
 export interface WallActions {
     list(includeArchived?: boolean, sort?: NoteSort): Note[];
-    create(input: NoteInput): Promise<Note>;
+    /** The Host's current change counter, for the Client's cheap poll. */
+    revisionOf(): number;
+    /** Absolute directory the notes live in. */
+    readonly notesDir: string;
+    create(input: NoteInput, id?: string, options?: {
+        centreReserve?: CentreReserve | undefined;
+    }): Promise<Note>;
     update(id: string, patch: NotePatch): Promise<Note>;
     setArchived(ids: string[], archived: boolean): Promise<Note[]>;
     remove(ids: string[]): Promise<string[]>;
@@ -39,9 +45,6 @@ export interface WallActions {
     arrange(options?: {
         centreReserve?: CentreReserve | undefined;
     }): Promise<Note[]>;
-    create(input: NoteInput, id?: string, options?: {
-        centreReserve?: CentreReserve | undefined;
-    }): Promise<Note>;
 }
 /**
  * Build the exact route Connection registers; every failure stays inside the

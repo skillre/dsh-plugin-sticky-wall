@@ -2,7 +2,7 @@
 
 > Status: experimental · for DSH `0.2.2-rc.1`
 
-A sticky-note wall in the DSH left sidebar: capture a passing idea, a piece of temporary work, or a short reminder, and place it on the board **like a real sticky on a desk** — drag it, resize it, tidy the whole wall in one click. Bodies are written in **Markdown** and rendered right on the card. Both the notes and their placement are persisted by the Host, so position and content survive a DSH restart.
+A sticky-note wall in the DSH left sidebar: capture a passing idea, a piece of temporary work, or a short reminder, and place it on the board **like a real sticky on a desk** — drag it, resize it, tidy the whole wall in one click. Bodies are written in **Markdown** and rendered right on the card. The Host persists both the notes and their placement, and **every note is a real Markdown file**: position and content survive a DSH restart, and you can open, search or back them up in any editor with DSH closed.
 
 [中文](README.md)
 
@@ -33,18 +33,34 @@ Non-goals: task management (no scheduling, assignment or reminders), collaborati
 - **Search and sort** — live filtering over body, title and tags; order by pinned, created or updated.
 - **Light and dark** — the frame uses only DSH theme tokens; note pastels are the plugin's own palette with dark variants.
 - **Bilingual** — follows the DSH GUI language live, without a reload.
-- **Model-visible** — optionally registers a `sticky_wall` tool, so "note that …" creates a real note, and `arrange` tidies the wall.
+- **A real body editor** — a plain textarea plus a Markdown insert toolbar (h1–h3, quote, rule, code block, bullet/ordered/to-do lists, table, bold/italic/strikethrough/inline code/link, insert timestamp). It auto-grows with the text and scrolls internally past 60% of the viewport, `Tab` / `Shift + Tab` indents whole lines, and Enter continues a list (an empty item ends it). While a Chinese/Japanese IME composition is open every shortcut goes inert and neither the selection nor the caret is touched, so typing never loses characters.
+- **Saves you can trust** — a failed save shows its error **inside** the editor sheet instead of behind it; an action pressed while another write is in flight is queued rather than silently dropped; leaving with an unsaved draft asks "discard the unsaved content?" first.
+- **Refreshes in the foreground** — the wall re-reads on window focus, on tab visibility, and on a slow poll (and does no work when the revision is unchanged), so a note changed in another window or by the agent shows up on its own.
+- **Model-visible** — optionally registers a `sticky_wall` tool, so "note that …" creates a real note; `list` scans notes, `read` returns one note's **full text and file path**, `create`/`update` write attributes or text, `move` places a card, `archive`/`delete` change state in batches, and `arrange` tidies the wall. An agent may also edit the backing `.md` with its file tools.
 
 ## Data and permissions
 
 | Item | Detail |
 |---|---|
-| Data owner | Host. Notes (including canvas placement) persist through the native DSH `storageDomain`, domain `skillre_sticky_wall`, `per-record` layout (one file per note). |
-| Data location | Decided by the profile's storage backend; the shipped profile's `storage-json` row writes domain files under `$DSH_HOME/storages`. |
+| Data owner | Host. Notes and canvas placement are written to **real files**: one `.md` per note under `$DSH_HOME/sticky-notes/`, named after the note id (`<id>.md`, a UUID — except the seeded welcome note, whose id is literally `welcome`). A YAML frontmatter block at the top carries the attributes; everything after it is the body. |
+| Data location | Follows `DSH_HOME` by default (falling back to `~/.dsh/sticky-notes`), overridable with `notesDir` as an absolute path or `~/…`. Notes span workspaces — they are personal data on this machine, not part of any project directory. |
 | Network | No external requests. Browser ↔ Host uses the local DSH `/api` channel only. |
-| Filesystem | Only the domain directory through the storage backend; no arbitrary user files. |
+| Filesystem | Only the notes directory itself. A write goes to a sibling temp file and is then `rename`d over the target, so a note is either the old file or the new one — never half-written. |
 | Secrets | None. |
-| Model-visible | Only when `enableAgentTool` is true (default): the `sticky_wall` tool, whose results include note text in the session. |
+| Model-visible | Only when `enableAgentTool` is true (default): the `sticky_wall` tool, whose `read` returns a note's full text and file path. |
+| Agent write cost | Reading a note needs **no approval at all** (reads are never sandboxed). But an agent's native `edit`/`write` on a note file is **blocked once** under `workspace-write` and needs a per-call approval with `sandbox_permissions: danger-full-access` plus a justification — unless the user adds the notes directory to `additionalWritableRoots` in their profile. That is real friction, not "seamless integration": if you do not want to pay it, have the agent change attributes through the `sticky_wall` tool, or only let it edit the body in the editor. |
+
+### Where the files live
+
+By default that is `$DSH_HOME/sticky-notes/` (`~/.dsh/sticky-notes/` when DSH sets no `DSH_HOME`), and `notesDir` can move it anywhere. Inside, it is one `.md` per note: plain Markdown that any editor can open, that `grep` can search, and that you can put in Git or a backup. The frontmatter block at the top holds the attributes; the rest is the body. After another tool edits a file, the wall picks the change up on window focus or the slow poll. A mangled frontmatter block never drops a note — see [Known limitations](#known-limitations).
+
+### Upgrading from 0.7
+
+0.7.x kept the wall in a DSH storage domain (`$DSH_HOME/storages/skillre_sticky_wall/`); 0.8.0 uses the `.md` files above. **Nothing manual is required**: on the first 0.8.0 start, if the notes directory is still empty while the legacy domain holds notes, every note is converted to a `.md` with its attributes, placement, timestamps and id preserved — written into a sibling staging directory and published with a single `rename`, so a failure midway cannot leave a half-migrated directory. A `migration.json` marker beside the notes records when it happened and how many notes it carried.
+
+- **The legacy data is not deleted**: the migration only reads the old domain, never writes back and never cleans up. To roll back, stop DSH, move the `sticky-notes/` directory 0.8.0 wrote aside, and reinstall 0.7.x — the old notes are still there, untouched.
+- **A failed migration does not block opening**: nothing is written, the wall opens (empty rather than broken), and the next start retries.
+- **Once you are satisfied**, the old `$DSH_HOME/storages/skillre_sticky_wall/` directory can be deleted by you.
 
 ## Configuration
 
@@ -54,6 +70,7 @@ Override by row id in the profile's `cordis.patch.yml` (a patch replaces the who
 - id: skillre-sticky-wall
   name: '@skillre/dsh-plugin-sticky-wall'
   config:
+    notesDir: ''
     maxNotes: 400
     enableAgentTool: true
     seedWelcomeNote: true
@@ -61,9 +78,12 @@ Override by row id in the profile's `cordis.patch.yml` (a patch replaces the who
 
 | Key | Default | Meaning |
 |---|---|---|
+| `notesDir` | `''` (empty) | Which directory holds the note `.md` files. Empty = follow the DSH home: `$DSH_HOME/sticky-notes`, falling back to `~/.dsh/sticky-notes` when DSH sets no `DSH_HOME`. An absolute path or `~/…` is accepted. Notes span workspaces. |
 | `maxNotes` | `400` | Cap on live (non-archived) notes, 1–5000. Creating, unarchiving and batch-restoring all respect it; going over returns `sticky-wall/wall-full`, so archive or delete first. |
 | `enableAgentTool` | `true` | Whether to register the model-facing `sticky_wall` tool. |
 | `seedWelcomeNote` | `true` | Whether a brand-new empty wall gets one welcome note explaining the shortcuts. |
+
+Pointing `notesDir` elsewhere means the plugin reads and writes only that directory and never touches the old one on its own. **Do not aim two running DSH instances at the same notes directory**: each Host loads the notes into memory at start and treats that as the authoritative cache, so two processes write whole files over each other instead of merging. To share one set of notes, export/import them or sync through Git.
 
 ## Install
 
@@ -96,8 +116,8 @@ Update semantics, stated plainly:
 - `allow-version` exemptions exist only in the CLI and agent tooling, not in the plugin page.
 
 - **Rollback**: npm versions are immutable. `npm deprecate` the faulty version and publish a fix; the user removes the faulty bundle in the plugin manager and reinstalls a known-good version (if the UI cannot pin an older one, the user decides the recovery channel).
-- **Data compatibility**: the domain carries a `version` field and compatibility only holds within the same version. Back up the domain directory under `$DSH_HOME/storages` before downgrading. Canvas placement is a new optional field: an older note loads with `layout: null` and the UI derives a preview position from the note id, so a downgrade does not fail on the missing field.
-- **Uninstall**: see [UNINSTALL.md](UNINSTALL.md). Uninstalling the plugin does **not** delete note data automatically.
+- **Data compatibility**: from 0.8.0 the notes are `.md` files under `$DSH_HOME/sticky-notes/`, no longer a storage domain, so **rollback and backup are ordinary file copies** — duplicate the whole `sticky-notes/` directory before downgrading. The 0.7.x domain is left untouched by the upgrade, so reinstalling 0.7.x reads it as it was (see [Upgrading from 0.7](#upgrading-from-07)).
+- **Uninstall**: see [UNINSTALL.md](UNINSTALL.md). Uninstalling the plugin does **not** delete the note files automatically.
 
 ## Display metadata (plugin card and detail page)
 
@@ -129,18 +149,21 @@ The install path was verified end to end: derive the spec from the live index, i
 
 ## Known limitations
 
-- The wall is a scratchpad: body up to 4000 characters, title 120, up to 8 tags — hard limits.
+- The wall is a scratchpad: body up to **200,000 characters**, title 120, up to 8 tags. The 200k figure is a **resource guard** (so one pathological note cannot drag the Host down), not a product limit — a note may be a short document.
+- A single note file larger than **4 MiB** is **skipped, not read** (refused at the `readdir`/`stat` stage, before the parser sees it) with one line in the Host log. That guards against someone dropping a 200 MB file into the directory; it is not a normal note size.
+- A broken frontmatter block **never drops the note**: the card still shows, the body still renders, the attributes fall back to defaults (yellow, unpinned, not archived, no tags, no placement) and the card carries a "Metadata issue" badge; the file's text is not discarded either. A frontmatter written by a **newer build** (a `schema` above this build's) reads as a normal card with that badge, and unknown keys are preserved on every rewrite.
+- **The agent's write-approval cost**: reads need no approval, but a native `edit`/`write` is blocked once under `workspace-write` and needs a per-call `danger-full-access` approval with a justification unless the notes directory is in the profile's `additionalWritableRoots`. That is a deliberate safety boundary — do not expect "the agent just edits it".
 - **Markdown is a deliberate subset**, not full CommonMark: headings (`#`–`####`), paragraphs and hard breaks, bold/italic/strikethrough, inline `` `code` ``, ``` / ~~~ code blocks, ordered and unordered lists, `- [ ]` checkboxes, quotes, rules, pipe tables and http(s)/mailto links. **Not supported**: nested list indentation, images, footnotes, or interactive checkboxes (they render as a read-only glyph).
 - **Raw HTML in a body is shown as text** — it is neither executed nor rendered. That is a safety decision, not a bug.
 - Card width has only **three presets** (small/medium/large); there is no arbitrary resize. A drag keeps the card's existing tilt.
 - Tidy is O(n) spiral placement plus a spatial-grid collision check; the wall holds at most 400 notes, and a wall larger than the viewport needs panning or zooming out.
 - The canvas is a flat plane: no grouping, layers, connectors or snap alignment, and no rotation gesture beyond the stored tilt.
 - Auto-framing has a legibility floor (42%): a large wall is centred rather than crammed entirely into view, so panning is expected. The middle is reserved space — tidy never places a card under the greeting or the capture field, and a capture on a panned or zoomed wall avoids wherever the field currently sits.
-- Placement is owned by the Host, but two windows open on the same wall each render their own snapshot and do not live-push the other's drags.
+- Placement is owned by the Host, but two windows open on the same wall each render their own snapshot and do not live-push the other's drags — they do refetch on focus and on the slow poll, so neither stays stale for long.
 - Archived notes do not occupy a `maxNotes` slot, but restoring them does; a restore at the cap is rejected instead of silently overshooting.
 - "Clear archive" is a permanent, irreversible delete.
 - Batch archive/delete is all-or-nothing: one unknown id in the request rejects the whole batch.
-- With several windows open, each fetches its own snapshot; the Host is the single source of truth, but no live push across windows.
+- Files in the notes directory that are not notes (a name that is not a valid `<id>.md`, a subdirectory, a stray `*.md.tmp`) are ignored rather than imported; a temp file stranded by an interrupted write costs a little disk and never becomes a duplicate note.
 - Verified only against DSH `0.2.2-rc.1`; no other DSH line is claimed.
 
 ## Compatibility

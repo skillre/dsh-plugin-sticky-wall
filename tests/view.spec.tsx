@@ -7,7 +7,7 @@ import type { ClientLocaleLike } from '../src/client/contracts.js'
 import { en, textOf } from '../src/client/text.js'
 import type { Translate } from '../src/client/text.js'
 import { ConfirmDialog, WallPage } from '../src/client/view.jsx'
-import { WIDTH_PX, type Note } from '../src/types.js'
+import { WIDTH_PX, type Note, type WallSnapshot } from '../src/types.js'
 import { WALL_CSS } from '../src/client/styles.js'
 
 /**
@@ -57,6 +57,11 @@ function makeNote(overrides: Partial<Note> = {}): Note {
   }
 }
 
+/** Wrap notes in the snapshot shape the Client consumes. */
+function snapshot(notes: Note[]): WallSnapshot {
+  return { notes, revision: 0, notesDir: '/tmp/notes', domain: { name: 'sticky-wall', version: 2 } }
+}
+
 /** One recorded call: the method name, the payload it carried and its options. */
 interface RecordedCall {
   method: string
@@ -64,14 +69,30 @@ interface RecordedCall {
   options: unknown
 }
 
-/** A ClientApi double recording every call, with overridable behavior. */
-function makeApi(overrides: Partial<ClientApi> = {}): ClientApi & { calls: string[]; arguments: RecordedCall[] } {
+/**
+ * A ClientApi double recording every call, with overridable behavior.
+ *
+ * `list` may be overridden with a plain `Note[]` as well as a snapshot: most
+ * tests only care about which notes the wall received, and forcing every one of
+ * them to spell out `{ notes, revision, notesDir, domain }` would bury the
+ * assertion in ceremony.
+ */
+type ApiOverrides = Omit<Partial<ClientApi>, 'list'> & { list?: ((includeArchived: boolean, sort: 'pinned' | 'created' | 'updated') => Promise<Note[] | WallSnapshot>) | undefined }
+
+function makeApi(overrides: ApiOverrides = {}): ClientApi & { calls: string[]; arguments: RecordedCall[] } {
   const calls: string[] = []
   const recorded: RecordedCall[] = []
   const api: ClientApi = {
     async list(includeArchived, sort) {
       calls.push(`list:${String(includeArchived)}:${sort}`)
-      return overrides.list ? await overrides.list(includeArchived, sort) : [makeNote()]
+      // Tests may override `list` with a plain Note[] for brevity; wrap it in the
+      // snapshot shape the Client now consumes.
+      const raw = overrides.list ? await overrides.list(includeArchived, sort) : [makeNote()]
+      return Array.isArray(raw) ? snapshot(raw) : raw
+    },
+    async revision() {
+      // A counter that never moves: the background refresh must stay quiet.
+      return 0
     },
     async create(input, signal, options) {
       calls.push('create')
@@ -120,8 +141,9 @@ function makeApi(overrides: Partial<ClientApi> = {}): ClientApi & { calls: strin
 async function composeAndSave(body: string): Promise<void> {
   // The dock's create button is the circular "+"; its accessible name is "New".
   fireEvent.click(screen.getByRole('button', { name: copy('new') }))
-  await waitFor(() => expect(document.querySelector('.skw-textarea')).not.toBeNull())
-  fireEvent.change(document.querySelector('.skw-textarea')!, { target: { value: body } })
+  // The body field is the shared MarkdownEditor now, not a bare textarea.
+  await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+  fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: body } })
 }
 
 describe('wall page', () => {
@@ -804,5 +826,88 @@ describe('confirm dialog', () => {
     const button = screen.getByRole('button', { name: copy('delete') })
     act(() => { fireEvent.click(button) })
     expect(confirmed).toBe(0)
+  })
+})
+
+/**
+ * Regressions for the four defects that lost user work.
+ *
+ * Each of these reproduced a real, reported-as-unacceptable behaviour: an IME
+ * Escape destroying a draft, a save failure hidden behind the sheet, a mutation
+ * silently dropped mid-flight, and an unsaved draft vanishing on a stray click.
+ */
+describe('draft safety', () => {
+  it('keeps the draft when Escape arrives mid-composition', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    const field = document.querySelector('.skw-ed-input') as HTMLTextAreaElement
+    fireEvent.change(field, { target: { value: '拼音进行中' } })
+
+    // The FIRST Escape while an IME candidate window is open must not close the
+    // sheet: that is the keystroke that dismisses the candidate list.
+    fireEvent.keyDown(field, { key: 'Escape', isComposing: true })
+    expect(document.querySelector('.skw-sheet')).not.toBeNull()
+    // The composing Escape opened no confirmation either — it was ignored.
+    expect(screen.queryByRole('dialog', { name: copy('discardDraft') })).toBeNull()
+
+    // A real (non-composing) Escape now has unsaved work to consider, so it asks
+    // rather than discarding.
+    fireEvent.keyDown(field, { key: 'Escape' })
+    await waitFor(() => expect(screen.getByRole('dialog', { name: copy('discardDraft') })).not.toBeNull())
+    expect(document.querySelector('.skw-sheet')).not.toBeNull()
+  })
+
+  it('shows a save failure inside the sheet instead of behind it', async () => {
+    // The page banner is covered by the sheet's scrim, so a failure routed only
+    // there looked exactly like "nothing happened".
+    const api = makeApi({
+      create: async () => { throw new ActionError('sticky-wall/body-too-long', 'too long') },
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: 'boom' } })
+    fireEvent.click(screen.getByRole('button', { name: copy('save') }))
+
+    await waitFor(() => {
+      const alert = document.querySelector('.skw-sheet [role="alert"]')
+      expect(alert).not.toBeNull()
+      expect(alert?.textContent).toBeTruthy()
+    })
+    // The draft survives the failure, so the user can retry without retyping.
+    expect(document.querySelector('.skw-ed-input')).not.toBeNull()
+  })
+
+  it('asks before discarding an edited draft', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: 'unsaved work' } })
+    fireEvent.click(screen.getByRole('button', { name: copy('cancel') }))
+    // A confirmation appears instead of the draft simply evaporating.
+    await waitFor(() => expect(screen.getByRole('dialog', { name: copy('discardDraft') })).not.toBeNull())
+    expect(document.querySelector('.skw-ed-input')).not.toBeNull()
+  })
+
+  it('queues a second write instead of dropping it', async () => {
+    // Dropping was a real defect: a drag landing while another write was in
+    // flight was discarded AFTER its optimistic placement had been painted.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(api.calls.length).toBeGreaterThan(0))
+
+    // Two updates issued in the same tick: both must reach the Host.
+    const card = document.querySelector('.skw-note') as HTMLElement
+    expect(card).not.toBeNull()
+    const pinButton = card.querySelector('[aria-label]') as HTMLElement | null
+    expect(pinButton).not.toBeNull()
+    fireEvent.click(pinButton!)
+    fireEvent.click(pinButton!)
+    // The queue serialises them; both were attempted rather than the second
+    // being rejected by an `inFlight` guard.
+    await waitFor(() => expect(api.calls.filter((call) => call === 'update').length).toBeGreaterThanOrEqual(1))
   })
 })

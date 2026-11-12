@@ -14,10 +14,15 @@ import { StickyWallStore } from './store.js';
 export { Config, StickyWallStore };
 export declare const name = "skillre-sticky-wall";
 /**
- * Required services. `storageDomain` provides the durable note table;
- * `connection` provides the authenticated Client route. Both are declared hard
- * dependencies so a profile missing either fails loudly instead of mounting a
- * wall that can never persist or be reached.
+ * Required services.
+ *
+ * `connection` provides the authenticated Client route and is a hard dependency:
+ * without it the wall could never be reached, so mounting should fail loudly.
+ *
+ * `storageDomain` is deliberately NOT listed. Notes live on disk now, and the
+ * domain is consulted only when a 0.7.x install still needs migrating, so it is
+ * read through `ctx.get()` and its absence is a normal, supported state (a fresh
+ * install has nothing to migrate).
  */
 export declare const inject: string[];
 export declare function apply(ctx: Context, rawConfig?: Partial<WallConfig>): void;
