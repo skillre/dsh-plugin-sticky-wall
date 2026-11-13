@@ -4,22 +4,25 @@
   "dsh": "0.2.2-rc.2",
   "tarball": {
     "path": "/Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.8.0.tgz",
-    "sha256": "5752fae28237079ecec54116b21926e78c10d93c7d33903b6b5ec6714ffaeeb0"
+    "sha256": "74f1d8684f04e4d2fc270f631c8617209abcd277428bc32dc78f8c64a7757d22"
   },
-  "profile": "sticky-wall-test-abcf9f66",
+  "profile": "sticky-wall-test-5a93d03d",
   "checks": [
     "command: dsh --version -> exit 0",
     "dsh-version",
-    "command: dsh --profile sticky-wall-test-abcf9f66 --from-default-profile web --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-5a93d03d --from-default-profile web --dump-config -> exit 0",
     "profile-template-created",
-    "command: dsh plugin --profile sticky-wall-test-abcf9f66 add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.8.0.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-o6WHCR/pnpm-store -> exit 0",
+    "command: dsh plugin --profile sticky-wall-test-5a93d03d add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.8.0.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-Xw4ucQ/pnpm-store -> exit 0",
     "profile-tarball-install",
     "packed-dependency-and-selection",
-    "command: dsh --profile sticky-wall-test-abcf9f66 --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-5a93d03d --dump-config -> exit 0",
     "dump-config",
     "packed-payload-present",
+    "legacy-domain-seeded",
     "bounded-startup",
     "api-list",
+    "legacy-migration-carries-every-note",
+    "legacy-migration-writes-markdown",
     "api-create",
     "api-update",
     "api-move",
@@ -36,10 +39,10 @@
   ],
   "endpoint": {
     "list": {
-      "notes": 1
+      "notes": 2
     },
     "create": {
-      "id": "8bc78170-a005-4679-b5c0-e32685121dcb"
+      "id": "bb83435a-c1bc-4901-9205-3bd7cef24654"
     },
     "move": {
       "x": 168,
@@ -49,8 +52,8 @@
     }
   },
   "cleanup": {
-    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-o6WHCR",
-    "profile": "sticky-wall-test-abcf9f66",
+    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-Xw4ucQ",
+    "profile": "sticky-wall-test-5a93d03d",
     "processesStopped": true,
     "rootRemoved": true,
     "verified": true

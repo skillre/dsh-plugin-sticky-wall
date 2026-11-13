@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -185,15 +185,79 @@ try {
   }
   checks.push('packed-payload-present')
 
+  // ---------------------------------------------------------------------------
+  // Legacy migration: the 0.8.0 data-loss regression.
+  //
+  // The fresh-wall assertions below cannot catch a migration that silently reads
+  // ZERO notes, which is exactly what shipped: the domain renames every record it
+  // cannot validate to `<id>.json.bak.<stamp>` and reports an empty table, so the
+  // wall opened "fresh" and seeded a welcome note. This plants real legacy records
+  // BEFORE first start and asserts they come back as notes.
+  // ---------------------------------------------------------------------------
+  const legacyNotes = [
+    {
+      id: 'legacy-alpha',
+      title: 'Legacy alpha',
+      body: 'first legacy note',
+      tags: ['old'],
+      color: 'purple',
+      pinned: true,
+      archived: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      layout: { x: 120, y: -80, rotate: 1.5, width: 'lg' },
+    },
+    {
+      id: 'legacy-beta',
+      title: '',
+      body: 'second legacy note, no title',
+      tags: [],
+      color: 'green',
+      pinned: false,
+      archived: true,
+      createdAt: '2026-01-03T00:00:00.000Z',
+      updatedAt: '2026-01-04T00:00:00.000Z',
+      layout: null,
+    },
+  ]
+  const legacyDir = join(home, 'storages', 'skillre_sticky_wall', 'notes')
+  await mkdir(legacyDir, { recursive: true })
+  for (const note of legacyNotes) {
+    await writeFile(join(legacyDir, `${note.id}.json`), JSON.stringify({ version: 1, record: note }), 'utf8')
+  }
+  checks.push('legacy-domain-seeded')
+
   const { record, origin, cookie } = await authenticatedStartup()
   try {
     await delay(1000)
     checks.push('bounded-startup')
     const list = await rpc(origin, cookie, { action: 'list', includeArchived: true })
     assert.ok(Array.isArray(list.notes), 'list must return a notes array')
-    assert.ok(list.notes.some((note) => note.id === 'welcome'), 'a fresh wall must seed the welcome note')
     report.endpoint.list = { notes: list.notes.length }
     checks.push('api-list')
+
+    // The migration must have carried every seeded legacy note across, with its
+    // attributes, placement and archived state intact.
+    for (const expected of legacyNotes) {
+      const migrated = list.notes.find((note) => note.id === expected.id)
+      assert.ok(migrated, `legacy note ${expected.id} did not migrate; wall holds ${list.notes.length} note(s)`)
+      assert.equal(migrated.body, expected.body, `legacy note ${expected.id} body changed`)
+      assert.equal(migrated.title, expected.title, `legacy note ${expected.id} title changed`)
+      assert.equal(migrated.color, expected.color, `legacy note ${expected.id} colour changed`)
+      assert.equal(migrated.pinned, expected.pinned, `legacy note ${expected.id} pin changed`)
+      assert.equal(migrated.archived, expected.archived, `legacy note ${expected.id} archived flag changed`)
+      assert.deepEqual(migrated.layout, expected.layout, `legacy note ${expected.id} placement changed`)
+    }
+    checks.push('legacy-migration-carries-every-note')
+
+    // And the files must be real Markdown on disk, not domain records.
+    const notesDir = join(home, 'sticky-notes')
+    const migratedFiles = (await readdir(notesDir)).filter((name) => name.endsWith('.md'))
+    assert.ok(migratedFiles.length >= legacyNotes.length, `expected >= ${legacyNotes.length} .md files, found ${migratedFiles.length}`)
+    const sample = await readFile(join(notesDir, 'legacy-alpha.md'), 'utf8')
+    assert.ok(sample.startsWith('---'), 'a migrated note must start with YAML frontmatter')
+    assert.ok(sample.includes('first legacy note'), 'a migrated note must keep its body')
+    checks.push('legacy-migration-writes-markdown')
 
     const created = await rpc(origin, cookie, { action: 'create', note: { body: 'isolated verification note', title: 'verify', tags: ['test'], color: 'blue' } })
     const note = created.changed?.[0]

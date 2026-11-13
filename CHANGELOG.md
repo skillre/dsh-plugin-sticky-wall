@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.1
+
+### Patch Changes
+
+- **修复 0.8.0 的迁移 bug：升级后旧便签看不到（数据没有丢）**
+  
+  0.8.0 打开旧 storage domain 时把表声明成了 `tables: { notes: {} }`，没有 `valueSchema`。DSH 的 storage 在加载每条记录时会执行 `tableSpec.valueSchema.parse(raw)`，因此**每一条记录都抛错**；又因为声明了 `invalidRecords: 'backup-and-skip'`，后端把每条便签都改名成 `<id>.json.bak.<时间戳>` 并当作不存在 —— 迁移于是读到 0 条，墙面被判定为全新空墙并播种了一张欢迎便签，用户看到的就是空墙。
+  
+  - **数据从未丢失**：14 个备份文件完好保留在 `~/.dsh/storages/skillre_sticky_wall/notes/`。
+  - **已修复**：迁移读取器现在声明真实的宽松 zod schema（`passthrough`、字段可选），它的职责是**读取退役格式**而不是校验它，所以缺字段的记录会带着默认值迁移，而不是被隔离。
+  - **为什么测试没抓到**：之前所有迁移测试都用 `readLegacy: async () => [...]` 直接注入数组，完全绕过了真实 domain 的加载路径。新增 `tests/legacy-reader.spec.ts` 驱动**真实 domain 契约**（没有 schema 就必须失败），并已验证：把修复回退后该测试立即失败。
+  - **端到端补强**：`scripts/verify-isolated.mjs` 现在在首次启动前种入 legacy 记录，并断言它们全部带着属性、摆位和归档状态迁移成 `.md`；此前端到端完全不覆盖迁移（`legacy-*` 计数为 0）。
+
 ## 0.8.0
 
 ### Minor Changes
