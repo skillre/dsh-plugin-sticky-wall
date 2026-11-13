@@ -26,12 +26,51 @@ import {
  * dialog's keyboard contract.
  */
 
+/**
+ * A deterministic in-memory `Storage`.
+ *
+ * The composer remembers its size through `localStorage`, and whether a test
+ * environment provides one is NOT a stable fact: jsdom gives `window.localStorage`
+ * to a Node 22/24 run and `undefined` to a Node 26 run (which also makes the
+ * accessor throw an ExperimentalWarning about `--localstorage-file`). Reading the
+ * ambient global made the whole file pass locally and fail all 61 tests in the
+ * Node 26 CI leg.
+ *
+ * Installing our own removes the environment from the equation: every test starts
+ * from an empty store regardless of which Node runs it.
+ */
+function memoryStorage(): Storage {
+  const data = new Map<string, string>()
+  const storage = {
+    get length() { return data.size },
+    key(index: number): string | null { return [...data.keys()][index] ?? null },
+    getItem(key: string): string | null { return data.has(key) ? data.get(key)! : null },
+    setItem(key: string, value: string): void { data.set(key, String(value)) },
+    removeItem(key: string): void { data.delete(key) },
+    clear(): void { data.clear() },
+  }
+  return storage as Storage
+}
+
+/** Replace the ambient storage on every surface the plugin might reach. */
+function installStorage(storage: Storage): void {
+  for (const target of [globalThis, globalThis.window] as unknown as object[]) {
+    if (target === undefined || target === null) continue
+    Object.defineProperty(target, 'localStorage', { value: storage, configurable: true, writable: true })
+  }
+}
+
+/** The storage the current test can assert against. */
+let storage: Storage
+
+beforeEach(() => {
+  storage = memoryStorage()
+  installStorage(storage)
+})
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
-  // Cleared globally, not only in the resize describe: a preference left behind
-  // by ANY test would silently change the geometry every later one asserts on.
-  window.localStorage.clear()
 })
 
 /** Translate through the shipped English dictionary so copy is stable. */
@@ -989,7 +1028,22 @@ describe('composer sheet size', () => {
   afterEach(() => {
     Object.defineProperty(window, 'innerWidth', { value: savedWidth, configurable: true })
     Object.defineProperty(window, 'innerHeight', { value: savedHeight, configurable: true })
-    window.localStorage.clear()
+    storage.clear()
+  })
+
+  it('opens at the default size when the environment provides no storage', async () => {
+    // The regression that broke CI on Node 26: `window.localStorage` is undefined
+    // there, and the hook must treat a missing store as "no preference" instead of
+    // throwing. The ambient accessor is deleted for this test only.
+    Object.defineProperty(globalThis.window, 'localStorage', { value: undefined, configurable: true })
+    Object.defineProperty(globalThis, 'localStorage', { value: undefined, configurable: true })
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
+    // Resizing still works with nowhere to persist: a convenience, not a dependency.
+    dragBy(80, 40)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
   })
 
   it('opens larger than the fixed sheet it replaced', async () => {
@@ -1088,7 +1142,7 @@ describe('composer sheet size', () => {
     await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
     // The preference is stored, not the session value: a reload must reopen at
     // the size the user picked.
-    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBe('{"width":960,"height":720}')
+    expect(storage.getItem(SHEET_STORAGE_KEY)).toBe('{"width":960,"height":720}')
     first.unmount()
 
     render(<WallPage api={api} locale={locale} t={t} />)
@@ -1100,7 +1154,7 @@ describe('composer sheet size', () => {
   it('falls back to the default when the stored value is corrupt', async () => {
     // A stored size is restored on EVERY future open, so a bad one is permanent
     // until the user finds the grip. Refusing it is the only safe read.
-    window.localStorage.setItem(SHEET_STORAGE_KEY, 'not-json')
+    storage.setItem(SHEET_STORAGE_KEY, 'not-json')
     const api = makeApi()
     render(<WallPage api={api} locale={locale} t={t} />)
     await openComposer()
@@ -1120,7 +1174,7 @@ describe('composer sheet size', () => {
     act(() => {
       node.dispatchEvent(pointer('pointerup', 500, 400))
     })
-    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBeNull()
+    expect(storage.getItem(SHEET_STORAGE_KEY)).toBeNull()
     expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
   })
 
@@ -1141,7 +1195,7 @@ describe('composer sheet size', () => {
     define(700, 600)
     await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(700 - SHEET_MARGIN * 2))
     // The stored preference survived the squeeze.
-    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBe('{"width":960,"height":720}')
+    expect(storage.getItem(SHEET_STORAGE_KEY)).toBe('{"width":960,"height":720}')
 
     define(1440, 900)
     await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
@@ -1170,7 +1224,7 @@ describe('composer sheet size', () => {
     // 652x800. Pressing a HEIGHT key changed only the height on screen, but the
     // stored preference became 652x816 — so the user's 1200px width was gone and
     // growing the window back could not restore it.
-    window.localStorage.setItem(SHEET_STORAGE_KEY, JSON.stringify({ width: 1200, height: 800 }))
+    storage.setItem(SHEET_STORAGE_KEY, JSON.stringify({ width: 1200, height: 800 }))
     // The window the user opens the wall in is the SMALL one; the preference was
     // chosen on a bigger screen and must survive this session untouched.
     Object.defineProperty(window, 'innerWidth', { value: 700, configurable: true })
@@ -1182,17 +1236,17 @@ describe('composer sheet size', () => {
     fireEvent.keyDown(grip(), { key: 'ArrowDown' })
     await waitFor(() => expect(Number.parseFloat(sheet().style.height)).toBe(800 + SHEET_KEY_STEP))
     // The width the user chose survives, untouched by a height-only key.
-    expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1200, height: 816 })
+    expect(JSON.parse(storage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1200, height: 816 })
 
     // And a key that cannot move the sheet at all writes nothing either.
     fireEvent.keyDown(grip(), { key: 'ArrowRight' })
-    await waitFor(() => expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}').width).toBe(1200))
+    await waitFor(() => expect(JSON.parse(storage.getItem(SHEET_STORAGE_KEY) ?? '{}').width).toBe(1200))
   })
 
   it('does not destroy a large preference when a drag is clamped in a small window', async () => {
     // The same rule on the pointer path: the drag resizes what is visible, so the
     // axis that could not move must keep the preference the user picked.
-    window.localStorage.setItem(SHEET_STORAGE_KEY, JSON.stringify({ width: 1200, height: 800 }))
+    storage.setItem(SHEET_STORAGE_KEY, JSON.stringify({ width: 1200, height: 800 }))
     Object.defineProperty(window, 'innerWidth', { value: 700, configurable: true })
     const api = makeApi()
     render(<WallPage api={api} locale={locale} t={t} />)
@@ -1203,7 +1257,7 @@ describe('composer sheet size', () => {
     dragBy(0, 30)
     await waitFor(() => expect(Number.parseFloat(sheet().style.height)).toBe(830))
     expect(Number.parseFloat(sheet().style.width)).toBe(700 - SHEET_MARGIN * 2)
-    expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1200, height: 830 })
+    expect(JSON.parse(storage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1200, height: 830 })
   })
 
   it('still closes on Escape and saves on the save shortcut from a focused grip', async () => {
@@ -1243,7 +1297,7 @@ describe('composer sheet size', () => {
 
     // `pointercancel` settles the same way `pointerup` does.
     act(() => { node.dispatchEvent(pointer('pointercancel', 620, 460, 1)) })
-    expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1000, height: 740 })
+    expect(JSON.parse(storage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1000, height: 740 })
   })
 
   it('does not reset when 0 is typed into the note body', async () => {
@@ -1290,7 +1344,7 @@ describe('composer sheet size', () => {
     expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
     fireEvent.keyDown(grip(), { key: '0', metaKey: true })
     expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
-    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBeNull()
+    expect(storage.getItem(SHEET_STORAGE_KEY)).toBeNull()
   })
 
   it('leaves the destructive confirmation dialog alone', async () => {

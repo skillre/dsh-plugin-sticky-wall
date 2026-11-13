@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1
+
+### Patch Changes
+
+- Fix a test-suite failure on Node 26. The composer's size-preference tests read the ambient `window.localStorage`, which a Node 26 test run does not provide, so every test in that file failed on that Node line even though the plugin behaved correctly. The tests now install a deterministic in-memory storage, and a new test pins the real requirement: opening the composer where no storage exists falls back to the default size and resizing still works.
+
 ## 0.9.0
 
 ### Minor Changes
