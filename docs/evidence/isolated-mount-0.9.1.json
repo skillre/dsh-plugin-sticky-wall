@@ -3,19 +3,19 @@
   "version": "0.9.1",
   "dsh": "0.2.2-rc.2",
   "tarball": {
-    "path": "/Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.9.1.tgz",
-    "sha256": "c96b6167247865b09ed8420180e73f291c130a3b647c1dfabc3dc0efc168ae83"
+    "path": "/tmp/verify91/skillre-dsh-plugin-sticky-wall-0.9.1.tgz",
+    "sha256": "452102a6b159487403b001c10b16fbb8157913dd06a18af847a6be5dbd3467ac"
   },
-  "profile": "sticky-wall-test-da39a9f0",
+  "profile": "sticky-wall-test-4204bb42",
   "checks": [
     "command: dsh --version -> exit 0",
     "dsh-version",
-    "command: dsh --profile sticky-wall-test-da39a9f0 --from-default-profile web --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-4204bb42 --from-default-profile web --dump-config -> exit 0",
     "profile-template-created",
-    "command: dsh plugin --profile sticky-wall-test-da39a9f0 add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.9.1.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-J5UXLT/pnpm-store -> exit 0",
+    "command: dsh plugin --profile sticky-wall-test-4204bb42 add /tmp/verify91/skillre-dsh-plugin-sticky-wall-0.9.1.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-Yzb3tF/pnpm-store -> exit 0",
     "profile-tarball-install",
     "packed-dependency-and-selection",
-    "command: dsh --profile sticky-wall-test-da39a9f0 --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-4204bb42 --dump-config -> exit 0",
     "dump-config",
     "packed-payload-present",
     "legacy-domain-seeded",
@@ -42,7 +42,7 @@
       "notes": 2
     },
     "create": {
-      "id": "33695b6c-66b9-48ff-b601-1b39815ea91a"
+      "id": "63fa97a8-3b84-44ab-93a2-412acf150410"
     },
     "move": {
       "x": 168,
@@ -52,10 +52,11 @@
     }
   },
   "cleanup": {
-    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-J5UXLT",
-    "profile": "sticky-wall-test-da39a9f0",
+    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-Yzb3tF",
+    "profile": "sticky-wall-test-4204bb42",
     "processesStopped": true,
     "rootRemoved": true,
     "verified": true
-  }
+  },
+  "note": "This record was produced by mounting the tarball DOWNLOADED FROM npm (@skillre/dsh-plugin-sticky-wall@0.9.1, sha1 186495e52375e2f3c3d9d22018eb1ad0376c8129, identical to the GitHub Actions publication artifact), not a locally packed one, so it proves the published bytes mount, migrate and start."
 }
