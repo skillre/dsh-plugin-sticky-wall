@@ -114,6 +114,10 @@ export const zh: Record<string, string> = {
   'discardDraft': '放弃未保存的内容？',
   'keepEditing': '继续编辑',
   'discard': '放弃',
+  // The composer sheet is resizable; the grip needs a name for screen readers
+  // and a hint for everyone else.
+  'resizeSheet': '调整便签纸大小',
+  'resizeSheetHint': '拖动调整大小 · 方向键微调（Shift 加大步长）· 0 或双击恢复默认',
 }
 
 /** English dictionary; every key mirrors {@link zh}. */
@@ -214,6 +218,8 @@ export const en: Record<string, string> = {
   'discardDraft': 'Discard unsaved changes?',
   'keepEditing': 'Keep editing',
   'discard': 'Discard',
+  'resizeSheet': 'Resize note sheet',
+  'resizeSheetHint': 'Drag to resize · Arrow keys to fine-tune (Shift for a bigger step) · 0 or double-click to reset',
 }
 
 /** Read one key from a dictionary, falling back to the key itself. */

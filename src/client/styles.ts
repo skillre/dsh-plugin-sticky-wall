@@ -558,7 +558,44 @@ body[data-ds-dark-theme] .skw-note[data-color="orange"] {
 
 /* Composer sheet */
 .skw-scrim { position: fixed; inset: 0; background: var(--dsw-alias-bg-mask-2); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 40; }
-.skw-sheet { width: min(560px, 100%); max-height: 86vh; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); box-shadow: 0 12px 40px var(--dsw-alias-bg-mask-3); overflow: hidden; }
+.skw-sheet { position: relative; width: min(560px, 100%); max-height: 86vh; display: flex; flex-direction: column; border-radius: 12px; border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); box-shadow: 0 12px 40px var(--dsw-alias-bg-mask-3); overflow: hidden; }
+/* The composer sheet: large by default and sized by the user. These are the
+   FALLBACKS only — the hook writes an explicit width/height inline, already
+   clamped to the current window. They matter for the one frame before the
+   client script runs, and for a user whose stored size has no viewport to fit.
+   The 48px is SHEET_MARGIN * 2 (24px per side): if the two ever disagree, this
+   max-height silently caps the sheet below the size the hook thinks it has,
+   which shows up as the last few pixels of a downward drag doing nothing. It
+   must stay in step with sheet-size.ts. */
+.skw-sheet-composer { width: min(880px, 100%); height: min(680px, calc(100vh - 48px)); max-height: calc(100vh - 48px); }
+/* Fill mode: the sheet's own fields keep their natural height and the editor
+   takes everything left, so a taller sheet means MORE VISIBLE TEXT rather than
+   more empty sheet. */
+.skw-sheet-body[data-fill="true"] { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.skw-sheet-body[data-fill="true"] > .skw-input,
+.skw-sheet-body[data-fill="true"] > .skw-sheet-row { flex: 0 0 auto; }
+.skw-preview-fill { flex: 1 1 auto; min-height: 96px; max-height: none; }
+/* A hint exposed to assistive technology only: a title attribute is not an
+   accessible description, so the keyboard contract lives in real DOM text. */
+.skw-sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+/* The resize grip: a 22px corner, reachable by pointer, keyboard and double
+   click. touch-action: none is what lets a touch drag resize instead of
+   scrolling the page behind the scrim. */
+.skw-sheet-grip {
+  position: absolute; right: 2px; bottom: 2px; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--dsw-alias-label-tertiary); cursor: nwse-resize;
+  touch-action: none; border-radius: 4px; user-select: none;
+}
+.skw-sheet-grip:hover { color: var(--dsw-alias-label-secondary); }
+.skw-sheet-grip:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; color: var(--dsw-alias-label-primary); }
+/* The footer's buttons must never sit under the grip: the grip is 22px wide at
+   right: 2px, so it occupies the rightmost 24px and 30px leaves 6px of air.
+   Change the grip's size and this number together. */
+.skw-sheet-composer .skw-sheet-foot { padding-right: 30px; }
 .skw-sheet-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--dsw-alias-border-l1); font-weight: 600; }
 .skw-sheet-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
 .skw-input, .skw-textarea { width: 100%; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); padding: 7px 10px; }

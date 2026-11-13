@@ -35,7 +35,7 @@
  * Markdown is rendered, never parsed as HTML: see `markdown.tsx`.
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CENTRE_RESERVE, LIMITS, WIDTH_PX, type CentreReserve, type Note, type NoteColor, type NoteLayout, type NotePatch, type NoteWidth } from '../types.js'
 import type { ClientApi } from './api.js'
 import { ActionError } from './api.js'
@@ -43,6 +43,7 @@ import type { ClientLocaleLike } from './contracts.js'
 import { clampLayout, estimateHeight, footprintOf, layoutOf, pushOutOfReserve, rotatedExtent } from '../layout.js'
 import { Markdown, plainTextSummary } from './markdown.jsx'
 import { MarkdownEditor, EDITOR_CSS } from './editor.jsx'
+import { useSheetSize } from './use-sheet-size.js'
 import { SWATCHES, WALL_CSS } from './styles.js'
 import type { Translate } from './text.js'
 
@@ -214,6 +215,14 @@ function reconcileNotes(previous: readonly Note[], next: readonly Note[]): Note[
  *
  * 3. **Leaving is deliberate.** Escape, a scrim click and Cancel all go through
  *    {@link requestClose}, which confirms when the draft holds unsaved edits.
+ *
+ * 4. **The sheet is the user's size.** It used to be a fixed 560px box with an
+ *    86vh ceiling, so anything longer than a paragraph meant a scrollbar inside
+ *    an 88px field while two thirds of the window sat empty. It is now large by
+ *    default and resizable by pointer, keyboard and double-click, still centred
+ *    by the scrim. The size lives in `use-sheet-size.ts`; see that module for the
+ *    one rule that is easy to get wrong (a resize measures from the size ON
+ *    SCREEN, and only the PREFERENCE is persisted).
  */
 function Composer({
   draft,
@@ -238,6 +247,17 @@ function Composer({
 }): JSX.Element {
   const [preview, setPreview] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  /**
+   * The sheet's size, restored from the last session.
+   *
+   * A note is routinely a few paragraphs, and the fixed 560x86vh sheet made the
+   * body field the only place to read it — 88px of text behind a scrollbar. The
+   * size is the user's, remembered across sessions, and clamped into whatever
+   * window the composer happens to open in.
+   */
+  const sheet = useSheetSize()
+  /** Unique per mounted sheet, so two composers can never share a description. */
+  const hintId = useId()
   /** The draft as it was when the sheet opened, to decide whether it holds edits. */
   const initial = useRef(JSON.stringify(draft))
   const dirty = JSON.stringify(draft) !== initial.current
@@ -264,7 +284,8 @@ function Composer({
 
   return (
     <div className="skw-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose() }}>
-      <div className="skw-sheet" role="dialog" aria-modal="true" aria-label={draft.id ? t('edit') : t('new')}
+      <div className="skw-sheet skw-sheet-composer" role="dialog" aria-modal="true" aria-label={draft.id ? t('edit') : t('new')}
+        style={{ width: `${sheet.size.width}px`, height: `${sheet.size.height}px` }}
         onKeyDown={(event) => {
           if (event.repeat) return
           // An Escape that dismisses an IME candidate window must never also close
@@ -276,22 +297,27 @@ function Composer({
             save()
           }
         }}>
+        {/* The grip's keyboard contract as a real description. `title` is not
+            an accessible description and is unreachable on touch, so the hint
+            the sighted mouse user reads in a tooltip is also announced here. */}
+        <p id={hintId} className="skw-sr-only">{t('resizeSheetHint')}</p>
         <div className="skw-sheet-head">
           {draft.id ? t('edit') : t('new')}
           <span className="skw-spacer" />
           <button className="skw-btn skw-btn-quiet" type="button" data-on={preview} aria-pressed={preview}
             onClick={() => setPreview((value) => !value)}>{preview ? t('editorSource') : t('editorPreview')}</button>
         </div>
-        <div className="skw-sheet-body">
+        <div className="skw-sheet-body" data-fill="true">
           <input className="skw-input" value={draft.title} placeholder={t('titlePlaceholder')} maxLength={LIMITS.title}
             onChange={(event) => onChange({ title: event.target.value })} aria-label={t('titlePlaceholder')} />
           {preview ? (
-            <div className="skw-preview-box">
+            <div className="skw-preview-box skw-preview-fill">
               {draft.body.trim() === '' ? <p className="skw-preview-empty">{t('bodyPlaceholder')}</p> : <Markdown source={draft.body} />}
             </div>
           ) : (
             <MarkdownEditor
               value={draft.body}
+              fill
               onChange={(body) => onChange({ body })}
               onSave={save}
               onEscape={requestClose}
@@ -331,6 +357,32 @@ function Composer({
           <span className="skw-spacer" />
           <button className="skw-btn" type="button" onClick={requestClose} disabled={busy}>{t('cancel')}</button>
           <button className="skw-btn skw-btn-primary" type="button" onClick={save} disabled={busy}>{t('save')}</button>
+        </div>
+        {/* The resize grip. Draggable with a pointer, resizable from the
+            keyboard (arrows grow/shrink, Shift takes a large step, 0 resets),
+            and double-click restores the default — three ways in because a
+            22px corner is not discoverable on its own. */}
+        <div
+          className="skw-sheet-grip"
+          role="separator"
+          aria-label={t('resizeSheet')}
+          // A FOCUSABLE separator is a window-splitter widget, and ARIA requires
+          // the value triple for one. `aria-valuetext` alone is not guaranteed to
+          // be announced, so a screen reader could say "separator" with no size.
+          // There is no honest `aria-orientation` for a two-axis corner, which is
+          // why it is omitted rather than guessed.
+          aria-valuenow={sheet.size.width}
+          aria-valuemin={sheet.bounds.min.width}
+          aria-valuemax={sheet.bounds.max.width}
+          aria-valuetext={`${sheet.size.width}×${sheet.size.height}px`}
+          aria-describedby={hintId}
+          tabIndex={0}
+          title={t('resizeSheetHint')}
+          {...sheet.grip}
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M9 1 1 9M9 5 5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
         </div>
       </div>
       {confirmDiscard && (

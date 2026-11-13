@@ -32,6 +32,7 @@ interface HostProps {
   autoFocus?: boolean
   disabled?: boolean
   locale?: 'zh' | 'en'
+  fill?: boolean
 }
 
 /** A controlled parent: the editor's real contract, plus spies. */
@@ -53,6 +54,7 @@ function Host(props: HostProps): JSX.Element {
       label="正文"
       toolbar={props.toolbar ?? true}
       autoFocus={props.autoFocus ?? true}
+      {...(props.fill === undefined ? {} : { fill: props.fill })}
       disabled={props.disabled ?? false}
       locale={props.locale ?? 'zh'}
       // `exactOptionalPropertyTypes` forbids passing `undefined`, and an editor
@@ -503,6 +505,57 @@ describe('save and escape', () => {
 })
 
 describe('auto height', () => {
+  /**
+   * Fill mode is the composer's: the sheet owns the height, so the field must not
+   * write one of its own. A stale inline pixel height would survive every resize
+   * and pin the editor to whatever the content needed when the sheet opened.
+   */
+  it('writes no inline height in fill mode', () => {
+    const reads: number[] = []
+    vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(() => {
+      reads.push(1)
+      return 100_000
+    })
+    render(<Host initial="anything" fill />)
+    const node = editor()
+    expect(node.style.height).toBe('')
+    expect(node.style.overflowY).toBe('')
+    // The measurement is skipped entirely, not merely overridden: reading
+    // scrollHeight forces a layout flush on every keystroke for nothing.
+    expect(reads).toHaveLength(0)
+  })
+
+  it('marks its root as filling, so the sheet can size it', () => {
+    render(<Host initial="x" fill />)
+    const root = document.querySelector('.skw-ed-root') as HTMLElement
+    expect(root.getAttribute('data-fill')).toBe('true')
+  })
+
+  it('observes no wrapper in fill mode', () => {
+    // The observer exists to re-measure on a width change, and fill mode has
+    // nothing to re-measure.
+    let observed = 0
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe(): void { observed += 1 }
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    )
+    render(<Host initial="x" fill />)
+    expect(observed).toBe(0)
+  })
+
+  it('clears a height it wrote before switching to fill mode', () => {
+    const onChange = vi.fn()
+    vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockReturnValue(140)
+    const { rerender } = render(<MarkdownEditor value="a" onChange={onChange} label="正文" autoFocus={false} />)
+    expect(editor().style.height).toBe('140px')
+    rerender(<MarkdownEditor value="a" onChange={onChange} label="正文" autoFocus={false} fill />)
+    expect(editor().style.height).toBe('')
+  })
+
   it('measures the content and caps the growth', () => {
     const reads: number[] = []
     vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(() => {

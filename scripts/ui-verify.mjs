@@ -243,6 +243,328 @@ try {
   }))()`)
   record('composer-opens', { ok: sheet.open && sheet.textarea === true, detail: `${sheet.swatches} swatches` })
 
+  // 3a. The sheet is large, centred, and resizable by dragging its grip.
+  //
+  // Measured through the real browser because the size is inline geometry the
+  // hook computes from the viewport: a jsdom test can assert the arithmetic, but
+  // only Chrome can prove the resulting box is actually bigger than the 560px
+  // sheet it replaced, that it stays centred, and that a pointer drag moves it.
+  const composerBox = await page.evaluate(`(() => {
+    const sheet = document.querySelector('.skw-sheet');
+    const grip = document.querySelector('.skw-sheet-grip');
+    const editor = document.querySelector('.skw-ed-input');
+    if (!sheet || !grip) return null;
+    const box = sheet.getBoundingClientRect();
+    const view = { w: window.innerWidth, h: window.innerHeight };
+    const gripBox = grip.getBoundingClientRect();
+    return {
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+      centreOffsetX: Math.round(Math.abs((box.left + box.width / 2) - view.w / 2)),
+      centreOffsetY: Math.round(Math.abs((box.top + box.height / 2) - view.h / 2)),
+      view,
+      grip: { x: Math.round(gripBox.x + gripBox.width / 2), y: Math.round(gripBox.y + gripBox.height / 2) },
+      editorHeight: editor ? Math.round(editor.getBoundingClientRect().height) : 0,
+      stored: window.localStorage.getItem('skillre-sticky-wall.sheet-size'),
+    };
+  })()`)
+  if (!composerBox) throw new Error('the composer sheet or its resize grip is missing')
+  record('composer-sheet-is-large', {
+    ok: composerBox.width > 560 && composerBox.height > 560,
+    detail: `${composerBox.width}x${composerBox.height} in ${composerBox.view.w}x${composerBox.view.h}`,
+  })
+  record('composer-sheet-stays-centred', {
+    // Centred is a scrim-level promise, and it must hold at the new size.
+    ok: composerBox.centreOffsetX <= 2 && composerBox.centreOffsetY <= 2,
+    detail: `offset ${composerBox.centreOffsetX}x${composerBox.centreOffsetY}`,
+  })
+  record('composer-editor-fills-the-sheet', {
+    // Fill mode is what turns a taller sheet into more visible text.
+    ok: composerBox.editorHeight > 200,
+    detail: `textarea ${composerBox.editorHeight}px of ${composerBox.height}px sheet`,
+  })
+
+  // The grip must be reachable by keyboard alone: focus it, press an arrow, and
+  // the sheet must change size. A resize affordance that only works with a mouse
+  // is not reachable for everyone.
+  const keyboardResize = await page.evaluate(`(async () => {
+    const grip = document.querySelector('.skw-sheet-grip');
+    const sheet = document.querySelector('.skw-sheet');
+    if (!grip || !sheet) return null;
+    grip.focus();
+    const focused = document.activeElement === grip;
+    const before = Math.round(sheet.getBoundingClientRect().width);
+    grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    const afterLeft = Math.round(sheet.getBoundingClientRect().width);
+    grip.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    const afterReset = Math.round(sheet.getBoundingClientRect().width);
+    return { focused, before, afterLeft, afterReset };
+  })()`)
+  record('composer-grip-works-from-the-keyboard', {
+    // 0 must restore the 880px default regardless of what the pointer drag did.
+    ok: keyboardResize !== null && keyboardResize.focused === true &&
+      keyboardResize.afterLeft < keyboardResize.before && keyboardResize.afterReset === 880,
+    detail: `${keyboardResize?.before} -> arrow ${keyboardResize?.afterLeft} -> reset ${keyboardResize?.afterReset} focused=${keyboardResize?.focused}`,
+  })
+  // Drag the grip 80px right and 60px down, the way a pointer loop does it: a
+  // down, several moves, then an up.
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: composerBox.grip.x, y: composerBox.grip.y, button: 'none', buttons: 0 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: composerBox.grip.x, y: composerBox.grip.y, button: 'left', buttons: 1, clickCount: 1 })
+  for (let step = 1; step <= 4; step += 1) {
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: composerBox.grip.x + step * 20,
+      y: composerBox.grip.y + step * 15,
+      button: 'left',
+      buttons: 1,
+    })
+    await page.wait(40)
+  }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: composerBox.grip.x + 80, y: composerBox.grip.y + 60, button: 'left', buttons: 0, clickCount: 1 })
+  await page.wait(300)
+  const resized = await page.evaluate(`(() => {
+    const sheet = document.querySelector('.skw-sheet');
+    const box = sheet.getBoundingClientRect();
+    return {
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+      stored: window.localStorage.getItem('skillre-sticky-wall.sheet-size'),
+      view: { w: window.innerWidth, h: window.innerHeight },
+    };
+  })()`)
+  record('composer-grip-resizes-the-sheet', {
+    // Compared against what the viewport allowed, not against +80: the drag is
+    // capped so the sheet always fits, and the assertion must hold at any window
+    // size the harness runs in.
+    ok: resized.width >= Math.min(composerBox.width + 80, resized.view.w - 48) - 2 &&
+      resized.height >= Math.min(composerBox.height + 60, resized.view.h - 48) - 2,
+    detail: `${composerBox.width}x${composerBox.height} -> ${resized.width}x${resized.height}`,
+  })
+  // A double-click on the grip restores the default. This is checked in a real
+  // browser because the grip cancels `pointerdown` (otherwise a drag selects the
+  // footer text), and whether that suppression also swallows the compatibility
+  // mouse events behind `dblclick` is a browser behaviour, not a spec guarantee.
+  const beforeDoubleClick = await page.evaluate(`(() => {
+    const sheet = document.querySelector('.skw-sheet');
+    const grip = document.querySelector('.skw-sheet-grip');
+    const box = grip.getBoundingClientRect();
+    return {
+      width: Math.round(sheet.getBoundingClientRect().width),
+      height: Math.round(sheet.getBoundingClientRect().height),
+      grip: { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) },
+    };
+  })()`)
+  {
+    for (let click = 1; click <= 2; click += 1) {
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: beforeDoubleClick.grip.x, y: beforeDoubleClick.grip.y, button: 'none', buttons: 0 })
+      await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: beforeDoubleClick.grip.x, y: beforeDoubleClick.grip.y, button: 'left', buttons: 1, clickCount: click })
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: beforeDoubleClick.grip.x, y: beforeDoubleClick.grip.y, button: 'left', buttons: 0, clickCount: click })
+      await page.wait(60)
+    }
+    await page.wait(300)
+  }
+  const afterDoubleClick = await page.evaluate(`Math.round(document.querySelector('.skw-sheet').getBoundingClientRect().width)`)
+  record('composer-double-click-resets-the-size', {
+    // The gesture is always exercised: the sheet is at 960x740 here (just
+    // dragged), so a reset to the 880x680 default is a real change either way.
+    ok: beforeDoubleClick.width !== 880 && afterDoubleClick === 880,
+    detail: `${beforeDoubleClick.width}x${beforeDoubleClick.height} -> double-click -> ${afterDoubleClick}`,
+  })
+
+  record('composer-size-is-remembered', {
+    // Parsed and compared exactly: a substring test passes on any string that
+    // happens to contain the digits, including a stale or corrupt payload.
+    ok: (() => {
+      try {
+        const parsed = JSON.parse(resized.stored)
+        return parsed.width === resized.width && parsed.height === resized.height
+      } catch {
+        return false
+      }
+    })(),
+    detail: `stored=${resized.stored} shown=${resized.width}x${resized.height}`,
+  })
+  const sheetShot = await page.shot('sticky-wall-composer-resized.png')
+
+  // 3a-bis. At the MINIMUM size the grip must not sit on top of a footer button.
+  //
+  // The grip is absolutely positioned in the corner and the footer's buttons are
+  // the things a user must always be able to press, so this is checked at the
+  // smallest size the sheet allows rather than at the comfortable default.
+  const minSize = await page.evaluate(`(() => {
+    const grip = document.querySelector('.skw-sheet-grip');
+    const box = grip.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: minSize.x, y: minSize.y, button: 'none', buttons: 0 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: minSize.x, y: minSize.y, button: 'left', buttons: 1, clickCount: 1 })
+  for (let step = 1; step <= 4; step += 1) {
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: minSize.x - step * 200,
+      y: minSize.y - step * 200,
+      button: 'left',
+      buttons: 1,
+    })
+    await page.wait(30)
+  }
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: minSize.x - 800, y: minSize.y - 800, button: 'left', buttons: 0, clickCount: 1 })
+  await page.wait(300)
+  const atMinimum = await page.evaluate(`(() => {
+    const sheet = document.querySelector('.skw-sheet');
+    const grip = document.querySelector('.skw-sheet-grip');
+    const box = sheet.getBoundingClientRect();
+    const gripBox = grip.getBoundingClientRect();
+    const buttons = [...document.querySelectorAll('.skw-sheet-foot button')];
+    // Every footer button must be inside the sheet AND clear of the grip: an
+    // overlap makes Save unclickable exactly when the sheet is cramped.
+    const overGrip = buttons.filter((button) => {
+      const b = button.getBoundingClientRect();
+      return !(b.right <= gripBox.left || b.left >= gripBox.right || b.bottom <= gripBox.top || b.top >= gripBox.bottom);
+    }).length;
+    // The element actually under the grip's centre decides whether it is covered.
+    const under = document.elementFromPoint(gripBox.left + gripBox.width / 2, gripBox.top + gripBox.height / 2);
+    return {
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+      buttons: buttons.length,
+      overGrip,
+      gripOnTop: under === grip || grip.contains(under),
+      editorVisible: (document.querySelector('.skw-ed-input')?.getBoundingClientRect().height ?? 0) > 40,
+    };
+  })()`)
+  record('composer-minimum-size-stays-usable', {
+    ok: atMinimum.width === 460 && atMinimum.height === 380 && atMinimum.overGrip === 0 &&
+      atMinimum.gripOnTop === true && atMinimum.editorVisible === true,
+    detail: `${atMinimum.width}x${atMinimum.height} buttons=${atMinimum.buttons} overGrip=${atMinimum.overGrip} gripReachable=${atMinimum.gripOnTop} editor=${atMinimum.editorVisible}`,
+  })
+  // Back to the default before the preview and small-window checks below, which
+  // assert against the default geometry.
+  await page.evaluate(`(() => {
+    const grip = document.querySelector('.skw-sheet-grip');
+    grip.focus();
+    grip.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true }));
+    return true;
+  })()`)
+  await page.wait(300)
+
+  // 3b. Preview mode has to grow with the sheet too. It used to be capped at 42vh,
+  // which at the new height would leave a band of empty sheet under the text.
+  const previewBox = await page.evaluate(`(() => {
+    const toggle = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '预览');
+    toggle?.click();
+    return !!toggle;
+  })()`)
+  await page.wait(250)
+  const preview = await page.evaluate(`(() => {
+    const box = document.querySelector('.skw-preview-box');
+    const sheet = document.querySelector('.skw-sheet');
+    if (!box || !sheet) return null;
+    return {
+      height: Math.round(box.getBoundingClientRect().height),
+      sheetHeight: Math.round(sheet.getBoundingClientRect().height),
+    };
+  })()`)
+  record('composer-preview-fills-the-sheet', {
+    // The old 42vh ceiling on a 900px-tall window is 378px; anything above it
+    // proves the cap was replaced by the fill layout rather than merely raised.
+    ok: previewBox === true && preview !== null && preview.height > Math.round(preview.sheetHeight * 0.42),
+    detail: `preview ${preview?.height}px of ${preview?.sheetHeight}px sheet`,
+  })
+  // Back to the editor for the note this harness is about to write.
+  await page.evaluate(`(() => {
+    const toggle = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '源码');
+    toggle?.click();
+    return !!toggle;
+  })()`)
+  await page.wait(250)
+
+  // 3c. A small window must SHRINK the sheet rather than overflow it.
+  //
+  // This is the case a jsdom test cannot settle: the clamp is arithmetic, but
+  // "the Save button is still inside the window" is a layout fact. The stored
+  // preference is checked too — it must survive the squeeze, or a user who
+  // resized on a big screen would silently lose that size.
+  // Seed a genuinely non-default, LARGER preference than a 900px window allows.
+  // Without this the "preference survives a squeeze" check compared the 880x680
+  // default with itself and proved nothing.
+  await page.evaluate(`(() => {
+    window.localStorage.setItem('skillre-sticky-wall.sheet-size', JSON.stringify({ width: 1200, height: 800 }));
+    return true;
+  })()`)
+  // The hook reads storage when the composer OPENS, so reopen it to pick this up.
+  await page.evaluate(`(() => {
+    const cancel = [...document.querySelectorAll('.skw-sheet-foot button')].find((b) => (b.innerText || '').trim() === '取消');
+    cancel?.click();
+    return !!cancel;
+  })()`)
+  await page.wait(400)
+  // A draft exists by now, so the discard prompt may appear; accept it.
+  await page.evaluate(`(() => {
+    const discard = [...document.querySelectorAll('.skw-sheet-foot button')].find((b) => (b.innerText || '').trim() === '放弃');
+    if (discard) { discard.click(); return 'discarded'; }
+    return 'clean';
+  })()`)
+  await page.wait(400)
+  const reopened = await page.evaluate(BUTTON_NAMED('新建'))
+  await page.click(reopened.x, reopened.y)
+  await page.wait(500)
+  const storedBefore = await page.evaluate(`window.localStorage.getItem('skillre-sticky-wall.sheet-size')`)
+  const onScreenBefore = await page.evaluate(`Math.round(document.querySelector('.skw-sheet').getBoundingClientRect().width)`)
+  // Record the real metrics first. `clearDeviceMetricsOverride` drops back to the
+  // browser's OWN defaults, which is 1x — and every screenshot taken afterwards
+  // then came out at half the linear resolution of the ones before it. Restoring
+  // the captured values instead keeps the whole evidence set at one scale.
+  const original = await page.evaluate(`(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+    dpr: window.devicePixelRatio || 1,
+  }))()`)
+  await page.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 700, deviceScaleFactor: original.dpr, mobile: false })
+  await page.wait(400)
+  const small = await page.evaluate(`(() => {
+    const sheet = document.querySelector('.skw-sheet');
+    if (!sheet) return null;
+    const box = sheet.getBoundingClientRect();
+    const save = [...document.querySelectorAll('.skw-sheet-foot button')].pop();
+    const saveBox = save.getBoundingClientRect();
+    return {
+      width: Math.round(box.width),
+      height: Math.round(box.height),
+      fits: box.left >= 0 && box.top >= 0 && box.right <= window.innerWidth && box.bottom <= window.innerHeight,
+      saveVisible: saveBox.right <= window.innerWidth && saveBox.bottom <= window.innerHeight && saveBox.width > 0,
+      view: { w: window.innerWidth, h: window.innerHeight },
+      stored: window.localStorage.getItem('skillre-sticky-wall.sheet-size'),
+    };
+  })()`)
+  if (!small) throw new Error('the composer sheet vanished when the window shrank')
+  record('composer-sheet-fits-a-small-window', {
+    ok: small.fits && small.saveVisible,
+    detail: `${small.width}x${small.height} in ${small.view.w}x${small.view.h} saveVisible=${small.saveVisible}`,
+  })
+  record('composer-keeps-the-preference-through-a-squeeze', {
+    // Only the RENDERED size is clamped. Writing the clamped value back would
+    // permanently downgrade a size the user chose on a bigger screen. The
+    // preference seeded above is 1200x800 and the window is 900x700, so the two
+    // genuinely differ — the check can actually fail.
+    ok: small.stored === storedBefore &&
+      JSON.parse(storedBefore ?? '{}').width === 1200 &&
+      // The RENDERED width in the 900px window must be the clamped 852, not 1200:
+      // that difference is the whole point — the preference is untouched while
+      // what the user sees fits the window.
+      small.width === 900 - 48,
+    detail: `pref=${storedBefore} rendered-before=${onScreenBefore}px -> in 900x700: ${small.width}px, pref still ${small.stored}`,
+  })
+  await page.send('Emulation.setDeviceMetricsOverride', {
+    width: original.width,
+    height: original.height,
+    deviceScaleFactor: original.dpr,
+    mobile: false,
+  })
+  await page.wait(400)
+
   // The typed body deliberately carries Markdown, so the rendered card proves
   // the renderer ran. It is passed as JSON rather than inlined into the
   // evaluated script: a nested template literal would need three levels of
@@ -1207,7 +1529,7 @@ try {
 
   await writeFile(
     `${evidenceDir}/ui-verification.json`,
-    `${JSON.stringify({ capturedAt: new Date().toISOString(), viewport: '1440x900@2x', locale: 'zh', screenshots: [wallShot, noteShot, archivedShot, canvasShot, lightShot, darkShot], results }, null, 2)}\n`,
+    `${JSON.stringify({ capturedAt: new Date().toISOString(), viewport: '1440x900@2x', locale: 'zh', screenshots: [wallShot, sheetShot, noteShot, archivedShot, canvasShot, lightShot, darkShot], results }, null, 2)}\n`,
     'utf8',
   )
   const failed = results.filter((entry) => entry.ok === false)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+
+### Minor Changes
+
+- The note sheet is now large by default — 880×680, still centred on its scrim — so writing a few paragraphs no longer means scrolling inside a small textarea while most of the window sits empty. Drag the grip in the bottom-right corner to resize it with a pointer, or focus the grip and use the arrow keys: left/right change the width, up/down the height, `Shift` plus an arrow takes a bigger step, and `0` restores the default; double-clicking the grip does the same. A resize is clamped so the sheet always fits the window with a margin, and it never shrinks past the size at which its controls still fit. The size you picked is remembered and restored the next time you open the sheet, and only your own preference is stored — open the wall in a small window and the sheet shrinks to fit, then returns to the size you actually chose when the window grows back. The body editor and the preview now fill the sheet, so a taller sheet shows more of the note instead of leaving that space unused.
+
 ## 0.8.2
 
 ### Patch Changes

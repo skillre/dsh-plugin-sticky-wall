@@ -1,9 +1,10 @@
 {
-  "capturedAt": "2026-11-12T23:59:17.560Z",
+  "capturedAt": "2026-11-13T08:00:34.641Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
     "docs/evidence/sticky-wall-zh.png",
+    "docs/evidence/sticky-wall-composer-resized.png",
     "docs/evidence/sticky-wall-note-created.png",
     "docs/evidence/sticky-wall-archived.png",
     "docs/evidence/sticky-wall-canvas.png",
@@ -44,12 +45,67 @@
     {
       "check": "zh-copy",
       "ok": true,
-      "detail": "早上好，今天想记点什么？ / 1 张便签 · 0 张已归档"
+      "detail": "下午好，有什么想留下来的？ / 1 张便签 · 0 张已归档"
     },
     {
       "check": "composer-opens",
       "ok": true,
       "detail": "6 swatches"
+    },
+    {
+      "check": "composer-sheet-is-large",
+      "ok": true,
+      "detail": "880x680 in 1440x900"
+    },
+    {
+      "check": "composer-sheet-stays-centred",
+      "ok": true,
+      "detail": "offset 0x0"
+    },
+    {
+      "check": "composer-editor-fills-the-sheet",
+      "ok": true,
+      "detail": "textarea 402px of 680px sheet"
+    },
+    {
+      "check": "composer-grip-works-from-the-keyboard",
+      "ok": true,
+      "detail": "880 -> arrow 864 -> reset 880 focused=true"
+    },
+    {
+      "check": "composer-grip-resizes-the-sheet",
+      "ok": true,
+      "detail": "880x680 -> 960x740"
+    },
+    {
+      "check": "composer-double-click-resets-the-size",
+      "ok": true,
+      "detail": "960x740 -> double-click -> 880"
+    },
+    {
+      "check": "composer-size-is-remembered",
+      "ok": true,
+      "detail": "stored={\"width\":960,\"height\":740} shown=960x740"
+    },
+    {
+      "check": "composer-minimum-size-stays-usable",
+      "ok": true,
+      "detail": "460x380 buttons=2 overGrip=0 gripReachable=true editor=true"
+    },
+    {
+      "check": "composer-preview-fills-the-sheet",
+      "ok": true,
+      "detail": "preview 438px of 680px sheet"
+    },
+    {
+      "check": "composer-sheet-fits-a-small-window",
+      "ok": true,
+      "detail": "852x652 in 900x700 saveVisible=true"
+    },
+    {
+      "check": "composer-keeps-the-preference-through-a-squeeze",
+      "ok": true,
+      "detail": "pref={\"width\":1200,\"height\":800} rendered-before=1200px -> in 900x700: 852px, pref still {\"width\":1200,\"height\":800}"
     },
     {
       "check": "composer-save-creates-note",
@@ -84,7 +140,7 @@
     {
       "check": "canvas-positions-cards-absolutely",
       "ok": true,
-      "detail": "left=61.7px top=-128.8px transform=rotate(-0.4deg) id=b3fe8031-a5a3-4cfb-8767-f8ba0bb4f0bd"
+      "detail": "left=201.9px top=-730.6px transform=rotate(0.5deg) id=2b523b08-c9cf-47fa-ad41-89ea0dd123f3"
     },
     {
       "check": "canvas-tidy-repacks-the-wall",
@@ -99,42 +155,42 @@
     {
       "check": "canvas-camera-frames-the-wall-centre",
       "ok": true,
-      "detail": "offset=(-1,-33)px inside=true transform=translate3d(495px, 101.5px, 0px) scale(1)"
+      "detail": "offset=(2,-30)px inside=true transform=translate3d(244px, 683px, 0px) scale(1)"
     },
     {
       "check": "canvas-camera-is-a-transform-not-scroll",
       "ok": true,
-      "detail": "transform=translate3d(495px, 101.5px, 0px) scale(1) overflow=hidden scroll=0"
+      "detail": "transform=translate3d(244px, 683px, 0px) scale(1) overflow=hidden scroll=0"
     },
     {
       "check": "canvas-drag-persists-placement",
       "ok": true,
-      "detail": "210.9px,221.7px -> 415.7px,283.7px"
+      "detail": "113.7px,-408.8px -> 209.7px,-556.8px"
     },
     {
       "check": "canvas-drag-keeps-rotation",
       "ok": true,
-      "detail": "rotate(-0.4deg)"
+      "detail": "rotate(0.5deg)"
     },
     {
       "check": "canvas-drag-on-paper-pans-the-camera",
       "ok": true,
-      "detail": "(495,101.5) -> (615,41.5) cursor=grab"
+      "detail": "(244,683) -> (364,623) cursor=grab"
     },
     {
       "check": "canvas-wheel-zoom-keeps-the-pointer-anchored",
       "ok": true,
-      "detail": "zoom 1.000 -> 1.396, world point (-415.0,638.5) -> (-415.0,638.5)"
+      "detail": "zoom 1.000 -> 1.396, world point (-164.0,57.0) -> (-164.0,57.0)"
     },
     {
       "check": "canvas-reset-frames-the-whole-wall",
       "ok": true,
-      "detail": "zoom=100% offset=(-1,-34) fits=true"
+      "detail": "zoom=100% offset=(2,-30) fits=true"
     },
     {
       "check": "canvas-large-wall-is-a-centred-cluster",
       "ok": true,
-      "detail": "14 cards (seeded 14), overlaps=0, offset=(0,-35), ratio=1.46, zoom=88%, fits=true, behindDock=0, world=1205x821"
+      "detail": "14 cards (seeded 14), overlaps=0, offset=(1,-33), ratio=1.37, zoom=87%, fits=true, behindDock=0, world=1230x897"
     },
     {
       "check": "canvas-centrepiece-is-at-the-middle",
@@ -159,7 +215,7 @@
     {
       "check": "centre-capture-lands-visible-and-clear-of-the-field",
       "ok": true,
-      "detail": "onScreen=true inReserve=false distance=501px cardsOverField=0/15 zoom=0.88"
+      "detail": "onScreen=true inReserve=false distance=552px cardsOverField=0/15 zoom=0.87"
     },
     {
       "check": "no-card-covers-the-centrepiece",
@@ -169,12 +225,12 @@
     {
       "check": "capture-on-a-panned-wall-stays-clear-of-the-field",
       "ok": true,
-      "detail": "overlap=0% onScreen=true behindDock=false zoom=0.88"
+      "detail": "overlap=0% onScreen=true behindDock=false zoom=0.87"
     },
     {
       "check": "capture-on-a-zoomed-wall-stays-clear-of-the-field",
       "ok": true,
-      "detail": "overlap=0% onScreen=true behindDock=false zoom=1.47"
+      "detail": "overlap=0% onScreen=true behindDock=false zoom=1.46"
     },
     {
       "check": "canvas-fills-the-page-with-a-floating-dock",

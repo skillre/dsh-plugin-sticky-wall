@@ -54,6 +54,15 @@ export interface MarkdownEditorProps {
   toolbar?: boolean
   /** Focus the textarea on mount; defaults to true. */
   autoFocus?: boolean
+  /**
+   * Fill the parent's height instead of growing to the content.
+   *
+   * The composer sheet is resizable now, so the editor must own the space it is
+   * given: an auto-growing field inside a tall modal leaves the extra height
+   * unused, which is the whole reason the sheet was frustrating to write in.
+   * When false (the default) the editor keeps its content-driven auto-grow.
+   */
+  fill?: boolean
   disabled?: boolean
   /** Toolbar copy language; defaults to `zh` (the plugin's authoring language). */
   locale?: EditorLocale
@@ -514,6 +523,7 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
     label,
     toolbar = true,
     autoFocus = true,
+    fill = false,
     disabled = false,
     locale = 'zh',
   } = props
@@ -609,6 +619,14 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
   const measure = useCallback((): void => {
     const node = areaRef.current
     if (node === null) return
+    if (fill) {
+      // The sheet owns the height in fill mode. Writing an inline height here
+      // would fight the flex layout and pin the field to a stale pixel value
+      // after every resize, so the inline styles are cleared instead.
+      node.style.height = ''
+      node.style.overflowY = ''
+      return
+    }
     const view = node.ownerDocument.defaultView
     const cap = Math.max(MIN_HEIGHT_PX, Math.round((view === null ? 0 : view.innerHeight) * VIEWPORT_SHARE))
     // `height:auto` first: without it scrollHeight is clamped by the current
@@ -620,7 +638,7 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
     // every metric as 0) and keeps an empty editor usable.
     node.style.height = `${Math.min(Math.max(wanted, MIN_HEIGHT_PX), cap)}px`
     node.style.overflowY = wanted > cap ? 'auto' : 'hidden'
-  }, [])
+  }, [fill])
 
   // Re-measure whenever the value changes, including changes that came from the
   // Host instead of the keyboard.
@@ -630,7 +648,7 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
 
   useEffect(() => {
     const node = areaRef.current
-    if (node === null) return
+    if (node === null || fill) return
     let lastWidth = 0
     const observer =
       typeof ResizeObserver === 'undefined'
@@ -651,7 +669,7 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
       observer?.disconnect()
       window.removeEventListener('resize', measure)
     }
-  }, [measure])
+  }, [fill, measure])
 
   useLayoutEffect(() => {
     if (!autoFocus) return
@@ -754,7 +772,7 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
   }
 
   return (
-    <div className="skw-ed-root" data-disabled={disabled ? 'true' : undefined}>
+    <div className="skw-ed-root" data-disabled={disabled ? 'true' : undefined} data-fill={fill ? 'true' : undefined}>
       {toolbar && (
         <div
           className="skw-ed-toolbar"
@@ -820,6 +838,10 @@ export const EDITOR_CSS = `
 .skw-ed-root { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .skw-ed-root *, .skw-ed-root *::before, .skw-ed-root *::after { box-sizing: border-box; }
 .skw-ed-root[data-disabled="true"] { opacity: .7; }
+/* Fill mode: the sheet gives the editor a box and the editor fills it, so a
+   taller sheet means more visible text instead of more empty sheet. */
+.skw-ed-root[data-fill="true"] { flex: 1 1 auto; min-height: 0; }
+.skw-ed-root[data-fill="true"] .skw-ed-input { flex: 1 1 auto; min-height: 96px; }
 .skw-ed-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; padding: 2px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }
 .skw-ed-group { display: inline-flex; align-items: center; gap: 1px; padding: 0 2px; }
 .skw-ed-group + .skw-ed-group { border-left: 1px solid var(--dsw-alias-border-l1); }

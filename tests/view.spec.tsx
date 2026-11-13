@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientApi } from '../src/client/api.js'
 import { ActionError } from '../src/client/api.js'
 import type { ClientLocaleLike } from '../src/client/contracts.js'
@@ -9,6 +9,14 @@ import type { Translate } from '../src/client/text.js'
 import { ConfirmDialog, WallPage } from '../src/client/view.jsx'
 import { WIDTH_PX, type Note, type WallSnapshot } from '../src/types.js'
 import { WALL_CSS } from '../src/client/styles.js'
+import {
+  SHEET_DEFAULT,
+  SHEET_KEY_STEP,
+  SHEET_KEY_STEP_LARGE,
+  SHEET_MARGIN,
+  SHEET_MIN,
+  SHEET_STORAGE_KEY,
+} from '../src/client/sheet-size.js'
 
 /**
  * Client component behavior tests.
@@ -21,6 +29,9 @@ import { WALL_CSS } from '../src/client/styles.js'
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  // Cleared globally, not only in the resize describe: a preference left behind
+  // by ANY test would silently change the geometry every later one asserts on.
+  window.localStorage.clear()
 })
 
 /** Translate through the shipped English dictionary so copy is stable. */
@@ -909,5 +920,420 @@ describe('draft safety', () => {
     // The queue serialises them; both were attempted rather than the second
     // being rejected by an `inFlight` guard.
     await waitFor(() => expect(api.calls.filter((call) => call === 'update').length).toBeGreaterThanOrEqual(1))
+  })
+})
+
+/**
+ * The composer sheet is where a note is WRITTEN, so its size is a writing
+ * ergonomic, not a decoration: the fixed 560px sheet turned every note longer
+ * than a paragraph into a scrollbar inside an 88px field.
+ *
+ * These tests drive the real pointer and keyboard handlers rather than asserting
+ * CSS, because the failure that matters is "the grip looks draggable but nothing
+ * moves" — and the size is persisted, so a wrong value would be restored on every
+ * later open instead of lasting one session.
+ */
+describe('composer sheet size', () => {
+  /** jsdom has no PointerEvent, so build one and attach the fields handlers read. */
+  const pointer = (type: string, x: number, y: number, pointerId = 1): Event => {
+    const event = new Event(type, { bubbles: true }) as Event & Record<string, unknown>
+    event.pointerId = pointerId
+    event.clientX = x
+    event.clientY = y
+    event.button = 0
+    return event
+  }
+
+  const grip = (): HTMLElement => document.querySelector('.skw-sheet-grip') as HTMLElement
+  const sheet = (): HTMLElement => document.querySelector('.skw-sheet') as HTMLElement
+
+  /** Open the composer through the dock's create button. */
+  async function openComposer(): Promise<void> {
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-sheet-grip')).not.toBeNull())
+  }
+
+  /** Drag the grip by a total delta, as a real pointer loop would. */
+  function dragBy(dx: number, dy: number): void {
+    const node = grip()
+    const startX = 500
+    const startY = 400
+    act(() => {
+      node.dispatchEvent(pointer('pointerdown', startX, startY))
+    })
+    act(() => {
+      node.dispatchEvent(pointer('pointermove', startX + dx / 2, startY + dy / 2))
+      node.dispatchEvent(pointer('pointermove', startX + dx, startY + dy))
+    })
+    act(() => {
+      node.dispatchEvent(pointer('pointerup', startX + dx, startY + dy))
+    })
+  }
+
+  /**
+   * Pin the window to a known size.
+   *
+   * jsdom's default 1024x768 is smaller than the sheet's default in one axis, so
+   * every expected number would be a viewport clamp rather than the size under
+   * test — the assertions would then pass or fail on the harness, not the code.
+   */
+  let savedWidth = 0
+  let savedHeight = 0
+  beforeEach(() => {
+    savedWidth = window.innerWidth
+    savedHeight = window.innerHeight
+    Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { value: savedWidth, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: savedHeight, configurable: true })
+    window.localStorage.clear()
+  })
+
+  it('opens larger than the fixed sheet it replaced', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    // The old sheet was a hard 560px wide with an 86vh ceiling, and that is the
+    // defect: a note of any length had nowhere to go.
+    expect(Number.parseFloat(sheet().style.width)).toBeGreaterThan(560)
+    expect(Number.parseFloat(sheet().style.height)).toBeGreaterThan(560)
+  })
+
+  it('keeps the sheet centred by the scrim, at every size', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    // The real contract: the SHEET writes no positioning of its own, and the
+    // scrim is what centres it. Asserting only the first half could not fail if
+    // the scrim stopped centring, so both halves are pinned.
+    expect(sheet().style.left).toBe('')
+    expect(sheet().style.top).toBe('')
+    expect(sheet().style.margin).toBe('')
+    const rule = WALL_CSS.slice(WALL_CSS.indexOf('.skw-scrim {'), WALL_CSS.indexOf('.skw-sheet {'))
+    expect(rule).toContain('align-items: center')
+    expect(rule).toContain('justify-content: center')
+  })
+
+  it('grows when the grip is dragged', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    const before = Number.parseFloat(sheet().style.width)
+    dragBy(60, 40)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(before + 60))
+    expect(Number.parseFloat(sheet().style.height)).toBe(680 + 40)
+  })
+
+  it('shrinks when the grip is dragged the other way', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    dragBy(-120, -80)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(760))
+    expect(Number.parseFloat(sheet().style.height)).toBe(600)
+  })
+
+  it('refuses to shrink below the usable minimum', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    dragBy(-5000, -5000)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_MIN.width))
+    expect(Number.parseFloat(sheet().style.height)).toBe(SHEET_MIN.height)
+  })
+
+  it('resizes from the keyboard, one axis per arrow, with Shift for a larger step', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    fireEvent.keyDown(grip(), { key: 'ArrowRight' })
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(880 + SHEET_KEY_STEP))
+    // Height must not follow: a corner grip that scales both axes makes the last
+    // couple of pixels of alignment impossible to reach.
+    expect(Number.parseFloat(sheet().style.height)).toBe(680)
+
+    fireEvent.keyDown(grip(), { key: 'ArrowDown', shiftKey: true })
+    await waitFor(() => expect(Number.parseFloat(sheet().style.height)).toBe(680 + SHEET_KEY_STEP_LARGE))
+  })
+
+  it('restores the default on double click', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    dragBy(100, 60)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(980))
+    fireEvent.doubleClick(grip())
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width))
+    expect(Number.parseFloat(sheet().style.height)).toBe(SHEET_DEFAULT.height)
+  })
+
+  it('restores the default when 0 is pressed on the grip', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    dragBy(80, 0)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
+    fireEvent.keyDown(grip(), { key: '0' })
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width))
+  })
+
+  it('remembers the chosen size for the next composer', async () => {
+    const api = makeApi()
+    const first = render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    dragBy(80, 40)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
+    // The preference is stored, not the session value: a reload must reopen at
+    // the size the user picked.
+    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBe('{"width":960,"height":720}')
+    first.unmount()
+
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    expect(Number.parseFloat(sheet().style.width)).toBe(960)
+    expect(Number.parseFloat(sheet().style.height)).toBe(720)
+  })
+
+  it('falls back to the default when the stored value is corrupt', async () => {
+    // A stored size is restored on EVERY future open, so a bad one is permanent
+    // until the user finds the grip. Refusing it is the only safe read.
+    window.localStorage.setItem(SHEET_STORAGE_KEY, 'not-json')
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
+  })
+
+  it('does not overwrite the preference when the grip is merely clicked', async () => {
+    // pointerdown with no movement is a click. Committing there would replace a
+    // large preference with whatever the current window happened to allow.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    const node = grip()
+    act(() => {
+      node.dispatchEvent(pointer('pointerdown', 500, 400))
+    })
+    act(() => {
+      node.dispatchEvent(pointer('pointerup', 500, 400))
+    })
+    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBeNull()
+    expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
+  })
+
+  it('keeps a large preference while the window is too small, and restores it after growing', async () => {
+    // The clamp applies to what is RENDERED. Writing the clamped value back would
+    // silently downgrade a size the user chose on a bigger screen.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    dragBy(80, 40)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
+
+    const define = (width: number, height: number): void => {
+      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true })
+      Object.defineProperty(window, 'innerHeight', { value: height, configurable: true })
+      act(() => { fireEvent(window, new Event('resize')) })
+    }
+    define(700, 600)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(700 - SHEET_MARGIN * 2))
+    // The stored preference survived the squeeze.
+    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBe('{"width":960,"height":720}')
+
+    define(1440, 900)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
+  })
+
+  it('resizes from the size on screen, not from the stored preference', async () => {
+    // A user whose preference is 880px opens the wall in a 700px window and sees
+    // 652px. Measuring the drag from the preference would clamp straight back to
+    // 652 and the grip would look dead until the preference was exceeded.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    Object.defineProperty(window, 'innerWidth', { value: 700, configurable: true })
+    act(() => { fireEvent(window, new Event('resize')) })
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(700 - SHEET_MARGIN * 2))
+
+    // Shrinking must respond: from 652, -40 is 612. Measured from the 880px
+    // preference instead it would be 840, which the window clamps back to 652 and
+    // the grip would feel dead over the whole range it can actually move in.
+    dragBy(-40, 0)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(700 - SHEET_MARGIN * 2 - 40))
+  })
+
+  it('does not destroy a large preference when a key is pressed in a small window', async () => {
+    // The reported blocker. A 1200x800 preference opened in a 700px window renders
+    // 652x800. Pressing a HEIGHT key changed only the height on screen, but the
+    // stored preference became 652x816 — so the user's 1200px width was gone and
+    // growing the window back could not restore it.
+    window.localStorage.setItem(SHEET_STORAGE_KEY, JSON.stringify({ width: 1200, height: 800 }))
+    // The window the user opens the wall in is the SMALL one; the preference was
+    // chosen on a bigger screen and must survive this session untouched.
+    Object.defineProperty(window, 'innerWidth', { value: 700, configurable: true })
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    expect(Number.parseFloat(sheet().style.width)).toBe(700 - SHEET_MARGIN * 2)
+
+    fireEvent.keyDown(grip(), { key: 'ArrowDown' })
+    await waitFor(() => expect(Number.parseFloat(sheet().style.height)).toBe(800 + SHEET_KEY_STEP))
+    // The width the user chose survives, untouched by a height-only key.
+    expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1200, height: 816 })
+
+    // And a key that cannot move the sheet at all writes nothing either.
+    fireEvent.keyDown(grip(), { key: 'ArrowRight' })
+    await waitFor(() => expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}').width).toBe(1200))
+  })
+
+  it('does not destroy a large preference when a drag is clamped in a small window', async () => {
+    // The same rule on the pointer path: the drag resizes what is visible, so the
+    // axis that could not move must keep the preference the user picked.
+    window.localStorage.setItem(SHEET_STORAGE_KEY, JSON.stringify({ width: 1200, height: 800 }))
+    Object.defineProperty(window, 'innerWidth', { value: 700, configurable: true })
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    // Drag DOWN only. The width is already at the window's edge, so it cannot
+    // move — and an axis that did not move must keep the 1200 the user chose
+    // rather than being rewritten with the 652 the window forced.
+    dragBy(0, 30)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.height)).toBe(830))
+    expect(Number.parseFloat(sheet().style.width)).toBe(700 - SHEET_MARGIN * 2)
+    expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1200, height: 830 })
+  })
+
+  it('still closes on Escape and saves on the save shortcut from a focused grip', async () => {
+    // The grip's own key handler stops propagation for the keys it owns. Escape
+    // and Cmd/Ctrl+Enter must still bubble to the dialog, or resizing once would
+    // leave a user unable to close or save without clicking.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    const node = grip()
+    node.focus()
+    fireEvent.keyDown(node, { key: 'Escape' })
+    // No unsaved edits yet, so Escape closes outright.
+    await waitFor(() => expect(document.querySelector('.skw-sheet')).toBeNull())
+
+    // Same for the save shortcut, with a draft in place.
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-sheet-grip')).not.toBeNull())
+    fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: 'saved from the grip' } })
+    fireEvent.keyDown(grip(), { key: 'Enter', metaKey: true })
+    await waitFor(() => expect(api.calls.filter((call) => call === 'create')).toHaveLength(1))
+  })
+
+  it('ends a drag only for the pointer that started it, and on cancel too', async () => {
+    // A second finger's pointerup used to end (and persist) the first finger's
+    // drag; a cancelled drag must also settle instead of sticking.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    const node = grip()
+    act(() => { node.dispatchEvent(pointer('pointerdown', 500, 400, 1)) })
+    act(() => { node.dispatchEvent(pointer('pointermove', 560, 440, 1)) })
+    // A different pointer ends: the drag must survive.
+    act(() => { node.dispatchEvent(pointer('pointerup', 900, 900, 2)) })
+    act(() => { node.dispatchEvent(pointer('pointermove', 620, 460, 1)) })
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(1000))
+
+    // `pointercancel` settles the same way `pointerup` does.
+    act(() => { node.dispatchEvent(pointer('pointercancel', 620, 460, 1)) })
+    expect(JSON.parse(window.localStorage.getItem(SHEET_STORAGE_KEY) ?? '{}')).toEqual({ width: 1000, height: 740 })
+  })
+
+  it('does not reset when 0 is typed into the note body', async () => {
+    // The reset shortcut is bound to the grip only. If it ever leaked to a
+    // document-level handler, typing "0" in a note would resize the sheet.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    dragBy(80, 0)
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(960))
+    const field = document.querySelector('.skw-ed-input') as HTMLTextAreaElement
+    fireEvent.keyDown(field, { key: '0' })
+    fireEvent.change(field, { target: { value: '2026 年 0 号方案' } })
+    expect(Number.parseFloat(sheet().style.width)).toBe(960)
+  })
+
+  it('exposes its size and range to assistive technology', async () => {
+    // A focusable separator is a window-splitter widget: ARIA requires the value
+    // triple, and aria-valuetext alone is not reliably announced.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    const node = grip()
+    expect(node.getAttribute('role')).toBe('separator')
+    expect(node.getAttribute('aria-valuenow')).toBe(String(SHEET_DEFAULT.width))
+    expect(node.getAttribute('aria-valuemin')).toBe(String(SHEET_MIN.width))
+    // The maximum is the window, not a constant: hard-coding it would announce a
+    // number the grip cannot reach.
+    expect(Number(node.getAttribute('aria-valuemax'))).toBe(1440 - SHEET_MARGIN * 2)
+    expect(node.getAttribute('aria-valuetext')).toBe(`${SHEET_DEFAULT.width}×${SHEET_DEFAULT.height}px`)
+    // The keyboard contract lives in real DOM text, reachable by a description.
+    const describedBy = node.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy!)?.textContent).toBe(copy('resizeSheetHint'))
+  })
+
+  it('ignores auto-repeated and modifier-carrying resize keys', async () => {
+    // Holding an arrow would otherwise write localStorage ~30 times a second, and
+    // Cmd/Ctrl+0 is the browser's page-zoom reset.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    fireEvent.keyDown(grip(), { key: 'ArrowRight', repeat: true })
+    expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
+    fireEvent.keyDown(grip(), { key: '0', metaKey: true })
+    expect(Number.parseFloat(sheet().style.width)).toBe(SHEET_DEFAULT.width)
+    expect(window.localStorage.getItem(SHEET_STORAGE_KEY)).toBeNull()
+  })
+
+  it('leaves the destructive confirmation dialog alone', async () => {
+    // Fill mode belongs to the composer. The confirm dialog shares the
+    // `.skw-sheet` class, so a marker applied to every body would have stretched
+    // (and scrolled) a one-line prompt too.
+    const api = makeApi({ list: async () => [makeNote({ id: 'a', body: 'x' })] })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    const card = document.querySelector('.skw-note') as HTMLElement
+    fireEvent.click(card.querySelector('button[aria-label="' + copy('delete') + '"]')!)
+    await waitFor(() => expect(screen.getByRole('dialog', { name: copy('delete') })).not.toBeNull())
+    const dialog = screen.getByRole('dialog', { name: copy('delete') })
+    expect(dialog.className).not.toContain('skw-sheet-composer')
+    expect(dialog.querySelector('.skw-sheet-body')?.getAttribute('data-fill')).toBeNull()
+    // And it carries no resize grip of its own.
+    expect(dialog.querySelector('.skw-sheet-grip')).toBeNull()
+  })
+
+  it('takes keyboard focus when the grip is pressed', async () => {
+    // pointerdown is preventDefault-ed (otherwise the drag selects footer text),
+    // which also suppresses the browser's focus-on-mousedown. Without an explicit
+    // focus, a user who drags and then reaches for the arrow keys gets nothing.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    const node = grip()
+    act(() => {
+      node.dispatchEvent(pointer('pointerdown', 500, 400))
+    })
+    expect(document.activeElement).toBe(node)
+    fireEvent.keyDown(node, { key: 'ArrowRight' })
+    await waitFor(() => expect(Number.parseFloat(sheet().style.width)).toBe(880 + SHEET_KEY_STEP))
+  })
+
+  it('gives the editor the sheet’s spare height instead of leaving it empty', async () => {
+    // Fill mode is what turns a taller sheet into more visible text. Without it a
+    // resized sheet just showed more background.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await openComposer()
+    const root = document.querySelector('.skw-ed-root') as HTMLElement
+    expect(root.getAttribute('data-fill')).toBe('true')
+    expect(document.querySelector('.skw-sheet-body')?.getAttribute('data-fill')).toBe('true')
   })
 })
