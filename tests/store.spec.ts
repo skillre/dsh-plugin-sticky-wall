@@ -419,8 +419,13 @@ describe('sticky-wall store', () => {
     const welcome = seeded.list()
     expect(welcome).toHaveLength(1)
     expect(welcome[0]?.pinned).toBe(true)
-    // The seed is a real note file like any other.
-    expect(await mdFiles(seeded.notesDir)).toEqual(['welcome.md'])
+    // The seed is a real note file like any other, but its id is a fresh UUID:
+    // a fixed `welcome` id could collide with a genuine note of that name and
+    // overwrite it (exactly the 0.8.0 incident).
+    const files = await mdFiles(seeded.notesDir)
+    expect(files).toHaveLength(1)
+    expect(files[0]).not.toBe('welcome.md')
+    expect(welcome[0]?.id).not.toBe('welcome')
     const dir = await notesDir()
     const store = await makeStore({ dir })
     await store.create({ body: 'mine' })

@@ -284,3 +284,128 @@ describe('migrateNotes', () => {
     expect(await mdFiles(notesDir)).toEqual(['note-0.md'])
   })
 })
+
+/**
+ * Regression for the 0.8.0 data-loss bug's SECOND half.
+ *
+ * 0.8.0 quarantined every legacy record as `<id>.json.bak.<stamp>` and then
+ * seeded a welcome note into the "empty" wall. A user who ran that build has a
+ * notes directory that looks already-migrated, so the corrected migration used
+ * to decline to run and left their real notes stranded on disk forever.
+ *
+ * These tests pin the recovery: the seeded note is recognised, the quarantined
+ * records are converted, and nothing the user wrote afterwards is overwritten.
+ */
+describe('recovery from the 0.8.0 broken migration', () => {
+  const SEED_BODY = '随手记下一闪而过的灵感，或一件临时的工作。点右下角的 + 新建一张便签；按 ⌘/Ctrl + Enter 保存。'
+
+  /** Build a fake legacy directory holding `<id>.json.bak.<stamp>` envelopes. */
+  async function quarantine(root: string, records: Array<Record<string, unknown>>, stamp = '202611131136'): Promise<string> {
+    const legacyDir = join(root, 'storages', 'skillre_sticky_wall', 'notes')
+    await mkdir(legacyDir, { recursive: true })
+    for (const record of records) {
+      await writeFile(join(legacyDir, `${String(record['id'])}.json.bak.${stamp}`), JSON.stringify({ version: 1, record }), 'utf8')
+    }
+    return legacyDir
+  }
+
+  /** A notes directory in the exact state 0.8.0 left behind. */
+  async function seededWall(root: string): Promise<string> {
+    const notesDir = join(root, 'sticky-notes')
+    await mkdir(notesDir, { recursive: true })
+    await writeFile(
+      join(notesDir, 'welcome.md'),
+      `---
+id: welcome
+schema: 1
+title: "便签墙"
+color: yellow
+tags: ["开始"]
+pinned: true
+width: md
+---
+
+${SEED_BODY}`,
+      'utf8',
+    )
+    return notesDir
+  }
+
+  it('brings the quarantined notes back when only the seeded welcome note is present', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sw-recover-'))
+    const notesDir = await seededWall(root)
+    const legacyNotesDir = await quarantine(root, [
+      { id: 'a1', title: 'Real one', body: 'first', tags: ['x'], color: 'blue', pinned: true, archived: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z', layout: { x: 10, y: 20, rotate: 1, width: 'lg' } },
+      { id: 'a2', title: '', body: 'second', tags: [], color: 'green', pinned: false, archived: true, createdAt: '2026-01-03T00:00:00.000Z', updatedAt: '2026-01-04T00:00:00.000Z', layout: null },
+    ])
+
+    const result = await migrateNotes({ notesDir, readLegacy: async () => [], legacyNotesDir })
+    expect(result.migrated).toBe(true)
+    expect(result.reason).toBe('recovered-from-broken-migration')
+    expect(result.count).toBe(2)
+
+    const files = (await readdir(notesDir)).filter((name) => name.endsWith('.md')).sort()
+    expect(files).toEqual(['a1.md', 'a2.md'])
+
+    const first = parseNoteFile(await readFile(join(notesDir, 'a1.md'), 'utf8'), { fallbackId: 'a1', fallbackTime: '2026-01-01T00:00:00.000Z' }).note
+    expect(first.title).toBe('Real one')
+    expect(first.body).toBe('first')
+    expect(first.color).toBe('blue')
+    expect(first.pinned).toBe(true)
+    expect(first.layout).toEqual({ x: 10, y: 20, rotate: 1, width: 'lg' })
+  })
+
+  it('removes the seeded welcome note once the real notes are back', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sw-recover-'))
+    const notesDir = await seededWall(root)
+    const legacyNotesDir = await quarantine(root, [{ id: 'only', title: 'T', body: 'b' }])
+
+    await migrateNotes({ notesDir, readLegacy: async () => [], legacyNotesDir })
+    const files = await readdir(notesDir)
+    // The seed is gone so it cannot shadow a genuine `welcome` note.
+    expect(files).not.toContain('welcome.md')
+    expect(files).toContain('only.md')
+  })
+
+  it('never overwrites a note the user already has', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sw-recover-'))
+    const notesDir = await seededWall(root)
+    // The user wrote a note after upgrading; recovery must not clobber it.
+    await writeFile(join(notesDir, 'kept.md'), '---\nid: kept\n---\n\nmine', 'utf8')
+    const legacyNotesDir = await quarantine(root, [{ id: 'kept', title: 'Old', body: 'stale' }])
+
+    await migrateNotes({ notesDir, readLegacy: async () => [], legacyNotesDir })
+    const kept = parseNoteFile(await readFile(join(notesDir, 'kept.md'), 'utf8'), { fallbackId: 'kept', fallbackTime: '2026-01-01T00:00:00.000Z' }).note
+    expect(kept.body).toBe('mine')
+  })
+
+  it('leaves a genuinely-migrated wall alone', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sw-recover-'))
+    const notesDir = join(root, 'sticky-notes')
+    await mkdir(notesDir, { recursive: true })
+    // Two real notes: not the bug signature, so recovery must not run.
+    await writeFile(join(notesDir, 'r1.md'), '---\nid: r1\n---\n\none', 'utf8')
+    await writeFile(join(notesDir, 'r2.md'), '---\nid: r2\n---\n\ntwo', 'utf8')
+    const legacyNotesDir = await quarantine(root, [{ id: 'x', body: 'should not appear' }])
+
+    const result = await migrateNotes({ notesDir, readLegacy: async () => [], legacyNotesDir })
+    expect(result.migrated).toBe(false)
+    expect(result.reason).toBe('already-present')
+    expect((await readdir(notesDir)).filter((n) => n.endsWith('.md')).sort()).toEqual(['r1.md', 'r2.md'])
+  })
+
+  it('prefers the newest quarantine stamp for a note', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sw-recover-'))
+    const notesDir = await seededWall(root)
+    const legacyNotesDir = await quarantine(root, [{ id: 'dup', title: 'Old', body: 'old body' }], '202611131136')
+    await writeFile(
+      join(legacyNotesDir, 'dup.json.bak.202611140900'),
+      JSON.stringify({ version: 1, record: { id: 'dup', title: 'New', body: 'new body' } }),
+      'utf8',
+    )
+
+    await migrateNotes({ notesDir, readLegacy: async () => [], legacyNotesDir })
+    const note = parseNoteFile(await readFile(join(notesDir, 'dup.md'), 'utf8'), { fallbackId: 'dup', fallbackTime: '2026-01-01T00:00:00.000Z' }).note
+    expect(note.body).toBe('new body')
+  })
+})

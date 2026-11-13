@@ -4,18 +4,18 @@
   "dsh": "0.2.2-rc.2",
   "tarball": {
     "path": "/Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.8.1.tgz",
-    "sha256": "542a6bc902b8cc46d56af5f4415176300675a194a8da97a7906e0ae655a2624f"
+    "sha256": "7170767a6c7995e1d8f85688778c83fdd2fea658234ddcd97b65e910bb14f1d0"
   },
-  "profile": "sticky-wall-test-88400cd6",
+  "profile": "sticky-wall-test-069ab505",
   "checks": [
     "command: dsh --version -> exit 0",
     "dsh-version",
-    "command: dsh --profile sticky-wall-test-88400cd6 --from-default-profile web --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-069ab505 --from-default-profile web --dump-config -> exit 0",
     "profile-template-created",
-    "command: dsh plugin --profile sticky-wall-test-88400cd6 add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.8.1.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-GYP6pt/pnpm-store -> exit 0",
+    "command: dsh plugin --profile sticky-wall-test-069ab505 add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.8.1.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-OIlXKp/pnpm-store -> exit 0",
     "profile-tarball-install",
     "packed-dependency-and-selection",
-    "command: dsh --profile sticky-wall-test-88400cd6 --dump-config -> exit 0",
+    "command: dsh --profile sticky-wall-test-069ab505 --dump-config -> exit 0",
     "dump-config",
     "packed-payload-present",
     "legacy-domain-seeded",
@@ -42,7 +42,7 @@
       "notes": 2
     },
     "create": {
-      "id": "b807b239-4214-4804-ad24-bd6cfa917f66"
+      "id": "9cae5160-51d7-4a1a-ac39-c3c7389fd64c"
     },
     "move": {
       "x": 168,
@@ -52,8 +52,8 @@
     }
   },
   "cleanup": {
-    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-GYP6pt",
-    "profile": "sticky-wall-test-88400cd6",
+    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-OIlXKp",
+    "profile": "sticky-wall-test-069ab505",
     "processesStopped": true,
     "rootRemoved": true,
     "verified": true

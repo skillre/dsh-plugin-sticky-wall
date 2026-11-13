@@ -70,6 +70,13 @@ export interface StoreOptions {
      * and nothing else — which is what the tests and any non-DSH caller want.
      */
     readLegacy?: (() => Promise<Note[]>) | undefined;
+    /**
+     * Where a broken 0.8.0 run quarantined the legacy records.
+     *
+     * Passed through to the migration so it can recover a wall that build left
+     * looking empty. Omit it when the caller has no legacy medium at all.
+     */
+    legacyNotesDir?: string | undefined;
     /** Injectable clock; tests use a stepping clock so timestamps are distinct. */
     now?: (() => Date) | undefined;
     /** Sink for non-fatal problems (an oversized or unreadable note file). */

@@ -10,6 +10,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import { Config, resolveConfig, resolveNotesDir } from './config.js'
 import type { WallConfig } from './config.js'
@@ -163,6 +164,18 @@ async function readLegacyNotes(facility: DomainFacility): Promise<Note[]> {
   } finally {
     await domain.close()
   }
+}
+
+/**
+ * The directory a 0.7.x install's storage domain wrote its records into.
+ *
+ * It sits beside the notes directory, under the same DSH home, so it is derived
+ * rather than configured: `storages/<domain name>/notes`. The recovery path uses
+ * it to find the `<id>.json.bak.<stamp>` files a broken 0.8.0 run left behind.
+ */
+function legacyNotesDirOf(notesDir: string): string {
+  const home = dirname(dirname(notesDir))
+  return join(home, 'storages', LEGACY_DOMAIN_NAME, 'notes')
 }
 
 /** Model-facing text for one tool result; short, deterministic and readable. */
@@ -374,6 +387,10 @@ export function apply(ctx: Context, rawConfig: Partial<WallConfig> = {}): void {
     maxNotes: config.maxNotes,
     seedWelcomeNote: config.seedWelcomeNote,
     readLegacy: facility?.open === undefined ? undefined : () => readLegacyNotes(facility),
+    // Where a broken 0.8.0 run quarantined the legacy records, so the corrected
+    // migration can recover them from `.bak` files instead of reporting an
+    // already-migrated wall and leaving the user's notes stranded.
+    legacyNotesDir: facility?.open === undefined ? undefined : legacyNotesDirOf(notesDir),
     log: (message: string) => ctx.logger?.warn?.(`sticky-wall: ${message}`),
   })
   ready.catch((error: unknown) => {

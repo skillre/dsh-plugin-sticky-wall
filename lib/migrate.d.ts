@@ -42,6 +42,15 @@ export interface MigrateOptions {
     readLegacy: () => Promise<Note[]>;
     /** Clock for the marker's `at` field. */
     now?: (() => Date) | undefined;
+    /**
+     * Where the legacy records live on disk, when the caller knows.
+     *
+     * Only used to recover a wall that 0.8.0 left looking empty: that build
+     * quarantined every record as `<id>.json.bak.<stamp>` in this directory, so
+     * the files are the only remaining copy. Omit it and that recovery cannot run
+     * — which is correct for a caller that has no legacy medium at all.
+     */
+    legacyNotesDir?: string | undefined;
 }
 /**
  * Move the legacy notes into `notesDir`, or explain why there was nothing to do.

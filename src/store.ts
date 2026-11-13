@@ -95,6 +95,13 @@ export interface StoreOptions {
    * and nothing else — which is what the tests and any non-DSH caller want.
    */
   readLegacy?: (() => Promise<Note[]>) | undefined
+  /**
+   * Where a broken 0.8.0 run quarantined the legacy records.
+   *
+   * Passed through to the migration so it can recover a wall that build left
+   * looking empty. Omit it when the caller has no legacy medium at all.
+   */
+  legacyNotesDir?: string | undefined
   /** Injectable clock; tests use a stepping clock so timestamps are distinct. */
   now?: (() => Date) | undefined
   /** Sink for non-fatal problems (an oversized or unreadable note file). */
@@ -266,6 +273,7 @@ export class StickyWallStore {
       const result = await migrateNotes({
         notesDir: store.notesDir,
         readLegacy: options.readLegacy,
+        ...(options.legacyNotesDir === undefined ? {} : { legacyNotesDir: options.legacyNotesDir }),
         ...(options.now === undefined ? {} : { now: options.now }),
       })
       if (!result.migrated && result.reason === 'failed') {
@@ -435,7 +443,14 @@ export class StickyWallStore {
     if (this.notes.size > 0) return
     const stamp = this.now().toISOString()
     const note: Note = {
-      id: 'welcome',
+      // A RANDOM id, not the literal `welcome`.
+      //
+      // The seeded note used to be written as `welcome.md`, which is a legal id
+      // a 0.7.x wall could already own (the old seed used exactly that name). A
+      // migration that recovered such a note and then let the seed run would
+      // OVERWRITE the user's real note — which is precisely what happened during
+      // the 0.8.0 incident's second restart. A fresh UUID can never collide.
+      id: globalThis.crypto.randomUUID(),
       title: '便签墙',
       body: '随手记下一闪而过的灵感，或一件临时的工作。点右下角的 + 新建一张便签；按 ⌘/Ctrl + Enter 保存。',
       tags: ['开始'],
