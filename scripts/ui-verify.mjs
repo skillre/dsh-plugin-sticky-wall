@@ -238,7 +238,7 @@ try {
   await page.wait(500)
   const sheet = await page.evaluate(`(() => ({
     open: !!document.querySelector('.skw-sheet'),
-    textarea: !!document.querySelector('.skw-textarea'),
+    textarea: !!document.querySelector('.skw-ed-input'),
     swatches: document.querySelectorAll('.skw-swatch').length,
   }))()`)
   record('composer-opens', { ok: sheet.open && sheet.textarea === true, detail: `${sheet.swatches} swatches` })
@@ -251,7 +251,7 @@ try {
   const TICK = String.fromCharCode(96)
   const typedBody = ['验证便签：来自真实 Web UI 的输入', '', '**粗体**与 ' + TICK + '代码' + TICK, '', '- 第一条', '- 第二条'].join('\n')
   await page.evaluate(`(() => {
-    const textarea = document.querySelector('.skw-textarea');
+    const textarea = document.querySelector('.skw-ed-input');
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
     setter.call(textarea, ${JSON.stringify(typedBody)});
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -714,7 +714,7 @@ try {
     })()`)
     await page.wait(220)
     await page.evaluate(`(() => {
-      const textarea = document.querySelector('.skw-textarea');
+      const textarea = document.querySelector('.skw-ed-input');
       const input = document.querySelector('.skw-input');
       if (!textarea || !input) return false;
       const setText = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
