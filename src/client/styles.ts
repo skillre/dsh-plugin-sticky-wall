@@ -426,8 +426,41 @@ export const WALL_CSS = `
 
 /* Rendered Markdown.
    Sized in em so it follows the card's own font size at every width preset,
-   and kept quiet: headings are one step up, not a document outline. */
-.skw-md { font-size: inherit; line-height: inherit; }
+   and kept quiet: headings are one step up, not a document outline.
+
+   The palette is a MIDDLE LAYER declared on .skw-md itself, because that one
+   element is rendered on two surfaces: inside a note card, and inside the
+   composer's neutral preview pane, which is NOT a .skw-note. A note's own
+   --skw-note-* variables exist only on .skw-note, so a .skw-md-* rule that read
+   them directly resolved to nothing in the preview pane — and every color-mix()
+   built on that empty variable was an invalid declaration there, which is why
+   the preview lost its code chip, quote rail, rule and table borders. Routing
+   every rule through --skw-md-* fixes that at the source.
+
+   The defaults are the shell's own label/brand tokens, so a .skw-md on a neutral
+   surface is readable with no extra rule. A note card re-points the layer at its
+   own palette below. The fallback inside each var() is the last resort for a
+   .skw-md rendered outside the sheet entirely. */
+.skw-md {
+  font-size: inherit; line-height: inherit;
+  --skw-md-ink: var(--dsw-alias-label-primary);
+  --skw-md-accent: var(--dsw-alias-brand-primary);
+  --skw-md-accent-ink: var(--dsw-alias-brand-primary);
+}
+/* A note card re-points the middle layer at its own palette, so a card's
+   Markdown keeps exactly the colors it had when the rules read --skw-note-*
+   directly. This MUST be a descendant rule and not a line inside the twelve
+   .skw-note[data-color] palette rules: a custom property declared on .skw-md
+   beats an inherited value from its ancestor, so a note-level
+   --skw-md-ink: var(--skw-note-ink) would be shadowed by the default above and
+   change nothing. This selector's specificity is what wins.
+   Dark mode needs no extra rule: the palette rules already restate --skw-note-*
+   under body[data-ds-dark-theme], and this mapping inherits. */
+.skw-note .skw-md {
+  --skw-md-ink: var(--skw-note-ink);
+  --skw-md-accent: var(--skw-note-accent);
+  --skw-md-accent-ink: var(--skw-note-accent-ink);
+}
 .skw-md[data-compact="true"] > *:first-child { margin-top: 0; }
 .skw-md[data-compact="true"] > *:last-child { margin-bottom: 0; }
 .skw-md .skw-md-p { margin: 0 0 .5em; }
@@ -439,51 +472,52 @@ export const WALL_CSS = `
 .skw-md h5.skw-md-heading, .skw-md h6.skw-md-heading { font-size: 1em; }
 .skw-md .skw-md-list { margin: .35em 0 .55em; padding-left: 1.15em; }
 .skw-md .skw-md-list li { margin: .12em 0; }
-.skw-md .skw-md-list li::marker { color: var(--skw-note-accent-ink); }
+.skw-md .skw-md-list li::marker { color: var(--skw-md-accent-ink, currentColor); }
 .skw-md .skw-md-pre {
   margin: .45em 0; padding: 7px 9px; border-radius: 7px; overflow: auto;
-  background: color-mix(in srgb, var(--skw-note-ink) 9%, transparent);
-  border: 1px solid color-mix(in srgb, var(--skw-note-ink) 14%, transparent);
+  background: color-mix(in srgb, var(--skw-md-ink, currentColor) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--skw-md-ink, currentColor) 14%, transparent);
   font-size: .92em; line-height: 1.45; max-height: 180px;
 }
 .skw-md .skw-md-pre code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
 .skw-md .skw-md-code {
   padding: .08em .34em; border-radius: 4px; font-size: .94em;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: color-mix(in srgb, var(--skw-note-ink) 11%, transparent);
+  background: color-mix(in srgb, var(--skw-md-ink, currentColor) 11%, transparent);
 }
 .skw-md .skw-md-quote {
   margin: .4em 0; padding: .1em 0 .1em .7em;
-  border-left: 2px solid var(--skw-note-accent);
-  color: color-mix(in srgb, var(--skw-note-ink) 82%, transparent);
+  border-left: 2px solid var(--skw-md-accent, currentColor);
+  color: color-mix(in srgb, var(--skw-md-ink, currentColor) 82%, transparent);
 }
-.skw-md .skw-md-rule { margin: .6em 0; border: 0; border-top: 1px solid color-mix(in srgb, var(--skw-note-ink) 22%, transparent); }
-.skw-md .skw-md-link { color: var(--skw-note-accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.skw-md .skw-md-rule { margin: .6em 0; border: 0; border-top: 1px solid color-mix(in srgb, var(--skw-md-ink, currentColor) 22%, transparent); }
+.skw-md .skw-md-link { color: var(--skw-md-accent-ink, currentColor); text-decoration: underline; text-underline-offset: 2px; }
 .skw-md .skw-md-link:hover { text-decoration-thickness: 2px; }
 .skw-md .skw-md-table { margin: .45em 0; border-collapse: collapse; width: 100%; font-size: .94em; }
 .skw-md .skw-md-table th, .skw-md .skw-md-table td {
-  padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--skw-note-ink) 18%, transparent); text-align: left;
+  padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--skw-md-ink, currentColor) 18%, transparent); text-align: left;
 }
-.skw-md .skw-md-table th { background: color-mix(in srgb, var(--skw-note-ink) 7%, transparent); font-weight: 600; }
+.skw-md .skw-md-table th { background: color-mix(in srgb, var(--skw-md-ink, currentColor) 7%, transparent); font-weight: 600; }
 .skw-md .skw-md-task { display: inline-flex; align-items: baseline; gap: 5px; }
 .skw-md .skw-md-box {
   display: inline-flex; align-items: center; justify-content: center;
   width: 12px; height: 12px; flex: none; border-radius: 3px; font-size: 9px; line-height: 1;
-  border: 1px solid color-mix(in srgb, var(--skw-note-ink) 40%, transparent);
+  border: 1px solid color-mix(in srgb, var(--skw-md-ink, currentColor) 40%, transparent);
 }
-.skw-md .skw-md-task[data-checked="true"] .skw-md-box { background: var(--skw-note-accent); border-color: transparent; color: var(--skw-note-accent-ink); }
+.skw-md .skw-md-task[data-checked="true"] .skw-md-box { background: var(--skw-md-accent, currentColor); border-color: transparent; color: var(--skw-md-accent-ink, currentColor); }
 .skw-md .skw-md-task[data-checked="true"] { opacity: .78; }
 
-/* Composer preview pane: same Markdown, on a neutral sheet instead of a note. */
+/* Composer preview pane: the same Markdown on a neutral sheet instead of a note.
+   It needs NO palette overrides of its own: .skw-md above already resolves the
+   middle layer to the theme tokens here (there is no .skw-note ancestor to
+   supply --skw-note-*), so every .skw-md-* rule renders on both surfaces from
+   one definition instead of a per-surface patch list. */
 .skw-preview-box {
   min-height: 132px; max-height: 42vh; overflow: auto; padding: 9px 11px;
   border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary);
   font-size: 13px; line-height: 20px;
 }
-.skw-preview-box .skw-md-link { color: var(--dsw-alias-brand-primary); }
-.skw-preview-box .skw-md-code { background: var(--dsw-alias-bg-layer-2); }
-.skw-preview-box .skw-md-pre { background: var(--dsw-alias-bg-layer-2); border-color: var(--dsw-alias-border-l1); }
 .skw-preview-empty { margin: 0; color: var(--dsw-alias-label-tertiary); }
 .skw-sheet-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .skw-sheet-row .skw-spacer { flex: 1; }

@@ -310,24 +310,32 @@ function Composer({
         <div className="skw-sheet-body" data-fill="true">
           <input className="skw-input" value={draft.title} placeholder={t('titlePlaceholder')} maxLength={LIMITS.title}
             onChange={(event) => onChange({ title: event.target.value })} aria-label={t('titlePlaceholder')} />
-          {preview ? (
+          {preview && (
             <div className="skw-preview-box skw-preview-fill">
               {draft.body.trim() === '' ? <p className="skw-preview-empty">{t('bodyPlaceholder')}</p> : <Markdown source={draft.body} />}
             </div>
-          ) : (
-            <MarkdownEditor
-              value={draft.body}
-              fill
-              onChange={(body) => onChange({ body })}
-              onSave={save}
-              onEscape={requestClose}
-              maxLength={LIMITS.body}
-              placeholder={t('bodyPlaceholder')}
-              label={t('bodyPlaceholder')}
-              locale={locale.toLowerCase().startsWith('zh') ? 'zh' : 'en'}
-              disabled={busy}
-            />
           )}
+          {/* The editor stays MOUNTED while previewing, hidden by an inline
+              `display:none`. Swapping it out of the tree (the old `preview ?
+              ... : <MarkdownEditor/>`) remounted a controlled textarea, which
+              throws its selection away: switching to preview and back landed the
+              caret at the end of the note (measured caret 5 -> 11). A `hidden`
+              attribute would not work either — `.skw-ed-root` sets
+              `display:flex`, an author rule that beats the UA `[hidden]` sheet. */}
+          <MarkdownEditor
+            value={draft.body}
+            fill
+            hidden={preview}
+            t={t}
+            onChange={(body) => onChange({ body })}
+            onSave={save}
+            onEscape={requestClose}
+            maxLength={LIMITS.body}
+            placeholder={t('bodyPlaceholder')}
+            label={t('bodyPlaceholder')}
+            locale={locale.toLowerCase().startsWith('zh') ? 'zh' : 'en'}
+            disabled={busy}
+          />
           <input className="skw-input" value={draft.tags} placeholder={t('tagsPlaceholder')}
             onChange={(event) => onChange({ tags: event.target.value })} aria-label={t('tagsPlaceholder')} />
           <div className="skw-sheet-row">

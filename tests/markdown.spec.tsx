@@ -226,3 +226,298 @@ describe('plainTextSummary', () => {
     expect(digest).toBe(`${'x'.repeat(90)}…`)
   })
 })
+
+/**
+ * Parser robustness regressions.
+ *
+ * The defect these lock down was not a cosmetic one: `parseBlocks` had a branch
+ * that could return the same index forever, and it runs on EVERY render (card
+ * body, card aria-label, list-row digest). A single note containing an indented
+ * quote therefore froze the sidebar with no way back short of editing the file
+ * on disk — and the editor could produce that note from one Tab keypress.
+ */
+describe('parser termination', () => {
+  it('parses an indented block quote instead of looping forever', () => {
+    // Before the fix this call never returned: the branch tested the TRIMMED
+    // line for `>` but matched the RAW line inside its loop, so `index` never
+    // advanced. The test hangs rather than fails if the invariant regresses.
+    expect(parseBlocks('  > indented quote')).toEqual([
+      { kind: 'quote', children: [{ kind: 'paragraph', text: 'indented quote' }] },
+    ])
+    expect(parseBlocks('\t> tab quote')).toEqual([
+      { kind: 'quote', children: [{ kind: 'paragraph', text: 'tab quote' }] },
+    ])
+    expect(parseBlocks('> a\n  > b')[0]).toMatchObject({ kind: 'quote' })
+  })
+
+  it('terminates on every two- and three-line combination of block markers', () => {
+    // The exact fuzz that found the loop: 34 atoms taken two and three at a
+    // time. It must complete quickly and never throw.
+    const atoms = ['> q', '  > q', '\t> q', '>', '> > q', '- a', '  - b', '# h', '  # h',
+      '---', '| a | b |', '| --- | --- |', '```', '~~~', 'text', '  text', '', '- [ ] t', '1. o']
+    const started = Date.now()
+    for (const a of atoms) {
+      for (const b of atoms) {
+        parseBlocks(`${a}\n${b}`)
+        plainTextSummary(`${a}\n${b}`)
+        for (const c of atoms) parseBlocks(`${a}\n${b}\n${c}`)
+      }
+    }
+    expect(Date.now() - started).toBeLessThan(5_000)
+  })
+
+  it('never throws on unterminated constructs', () => {
+    for (const source of ['```', '> ', '- ', '| a |', '**', '`', '~~~', '\n\n\n', '  \n\t\n', '####### h7']) {
+      expect(() => parseBlocks(source)).not.toThrow()
+      expect(() => plainTextSummary(source)).not.toThrow()
+    }
+  })
+
+  it('parses a deeply nested document without blowing up', () => {
+    const deep = Array.from({ length: 200 }, (_, index) => `${' '.repeat(index * 2)}- level ${index}`).join('\n')
+    expect(() => parseBlocks(deep)).not.toThrow()
+  })
+})
+
+/**
+ * Indentation is structure.
+ *
+ * These lock the contract the editor's Tab key now relies on: a block marker is
+ * recognised after leading whitespace, so indenting a line can never silently
+ * un-syntax it. The old parser matched headings and quotes on the raw line, which
+ * is why the toolbar's own output (`  # title`) rendered as a paragraph.
+ */
+describe('indentation as structure', () => {
+  it('recognises a heading behind leading whitespace', () => {
+    expect(parseBlocks('  # title')[0]).toEqual({ kind: 'heading', level: 1, text: 'title' })
+  })
+
+  it('nests lists by two-space indentation', () => {
+    const [block] = parseBlocks('- one\n  - two\n    - three')
+    expect(block).toMatchObject({ kind: 'list', ordered: false })
+    const list = block as Extract<ReturnType<typeof parseBlocks>[number], { kind: 'list' }>
+    expect(list.items).toHaveLength(1)
+    expect(list.items[0]?.text).toBe('one')
+    const child = list.items[0]?.children[0]
+    expect(child).toMatchObject({ kind: 'list' })
+    const childList = child as Extract<typeof child, { kind: 'list' }>
+    expect(childList.items[0]?.text).toBe('two')
+  })
+
+  it('keeps a nested ordered list inside its parent item', () => {
+    const [block] = parseBlocks('1. a\n   1. b\n2. c')
+    const list = block as Extract<ReturnType<typeof parseBlocks>[number], { kind: 'list' }>
+    expect(list.items.map((item) => item.text)).toEqual(['a', 'c'])
+    expect(list.items[0]?.children[0]).toMatchObject({ kind: 'list', ordered: true })
+  })
+
+  it('folds a continuation line into its list item instead of splitting the list', () => {
+    // This used to produce list + paragraph + list: three blocks for two items.
+    const blocks = parseBlocks('- item one\n  continued text\n- item two')
+    expect(blocks).toHaveLength(1)
+    const list = blocks[0] as Extract<(typeof blocks)[number], { kind: 'list' }>
+    expect(list.items).toHaveLength(2)
+    expect(list.items[0]?.text).toBe('item one\ncontinued text')
+  })
+
+  it('keeps a loose list as ONE list', () => {
+    const blocks = parseBlocks('- a\n\n- b')
+    expect(blocks).toHaveLength(1)
+    const list = blocks[0] as Extract<(typeof blocks)[number], { kind: 'list' }>
+    expect(list.items.map((item) => item.text)).toEqual(['a', 'b'])
+  })
+
+  it('preserves an empty list item rather than dropping it', () => {
+    const [block] = parseBlocks('- a\n- \n- b')
+    const list = block as Extract<ReturnType<typeof parseBlocks>[number], { kind: 'list' }>
+    expect(list.items.map((item) => item.text)).toEqual(['a', '', 'b'])
+  })
+
+  it('nests a block quote inside a block quote', () => {
+    const [block] = parseBlocks('> outer\n> > inner')
+    const quote = block as Extract<ReturnType<typeof parseBlocks>[number], { kind: 'quote' }>
+    expect(quote.children.map((child) => child.kind)).toEqual(['paragraph', 'quote'])
+  })
+
+  it('parses an indented code block after a blank line', () => {
+    const blocks = parseBlocks('para\n\n    const a = 1\n    const b = 2')
+    expect(blocks.map((block) => block.kind)).toEqual(['paragraph', 'indentedCode'])
+    expect(blocks[1]).toMatchObject({ kind: 'indentedCode', text: 'const a = 1\nconst b = 2' })
+  })
+})
+
+/** Fence and table details that used to leak syntax into the rendered text. */
+describe('fence and table details', () => {
+  it('accepts a fence with an attribute-carrying info string', () => {
+    // ```` ```js title=x ```` used to fail the fence test entirely, so the code
+    // leaked out as a paragraph and the closing fence became an empty code block.
+    const blocks = parseBlocks('```js title=x\ncode\n```')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ kind: 'code', text: 'code', language: 'js' })
+  })
+
+  it('closes a fence with a longer run of the same character', () => {
+    expect(parseBlocks('```\ncode\n````')[0]).toMatchObject({ kind: 'code', text: 'code' })
+  })
+
+  it('does not close a backtick fence with a tilde fence', () => {
+    const blocks = parseBlocks('```\ncode\n~~~\nmore\n```')
+    expect(blocks[0]).toMatchObject({ kind: 'code', text: 'code\n~~~\nmore' })
+  })
+
+  it('reads table column alignment from the divider row', () => {
+    const [block] = parseBlocks('| l | c | r |\n|:---|:---:|---:|\n| 1 | 2 | 3 |')
+    expect(block).toMatchObject({ align: ['left', 'center', 'right'] })
+  })
+
+  it('renders an ordered list starting from a number other than one', () => {
+    const [block] = parseBlocks('3. three\n4. four')
+    expect(block).toMatchObject({ kind: 'list', ordered: true, start: 3 })
+  })
+})
+
+/** Inline constructs that a left-to-right regex scan could not express. */
+describe('inline parsing', () => {
+  const text = (source: string): string => renderInline(source).filter((node) => typeof node === 'string').join('')
+
+  it('renders triple emphasis as strong inside emphasis, with no stray asterisks', () => {
+    // Used to render as `*<strong>both</strong>*`.
+    const { container } = render(<Markdown source="***both***" />)
+    expect(container.querySelector('strong > em')?.textContent).toBe('both')
+    expect(container.textContent).toBe('both')
+  })
+
+  it('leaves an intraword underscore literal', () => {
+    // `snake_case_name` used to render as `snake<em>case</em>name`.
+    const { container } = render(<Markdown source="snake_case_name" />)
+    expect(container.querySelector('em')).toBeNull()
+    expect(container.textContent).toBe('snake_case_name')
+  })
+
+  it('honours a backslash escape', () => {
+    // Used to render the backslash verbatim AND apply the emphasis.
+    const { container } = render(<Markdown source={'\\*not italic\\*'} />)
+    expect(container.querySelector('em')).toBeNull()
+    expect(container.textContent).toBe('*not italic*')
+  })
+
+  it('keeps an unmatched emphasis run literal', () => {
+    // Used to render an empty <em> followed by the word.
+    expect(text('**bold')).toBe('**bold')
+    expect(text('*a')).toBe('*a')
+  })
+
+  it('supports a code span that itself contains a backtick', () => {
+    const { container } = render(<Markdown source="``a`b``" />)
+    expect(container.querySelector('code')?.textContent).toBe('a`b')
+  })
+
+  it('keeps trailing sentence punctuation out of an autolink', () => {
+    const { container } = render(<Markdown source="see https://a.com." />)
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://a.com')
+    expect(container.textContent).toBe('see https://a.com.')
+  })
+
+  it('accepts one level of balanced parentheses in a link target', () => {
+    const { container } = render(<Markdown source="[x](https://en.wikipedia.org/wiki/Foo_(bar))" />)
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://en.wikipedia.org/wiki/Foo_(bar)')
+    expect(container.textContent).toBe('x')
+  })
+})
+
+/** The digest must agree with what the card renders, including nesting. */
+describe('digest of nested content', () => {
+  it('summarises a nested list with its first visible text', () => {
+    expect(plainTextSummary('- one\n  - two')).toBe('one')
+  })
+
+  it('summarises an indented quote', () => {
+    expect(plainTextSummary('  > quoted')).toBe('quoted')
+  })
+
+  it('reaches into a list item that only holds nested content', () => {
+    expect(plainTextSummary('- \n  - nested')).toBe('nested')
+  })
+})
+
+/**
+ * Nested rendering.
+ *
+ * The parser change is only half the fix: the block renderer has to recurse, or
+ * a nested list still renders as one flat `<ul>` — which is exactly the "预览没有
+ * 缩进效果" the user reported. These assert the DOM shape, not the model.
+ */
+describe('nested rendering', () => {
+  it('renders a nested list as nested <ul> elements', () => {
+    const { container } = render(<Markdown source={'- one\n  - two\n    - three'} />)
+    const lists = container.querySelectorAll('ul.skw-md-list')
+    expect(lists).toHaveLength(3)
+    // The inner lists must be INSIDE the parent <li>, not siblings of it.
+    expect(lists[0]?.querySelector('li > ul')).not.toBeNull()
+    expect(container.querySelectorAll('li')).toHaveLength(3)
+  })
+
+  it('renders a nested ordered list inside an unordered one', () => {
+    const { container } = render(<Markdown source={'- a\n  1. b\n  2. c'} />)
+    expect(container.querySelector('ul > li > ol')).not.toBeNull()
+    expect(container.querySelectorAll('ol > li')).toHaveLength(2)
+  })
+
+  it('renders a nested block quote as a blockquote inside a blockquote', () => {
+    const { container } = render(<Markdown source={'> outer\n> > inner'} />)
+    expect(container.querySelector('blockquote blockquote')).not.toBeNull()
+  })
+
+  it('renders an indented code block as <pre>', () => {
+    const { container } = render(<Markdown source={'para\n\n    const a = 1'} />)
+    const pre = container.querySelector('pre')
+    expect(pre?.querySelector('code')?.textContent).toBe('const a = 1')
+  })
+
+  it('applies the declared column alignment to table cells', () => {
+    const { container } = render(<Markdown source={'| l | r |\n|:--- | ---:|\n| 1 | 2 |'} />)
+    expect(container.querySelector('th')?.style.textAlign).toBe('left')
+    expect(container.querySelectorAll('th')[1]?.style.textAlign).toBe('right')
+  })
+
+  it('renders an ordered list from its declared start number', () => {
+    const { container } = render(<Markdown source={'3. three\n4. four'} />)
+    expect(container.querySelector('ol')?.getAttribute('start')).toBe('3')
+  })
+
+  it('renders a continuation line inside the list item, not as a stray paragraph', () => {
+    const { container } = render(<Markdown source={'- item one\n  continued text\n- item two'} />)
+    expect(container.querySelectorAll('p')).toHaveLength(0)
+    expect(container.querySelectorAll('li')).toHaveLength(2)
+    // The soft break inside the item becomes a <br>, keeping it one item.
+    expect(container.querySelectorAll('br')).toHaveLength(1)
+  })
+})
+
+/**
+ * Nesting bound.
+ *
+ * Nesting is recursive, so an adversarial document (4000 lines each opening one
+ * more `>`) recursed thousands of frames and cost quadratic time. The cap keeps
+ * a hostile note from freezing the sidebar, while leaving real nesting intact.
+ */
+describe('nesting bound', () => {
+  it('keeps ordinary nesting well under the cap', () => {
+    const deep = Array.from({ length: 5 }, (_, index) => `${'  '.repeat(index)}- level ${index}`).join('\n')
+    expect(JSON.stringify(parseBlocks(deep))).toContain('children')
+  })
+
+  it('parses an adversarial deep quote quickly instead of quadratically', () => {
+    const hostile = Array.from({ length: 4000 }, (_, index) => `${'>'.repeat(index + 1)} x`).join('\n')
+    const started = Date.now()
+    expect(() => parseBlocks(hostile)).not.toThrow()
+    // Was ~6s before the cap; anything near that means the cap stopped working.
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+
+  it('keeps the over-cap content visible instead of dropping it', () => {
+    const hostile = Array.from({ length: 40 }, (_, index) => `${'>'.repeat(index + 1)} x`).join('\n')
+    const serialised = JSON.stringify(parseBlocks(hostile))
+    expect(serialised).toContain('x')
+  })
+})

@@ -264,6 +264,80 @@ describe('wall page', () => {
   })
 })
 
+describe('markdown palette on both surfaces', () => {
+  // jsdom does not resolve custom properties, so these assertions read the
+  // stylesheet source. That is the right contract here anyway: the bug was a
+  // rule that referenced a variable which is only ever defined on a DIFFERENT
+  // element, so the failure is visible in the sheet text, not in a computed
+  // value.
+  // The whole Markdown block, from the middle-layer definition to the preview pane.
+  // Comments are stripped first: the doc comments legitimately NAME the old
+  // variables while explaining why they moved, and a scan that counted prose
+  // would fail on its own documentation.
+  const mdBlock = WALL_CSS.slice(WALL_CSS.indexOf('.skw-md {'), WALL_CSS.indexOf('.skw-preview-empty')).replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  )
+  // The ONE rule allowed to mention a note variable is the mapping that points
+  // the middle layer at the card's palette.
+  const mappingStart = mdBlock.indexOf('.skw-note .skw-md {')
+  const mappingEnd = mdBlock.indexOf('}', mappingStart) + 1
+  const mappingRule = mdBlock.slice(mappingStart, mappingEnd)
+  const mdRules = mdBlock.slice(0, mappingStart) + mdBlock.slice(mappingEnd)
+
+  it('routes every .skw-md-* rule through the middle layer, never a note variable', () => {
+    // Regression: every rule read --skw-note-ink / --skw-note-accent, which are
+    // declared only on .skw-note[data-color]. The composer's preview pane is not
+    // inside a .skw-note, so those variables were empty there and every
+    // color-mix() built on them was an invalid declaration — the preview lost
+    // its code chip, quote rail, rule and table borders.
+    expect(mdRules).not.toContain('var(--skw-note-')
+    expect(mdBlock).toContain('var(--skw-md-ink')
+    expect(mdBlock).toContain('var(--skw-md-accent')
+    expect(mdBlock).toContain('var(--skw-md-accent-ink')
+  })
+
+  it('defines the middle layer with the shell tokens, so a neutral surface is readable', () => {
+    expect(mdBlock).toContain('--skw-md-ink: var(--dsw-alias-label-primary)')
+    expect(mdBlock).toContain('--skw-md-accent: var(--dsw-alias-brand-primary)')
+    expect(mdBlock).toContain('--skw-md-accent-ink: var(--dsw-alias-brand-primary)')
+  })
+
+  it('re-points the middle layer on a note card so its own palette still applies', () => {
+    // The mapping has to be a DESCENDANT rule: a custom property declared on
+    // .skw-md beats an inherited value from .skw-note, so the same declaration
+    // inside the .skw-note[data-color] palette rules would be shadowed and do
+    // nothing (the card would silently fall back to the theme tokens).
+    expect(mappingStart).toBeGreaterThan(-1)
+    expect(mappingRule).toContain('--skw-md-ink: var(--skw-note-ink)')
+    expect(mappingRule).toContain('--skw-md-accent: var(--skw-note-accent)')
+    expect(mappingRule).toContain('--skw-md-accent-ink: var(--skw-note-accent-ink)')
+  })
+
+  it('gives every var() a fallback so a missing variable still shows something', () => {
+    // A var() with no fallback makes its whole declaration invalid at computed-
+    // value time. The fallback is the difference between "one property is off"
+    // and "the border disappears".
+    for (const match of mdRules.matchAll(/var\((--skw-md-[a-z-]+)([^)]*)\)/g)) {
+      const rest = match[2] ?? ''
+      if (match[1] === '--skw-md-ink' || match[1] === '--skw-md-accent' || match[1] === '--skw-md-accent-ink') {
+        // The definitions themselves intentionally have none.
+        continue
+      }
+      expect(rest.startsWith(',')).toBe(true)
+    }
+  })
+
+  it('needs no per-surface patch rules any more', () => {
+    // The three temporary patches this replaces (.skw-preview-box .skw-md-link /
+    // .skw-md-code / .skw-md-pre) are gone: the middle layer makes one
+    // definition work on both surfaces.
+    expect(WALL_CSS).not.toContain('.skw-preview-box .skw-md-link')
+    expect(WALL_CSS).not.toContain('.skw-preview-box .skw-md-code')
+    expect(WALL_CSS).not.toContain('.skw-preview-box .skw-md-pre')
+  })
+})
+
 describe('note card layout', () => {
   it('puts the actions on their own row so the title keeps the full width', async () => {
     // Regression 1: an absolute overlay covered a long title.
@@ -1389,5 +1463,141 @@ describe('composer sheet size', () => {
     const root = document.querySelector('.skw-ed-root') as HTMLElement
     expect(root.getAttribute('data-fill')).toBe('true')
     expect(document.querySelector('.skw-sheet-body')?.getAttribute('data-fill')).toBe('true')
+  })
+})
+
+/**
+ * The composer's interaction contract: preview must not cost the writer the
+ * caret, and one save shortcut must mean exactly one write.
+ *
+ * Both are regressions that only a test driving the REAL composer can catch —
+ * the editor's own suite has no preview toggle, and the sheet's own suite does
+ * not know the editor also listens for the save shortcut.
+ */
+describe('composer editing contract', () => {
+  /** Open the composer and wait for the body field. */
+  async function open(): Promise<HTMLTextAreaElement> {
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    return document.querySelector('.skw-ed-input') as HTMLTextAreaElement
+  }
+
+  /** Type a body and put the caret at `caret`, like a writer pausing mid-word. */
+  function write(field: HTMLTextAreaElement, body: string, caret: number): void {
+    fireEvent.change(field, { target: { value: body } })
+    field.focus()
+    field.setSelectionRange(caret, caret)
+  }
+
+  const root = (): HTMLElement => document.querySelector('.skw-ed-root') as HTMLElement
+
+  it('keeps the editor mounted and the caret intact across a preview toggle', async () => {
+    // Blocker 9: the preview branch REPLACED the editor in the tree, so coming
+    // back remounted a fresh textarea and threw the selection away — a caret at 5
+    // came back at the end of the note (measured 11). Keeping the node mounted
+    // and hiding it is the only fix that preserves the browser's own selection.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    const field = await open()
+    write(field, 'hello world', 5)
+    expect(field.selectionStart).toBe(5)
+
+    fireEvent.click(screen.getByRole('button', { name: copy('editorPreview') }))
+    await waitFor(() => expect(document.querySelector('.skw-preview-box')).not.toBeNull())
+
+    // Still mounted, but genuinely hidden — an inline display, not the `hidden`
+    // attribute: `.skw-ed-root` sets `display:flex`, which is an author rule and
+    // beats the UA sheet's `[hidden] { display:none }`.
+    const hiddenRoot = root()
+    expect(hiddenRoot).not.toBeNull()
+    expect(hiddenRoot.style.display).toBe('none')
+    expect(hiddenRoot.getAttribute('aria-hidden')).toBe('true')
+    // The node the writer was typing into is the SAME node, not a replacement.
+    expect(document.querySelector('.skw-ed-input')).toBe(field)
+
+    fireEvent.click(screen.getByRole('button', { name: copy('editorSource') }))
+    await waitFor(() => expect(document.querySelector('.skw-preview-box')).toBeNull())
+
+    expect(root().style.display).toBe('')
+    expect(root().hasAttribute('aria-hidden')).toBe(false)
+    const back = document.querySelector('.skw-ed-input') as HTMLTextAreaElement
+    expect(back).toBe(field)
+    expect(back.value).toBe('hello world')
+    // The whole point: the caret is where it was left, not at the end.
+    expect(back.selectionStart).toBe(5)
+  })
+
+  it('shows the live body in the preview pane while the editor stays mounted', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    const field = await open()
+    fireEvent.change(field, { target: { value: '# preview me' } })
+    fireEvent.click(screen.getByRole('button', { name: copy('editorPreview') }))
+    await waitFor(() => expect(document.querySelector('.skw-preview-box')).not.toBeNull())
+    // The preview is the same body, rendered as Markdown. A note is a card, not
+    // a page, so `#` maps to h3 and `##` to h4 (see markdown.tsx) — assert the
+    // rendered heading, not the raw source.
+    expect(document.querySelector('.skw-preview-box')?.textContent).toContain('preview me')
+    expect(document.querySelector('.skw-preview-box h3')?.textContent).toBe('preview me')
+  })
+
+  it('saves exactly once for one Cmd/Ctrl+Enter in the body field', async () => {
+    // Blocker 10: the editor's onSave AND the sheet's dialog-root key handler
+    // both fired for the same keypress, so `create` ran twice (measured: 2).
+    // The editor now stops propagation, which is what makes "one key, one write"
+    // true regardless of what an ancestor listens for.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    const field = await open()
+    write(field, 'save once please', 16)
+
+    fireEvent.keyDown(field, { key: 'Enter', metaKey: true })
+
+    await waitFor(() => expect(api.calls.filter((call) => call === 'create')).toHaveLength(1))
+    // Give a second handler every chance to fire before asserting the count.
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(api.calls.filter((call) => call === 'create')).toHaveLength(1)
+  })
+
+  it('saves exactly once for one Ctrl+Enter too', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    const field = await open()
+    write(field, 'ctrl variant', 12)
+    fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(api.calls.filter((call) => call === 'create')).toHaveLength(1))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(api.calls.filter((call) => call === 'create')).toHaveLength(1)
+  })
+
+  it('still saves from a field that is not the body editor', async () => {
+    // The sheet's own handler is the fallback for presses outside the textarea
+    // (the title and tag fields). Stopping propagation in the editor must not
+    // take that away, or a writer who tabs to the title could not save at all.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    const field = await open()
+    // A body is required (an empty note is refused), so fill it first; the point
+    // under test is WHICH field receives the shortcut.
+    fireEvent.change(field, { target: { value: 'body text' } })
+    const title = document.querySelector('.skw-input') as HTMLInputElement
+    fireEvent.change(title, { target: { value: 'titled' } })
+    fireEvent.keyDown(title, { key: 'Enter', metaKey: true })
+    await waitFor(() => expect(api.calls.filter((call) => call === 'create')).toHaveLength(1))
+  })
+
+  it('renders the toolbar from the shared dictionary, in the active locale', async () => {
+    // Blocker 11: the toolbar carried hard-coded zh/en literals while text.ts
+    // already had every key. The composer now passes its `t`, so the toolbar
+    // follows the GUI language like the rest of the sheet.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await open()
+    expect(screen.getByRole('toolbar', { name: copy('toolbarLabel') })).toBeTruthy()
+    // The two ids a derived key would get wrong are checked by name, through the
+    // dictionary: `rule` -> mdHr, `code-block` -> mdCodeBlock.
+    expect(screen.getByRole('button', { name: copy('mdHr') })).toBeTruthy()
+    expect(screen.getByRole('button', { name: copy('mdCodeBlock') })).toBeTruthy()
+    expect(screen.getByRole('button', { name: copy('mdBullet') })).toBeTruthy()
   })
 })

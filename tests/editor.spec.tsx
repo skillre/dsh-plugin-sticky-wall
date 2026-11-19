@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MarkdownEditor } from '../src/client/editor.jsx'
+import { EDITOR_CSS, MarkdownEditor, TOOLBAR_KEYS, indentLevelOf } from '../src/client/editor.jsx'
+import { en, textOf, zh } from '../src/client/text.js'
 
 /**
  * Markdown editor tests.
@@ -33,6 +34,8 @@ interface HostProps {
   disabled?: boolean
   locale?: 'zh' | 'en'
   fill?: boolean
+  hidden?: boolean
+  t?: (key: string, params?: Record<string, string | number>) => string
 }
 
 /** A controlled parent: the editor's real contract, plus spies. */
@@ -60,6 +63,8 @@ function Host(props: HostProps): JSX.Element {
       // `exactOptionalPropertyTypes` forbids passing `undefined`, and an editor
       // without a limit must not receive one.
       {...(props.maxLength === undefined ? {} : { maxLength: props.maxLength })}
+      {...(props.hidden === undefined ? {} : { hidden: props.hidden })}
+      {...(props.t === undefined ? {} : { t: props.t })}
     />
   )
 }
@@ -719,5 +724,448 @@ describe('lifecycle', () => {
     // preventDefault on mousedown is what stops the browser from moving focus to
     // the button before the click handler runs.
     expect(document.activeElement).toBe(node)
+  })
+})
+
+/**
+ * The indentation contract, shared with `src/markdown-parse.ts`.
+ *
+ * One level is two spaces, a line's level is `floor(leading columns / 2)`, and
+ * the parser recognises every block marker on the whitespace-STRIPPED line — so
+ * indentation never breaks syntax, and the editor's only job is to land on whole
+ * levels. These tests pin that job down; the parser's half is covered by
+ * `markdown.spec.tsx`.
+ */
+describe('indentation contract', () => {
+  it('leaves a blank line alone instead of writing invisible whitespace', () => {
+    // Blocker 1: Tab on an empty line wrote "  " — trailing whitespace nobody
+    // can see, which Markdown then reads as content. The caret stays put too.
+    render(<Host initial="" autoFocus={false} />)
+    const node = select(0, 0)
+
+    fireEvent.keyDown(node, { key: 'Tab' })
+
+    expect(editor().value).toBe('')
+    expect(editor().selectionStart).toBe(0)
+  })
+
+  it('leaves a whitespace-only line alone too', () => {
+    // The same rule for a line someone already padded: indenting it would make
+    // the invisible run longer, and there is no content to nest.
+    render(<Host initial={'a\n   \nb'} autoFocus={false} />)
+    select(3, 3)
+    fireEvent.keyDown(editor(), { key: 'Tab' })
+    expect(editor().value).toBe('a\n   \nb')
+  })
+
+  it('outdents a 3-space line all the way to column 0', () => {
+    // Blocker 2: Shift+Tab removed exactly two spaces, so "   - item" (level 1,
+    // because 3 spaces floors to 1) came back as " - item" — a level-0 line with
+    // a stray space. It must land on the PREVIOUS whole level: 3 -> 0.
+    render(<Host initial={'   - item'} autoFocus={false} />)
+    select(10, 10)
+
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+
+    expect(editor().value).toBe('- item')
+  })
+
+  it('outdents one whole level at a time from a deeper line', () => {
+    render(<Host initial={'      deep'} autoFocus={false} />)
+    select(10, 10)
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    // 6 spaces is level 3; one outdent is level 2, i.e. 4 spaces — never 4 -> 2
+    // by accident of arithmetic, and never a leftover space.
+    expect(editor().value).toBe('    deep')
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    expect(editor().value).toBe('  deep')
+  })
+
+  it('never leaves a stray space when outdenting an odd indent', () => {
+    render(<Host initial={'   text'} autoFocus={false} />)
+    select(7, 7)
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    expect(editor().value).toBe('text')
+    // Already flush: another outdent is a no-op, not a negative indent.
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    expect(editor().value).toBe('text')
+  })
+
+  it('indents a list line into the next nesting level', () => {
+    // Blocker 3: Tab on a list line must make it a CHILD of the item above, i.e.
+    // exactly one more level — and the parser has to read it that way, which is
+    // the half that makes this a real nesting test rather than a string test.
+    render(<Host initial={'- a\n- b'} autoFocus={false} />)
+    select(8, 8)
+
+    fireEvent.keyDown(editor(), { key: 'Tab' })
+
+    expect(editor().value).toBe('- a\n  - b')
+    // The caret follows the two inserted characters into the indented line.
+    expect(editor().selectionStart).toBe(9)
+  })
+
+  it('nests one level per press, whatever the line started at', () => {
+    // Appending a unit to any prefix raises floor(columns/2) by exactly one, so
+    // Tab from a 3-space line reaches level 2 (5 spaces -> floor 2), not level 1.
+    render(<Host initial={'   - a'} autoFocus={false} />)
+    select(5, 5)
+    fireEvent.keyDown(editor(), { key: 'Tab' })
+    expect(editor().value).toBe('     - a')
+    fireEvent.keyDown(editor(), { key: 'Tab' })
+    expect(editor().value).toBe('       - a')
+  })
+})
+
+/**
+ * What Enter does on each kind of line.
+ *
+ * The rule the parser imposes is that a marker is only a marker at the start of
+ * the stripped line, so continuation has to be decided per line KIND — a fence
+ * owns its newlines, a table row repeats its column count, a quote repeats its
+ * marker run, and prose carries its indent.
+ */
+describe('Enter continuation per line kind', () => {
+  it('keeps the indent on a plain paragraph line', () => {
+    // Blocker 4: Enter on "  paragraph" produced a flush new line, so an
+    // indented paragraph lost its shape after the first line break.
+    render(<Host initial={'  paragraph'} autoFocus={false} />)
+    select(11, 11)
+
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+
+    expect(editor().value).toBe('  paragraph\n  ')
+    expect(editor().selectionStart).toBe(14)
+  })
+
+  it('still leaves a flush paragraph to the browser', () => {
+    // The fix must not start reimplementing the browser's own newline: with no
+    // indent to carry over there is nothing to insert, and preventing the default
+    // would risk the IME for no gain.
+    render(<Host initial={'plain text'} autoFocus={false} />)
+    select(10, 10)
+    expect(fireEvent.keyDown(editor(), { key: 'Enter' })).toBe(true)
+    expect(editor().value).toBe('plain text')
+  })
+
+  it('deletes an empty list item without splitting the list', () => {
+    // Blocker 5: Enter on the empty item of "- a\n- \n- b" removed only the
+    // marker text and left the newline, so the list became two lists with a blank
+    // line between them. The whole marker line goes instead.
+    render(<Host initial={'- a\n- \n- b'} autoFocus={false} />)
+    select(6, 6)
+
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+
+    expect(editor().value).toBe('- a\n- b')
+    expect(editor().selectionStart).toBe(4)
+  })
+
+  it('ends a list at the end of the note without leaving a trailing blank', () => {
+    // The same repair where there is no following line: the marker goes and the
+    // caret lands at the end, with no extra newline left behind.
+    render(<Host initial={'a\n- '} autoFocus={false} />)
+    select(4, 4)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(editor().value).toBe('a\n')
+    expect(editor().selectionStart).toBe(2)
+  })
+
+  it('inserts a plain newline inside a fenced code block', () => {
+    // Blocker 6: the list continuation ran INSIDE the fence, injecting "- " into
+    // the user's code. A fence owns its newlines: Enter is a plain newline.
+    render(<Host initial={'```\n- code line\n```'} autoFocus={false} />)
+    select(15, 15)
+
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+
+    expect(editor().value).toBe('```\n- code line\n\n```')
+    expect(editor().selectionStart).toBe(16)
+  })
+
+  it('keeps a tilde fence inert as well', () => {
+    render(<Host initial={'~~~\n1. code\n~~~'} autoFocus={false} />)
+    select(11, 11)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(editor().value).toBe('~~~\n1. code\n\n~~~')
+  })
+
+  it('treats text after a CLOSED fence as prose again', () => {
+    // The fence marking has to end with the closing fence, or every later list
+    // in the note would silently stop continuing.
+    render(<Host initial={'```\nx\n```\n- item'} autoFocus={false} />)
+    select(16, 16)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(editor().value).toBe('```\nx\n```\n- item\n- ')
+  })
+
+  it('continues a blockquote', () => {
+    // Blocker 7: Enter on "> quoted" did nothing at all, because only list
+    // markers were recognised.
+    render(<Host initial={'> quoted'} autoFocus={false} />)
+    select(8, 8)
+
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+
+    expect(editor().value).toBe('> quoted\n> ')
+    expect(editor().selectionStart).toBe(11)
+  })
+
+  it('keeps nested quote depth', () => {
+    // The whole marker run is copied, so "> > deep" continues at the same depth
+    // instead of silently dropping a level.
+    render(<Host initial={'> > deep'} autoFocus={false} />)
+    select(8, 8)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(editor().value).toBe('> > deep\n> > ')
+  })
+
+  it('closes an empty quote instead of stacking markers', () => {
+    render(<Host initial={'> '} autoFocus={false} />)
+    select(2, 2)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(editor().value).toBe('')
+  })
+
+  it('continues a table with a row of the same column count', () => {
+    // Blocker 8: Enter on a table row was ignored, so the writer had to type
+    // pipes by hand — and a row one cell short breaks the table.
+    const table = '| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |'
+    render(<Host initial={table} autoFocus={false} />)
+    select(table.length, table.length)
+
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+
+    const lines = editor().value.split('\n')
+    expect(lines).toHaveLength(4)
+    expect(lines[3]).toBe('|   |   |   |')
+    // The caret sits inside the new row's first cell, ready to type — the same
+    // "after `| `" position the table skeleton uses.
+    expect(editor().selectionStart).toBe(editor().value.indexOf('|   |   |   |') + 2)
+  })
+
+  it('counts the columns of a two-column table', () => {
+    const table = '| a | b |\n| --- | --- |\n| 1 | 2 |'
+    render(<Host initial={table} autoFocus={false} />)
+    select(table.length, table.length)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(editor().value.split('\n')[3]).toBe('|   |   |')
+  })
+
+  it('appends below the table when Enter is pressed on the header row', () => {
+    // Inserting a row directly under the header would push the divider away and
+    // split the table into a one-row table plus a paragraph. The new row belongs
+    // after the LAST body row, so the table stays whole either way round.
+    const table = '| a | b |\n| --- | --- |\n| 1 | 2 |'
+    render(<Host initial={table} autoFocus={false} />)
+    // Caret at the end of the header line.
+    select(9, 9)
+    fireEvent.keyDown(editor(), { key: 'Enter' })
+    expect(editor().value.split('\n')).toEqual([
+      '| a | b |',
+      '| --- | --- |',
+      '| 1 | 2 |',
+      '|   |   |',
+    ])
+  })
+
+  it('leaves a caret in the middle of a table row to the browser', () => {
+    // Splitting a cell is the browser's own job. Falling through to the paragraph
+    // rule would also duplicate an indented row's indent into a stray line.
+    const table = '| a | b |\n| --- | --- |\n| 1 | 2 |'
+    render(<Host initial={table} autoFocus={false} />)
+    select(20, 20)
+    expect(fireEvent.keyDown(editor(), { key: 'Enter' })).toBe(true)
+    expect(editor().value).toBe(table)
+  })
+
+  it('does not turn a pipe in prose into a table row', () => {
+    // "a | b" is a paragraph, not a table: there is no divider row under it, so
+    // Enter must be the browser's plain newline.
+    render(<Host initial={'a | b'} autoFocus={false} />)
+    select(5, 5)
+    expect(fireEvent.keyDown(editor(), { key: 'Enter' })).toBe(true)
+    expect(editor().value).toBe('a | b')
+  })
+
+  it('leaves Shift+Enter to the writer as a plain newline', () => {
+    render(<Host initial={'- item'} autoFocus={false} />)
+    select(6, 6)
+    // Shift+Enter is the explicit "break the line, not the item" gesture.
+    expect(fireEvent.keyDown(editor(), { key: 'Enter', shiftKey: true })).toBe(true)
+    expect(editor().value).toBe('- item')
+  })
+})
+
+/**
+ * Hiding the editor without unmounting it.
+ *
+ * The composer's preview toggle needs the textarea to stay in the tree: a
+ * remount throws the selection away, and no caret arithmetic can reconstruct it.
+ * The hiding mechanism matters too — `.skw-ed-root` sets `display: flex`, an
+ * author rule that beats the UA sheet's `[hidden] { display: none }`.
+ */
+describe('hidden prop', () => {
+  it('hides the root with an inline display:none and keeps the same node', () => {
+    const { rerender } = render(<MarkdownEditor value="abc" onChange={() => {}} label="正文" autoFocus={false} />)
+    const root = document.querySelector('.skw-ed-root') as HTMLElement
+    expect(root.style.display).toBe('')
+
+    rerender(<MarkdownEditor value="abc" onChange={() => {}} label="正文" autoFocus={false} hidden />)
+
+    // The same element object: still mounted, only invisible.
+    expect(document.querySelector('.skw-ed-root')).toBe(root)
+    expect(root.style.display).toBe('none')
+    // The attribute is a marker, not the mechanism; ARIA needs the hidden state
+    // spelled out too, or a screen reader still walks the invisible toolbar.
+    expect(root.getAttribute('data-hidden')).toBe('true')
+    expect(root.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('comes back visible with its value and selection intact', () => {
+    function Toggle(): JSX.Element {
+      const [hidden, setHidden] = useState(false)
+      return (
+        <div>
+          <button type="button" onClick={() => setHidden((value) => !value)}>toggle</button>
+          <MarkdownEditor value="hello world" onChange={() => {}} label="正文" autoFocus={false} hidden={hidden} />
+        </div>
+      )
+    }
+    render(<Toggle />)
+    const node = select(5, 5)
+    fireEvent.click(screen.getByRole('button', { name: 'toggle' }))
+    expect((document.querySelector('.skw-ed-root') as HTMLElement).style.display).toBe('none')
+    fireEvent.click(screen.getByRole('button', { name: 'toggle' }))
+
+    expect((document.querySelector('.skw-ed-root') as HTMLElement).style.display).toBe('')
+    expect(editor()).toBe(node)
+    expect(editor().value).toBe('hello world')
+    expect(editor().selectionStart).toBe(5)
+  })
+
+  it('gives focus back on unhide without moving the selection', () => {
+    // The preview toggle takes focus onto its button, and the old remount used to
+    // re-focus the fresh textarea. Keeping the node mounted must restore the
+    // focus too — but never the selection, which is already exactly right.
+    function Toggle(): JSX.Element {
+      const [hidden, setHidden] = useState(false)
+      return (
+        <div>
+          <button type="button" onClick={() => setHidden((value) => !value)}>toggle</button>
+          <MarkdownEditor value="hello world" onChange={() => {}} label="正文" autoFocus={false} hidden={hidden} />
+        </div>
+      )
+    }
+    render(<Toggle />)
+    const node = select(5, 5)
+    fireEvent.click(screen.getByRole('button', { name: 'toggle' }))
+    // jsdom does not move focus on a button click the way a browser does, so the
+    // shift the toggle causes is made explicit here: the editor is not focused.
+    act(() => {
+      node.blur()
+    })
+    expect(document.activeElement).not.toBe(node)
+    fireEvent.click(screen.getByRole('button', { name: 'toggle' }))
+
+    expect(document.activeElement).toBe(node)
+    expect(node.selectionStart).toBe(5)
+    expect(node.selectionEnd).toBe(5)
+  })
+
+  it('carries a CSS fallback for the data attribute', () => {
+    // Belt and braces: a caller that sets the attribute without the inline style
+    // must still get a hidden editor, so the stylesheet needs the rule too.
+    expect(EDITOR_CSS).toContain('.skw-ed-root[data-hidden="true"]')
+  })
+})
+
+/**
+ * Toolbar copy through the shared dictionary.
+ *
+ * The editor may not import `text.ts` (the browser module table only resolves
+ * `react`), so the Composer passes its `t` in. Without one the built-in labels
+ * are used, which is what keeps every existing caller working.
+ */
+describe('toolbar localization', () => {
+  /** The toolbar's accessible name, and one button's, for a given render. */
+  function labels(): { toolbar: string; h1: string; rule: string; codeBlock: string } {
+    const toolbar = screen.getByRole('toolbar')
+    const byAction = (id: string): string =>
+      document.querySelector(`.skw-ed-btn[data-action="${id}"]`)?.getAttribute('aria-label') ?? ''
+    return {
+      toolbar: toolbar.getAttribute('aria-label') ?? '',
+      h1: byAction('h1'),
+      rule: byAction('rule'),
+      codeBlock: byAction('code-block'),
+    }
+  }
+
+  it('uses the dictionary when a translate function is passed', () => {
+    // The Composer's own `t`, against the shipped English dictionary.
+    const t = (key: string): string => textOf(en, key)
+    render(<MarkdownEditor value="" onChange={() => {}} label="正文" autoFocus={false} t={t} />)
+
+    const copy = labels()
+    expect(copy.toolbar).toBe(en.toolbarLabel)
+    expect(copy.h1).toBe(en.mdH1)
+    // The two ids that a naive `md + capitalise(id)` scheme gets wrong.
+    expect(copy.rule).toBe(en.mdHr)
+    expect(copy.codeBlock).toBe(en.mdCodeBlock)
+  })
+
+  it('re-translates when the dictionary changes', () => {
+    const { rerender } = render(
+      <MarkdownEditor value="" onChange={() => {}} label="正文" autoFocus={false} t={(key) => textOf(en, key)} />,
+    )
+    expect(labels().h1).toBe(en.mdH1)
+    rerender(
+      <MarkdownEditor value="" onChange={() => {}} label="正文" autoFocus={false} t={(key) => textOf(zh, key)} />,
+    )
+    expect(labels().h1).toBe(zh.mdH1)
+  })
+
+  it('falls back to the built-in Chinese labels without a translate function', () => {
+    // Backward compatibility: an existing caller that never heard of `t` must
+    // still get real words, not raw dictionary keys.
+    render(<MarkdownEditor value="" onChange={() => {}} label="正文" autoFocus={false} />)
+    expect(labels().toolbar).toBe('编辑工具栏')
+    expect(labels().h1).toBe('一级标题')
+    expect(labels().rule).toBe('分割线')
+    expect(labels().codeBlock).toBe('代码块')
+  })
+
+  it('prefers the built-in label when the dictionary is missing a key', () => {
+    // `textOf` falls back to the KEY itself, which would paint "mdH1" on a
+    // button. A missing translation must degrade to the built-in label instead.
+    render(<MarkdownEditor value="" onChange={() => {}} label="正文" autoFocus={false} t={(key) => key} />)
+    expect(labels().h1).toBe('一级标题')
+  })
+
+  it('maps every toolbar key to a non-empty string in both dictionaries', () => {
+    // One pass over the real toolbar locks all 21 keys: a group or action added
+    // without a key (or a key renamed in text.ts) fails here rather than
+    // rendering a raw key name in the UI.
+    expect(TOOLBAR_KEYS.length).toBe(22)
+    for (const key of TOOLBAR_KEYS) {
+      expect(textOf(zh, key), `zh:${key}`).not.toBe(key)
+      expect(textOf(en, key), `en:${key}`).not.toBe(key)
+      expect(textOf(zh, key).trim(), `zh:${key}`).not.toBe('')
+      expect(textOf(en, key).trim(), `en:${key}`).not.toBe('')
+    }
+  })
+})
+
+describe('indentLevelOf', () => {
+  it('measures a line the way the parser measures it', () => {
+    // floor(leading columns / 2), with a tab counting as one level — the exact
+    // rule `src/markdown-parse.ts` uses for `indent`.
+    expect(indentLevelOf('text')).toBe(0)
+    expect(indentLevelOf(' text')).toBe(0)
+    expect(indentLevelOf('  text')).toBe(1)
+    expect(indentLevelOf('   text')).toBe(1)
+    expect(indentLevelOf('     text')).toBe(2)
+    expect(indentLevelOf('\ttext')).toBe(1)
+    expect(indentLevelOf('\t\ttext')).toBe(2)
   })
 })
