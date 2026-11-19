@@ -481,6 +481,83 @@ try {
   })()`)
   await page.wait(250)
 
+  // 3b-2. Nested Markdown renders with REAL nesting, and toggling preview keeps
+  // the caret.
+  //
+  // Both are this release's headline fixes and neither is provable in jsdom: the
+  // nesting is a DOM-shape fact the old parser could not produce at all (it
+  // trimmed indentation away before rendering), and "the caret survives" is a
+  // real focus/selection behaviour that only a real browser exhibits.
+  await page.evaluate(`(() => {
+    const textarea = document.querySelector('.skw-ed-input');
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(textarea, ['- 一级', '  - 二级', '    - 三级'].join(String.fromCharCode(10)));
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.focus();
+    textarea.setSelectionRange(3, 3);
+    return true;
+  })()`)
+  await page.wait(250)
+  await page.evaluate(`(() => {
+    const toggle = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '预览');
+    toggle?.click();
+    return !!toggle;
+  })()`)
+  await page.wait(300)
+  const nested = await page.evaluate(`(() => {
+    const box = document.querySelector('.skw-preview-box');
+    if (!box) return null;
+    const lists = box.querySelectorAll('ul.skw-md-list');
+    return {
+      lists: lists.length,
+      items: box.querySelectorAll('li').length,
+      nestedInsideLi: box.querySelectorAll('li > ul').length,
+      editorMounted: !!document.querySelector('.skw-ed-input'),
+      editorDisplay: (() => {
+        const root = document.querySelector('.skw-ed-root');
+        return root ? getComputedStyle(root).display : null;
+      })(),
+      caret: (() => {
+        const t = document.querySelector('.skw-ed-input');
+        return t ? t.selectionStart : null;
+      })(),
+    };
+  })()`)
+  record('preview-renders-nested-lists', {
+    // Three nesting levels => three <ul>s, and the inner ones must sit INSIDE an
+    // <li>, not beside it. A flattened render gives lists === 1.
+    ok: nested !== null && nested.lists === 3 && nested.items === 3 && nested.nestedInsideLi === 2,
+    detail: nested === null ? 'preview box missing' : `ul=${nested.lists} li=${nested.items} nestedInsideLi=${nested.nestedInsideLi}`,
+  })
+  record('preview-toggle-keeps-the-editor-and-caret', {
+    // The editor stays MOUNTED but hidden; the caret must still read 3.
+    ok: nested !== null && nested.editorMounted === true && nested.editorDisplay === 'none' && nested.caret === 3,
+    detail: nested === null ? 'preview box missing' : `mounted=${nested.editorMounted} display=${nested.editorDisplay} caret=${nested.caret}`,
+  })
+  await page.evaluate(`(() => {
+    const toggle = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === '源码');
+    toggle?.click();
+    return !!toggle;
+  })()`)
+  await page.wait(250)
+  const caretBack = await page.evaluate(`(() => {
+    const t = document.querySelector('.skw-ed-input');
+    return t ? { caret: t.selectionStart, value: t.value } : null;
+  })()`)
+  record('caret-survives-the-preview-round-trip', {
+    ok: caretBack !== null && caretBack.caret === 3,
+    detail: caretBack === null ? 'editor missing' : `caret=${caretBack.caret}`,
+  })
+  // Restore the harness body so the rest of the run writes the note it expects.
+  await page.evaluate(`(() => {
+    const textarea = document.querySelector('.skw-ed-input');
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(textarea, '');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`)
+  await page.wait(150)
+
   // 3c. A small window must SHRINK the sheet rather than overflow it.
   //
   // This is the case a jsdom test cannot settle: the clamp is arithmetic, but
@@ -571,7 +648,7 @@ try {
   // escaping for newlines and backticks, and one mistake breaks the harness.
   // String.fromCharCode keeps a literal backtick out of this source file.
   const TICK = String.fromCharCode(96)
-  const typedBody = ['验证便签：来自真实 Web UI 的输入', '', '**粗体**与 ' + TICK + '代码' + TICK, '', '- 第一条', '- 第二条'].join('\n')
+  const typedBody = ['验证便签：来自真实 Web UI 的输入', '', '**粗体**与 ' + TICK + '代码' + TICK, '', '- 第一条', '  - 嵌套子项', '- 第二条'].join('\n')
   await page.evaluate(`(() => {
     const textarea = document.querySelector('.skw-ed-input');
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
@@ -1457,12 +1534,21 @@ try {
       bold: body ? body.querySelectorAll('strong').length : 0,
       code: body ? body.querySelectorAll('code').length : 0,
       items: body ? body.querySelectorAll('.skw-md-list li').length : 0,
+      nestedLists: body ? body.querySelectorAll('ul.skw-md-list').length : 0,
+      nestedInsideLi: body ? body.querySelectorAll('li > ul').length : 0,
       rawMarkers: text.includes('**') || text.includes(String.fromCharCode(96)),
     };
   })()`)
   record('card-body-renders-markdown', {
     ok: markdown.rendered && markdown.bold >= 1 && markdown.code >= 1 && markdown.items >= 2 && markdown.rawMarkers === false,
     detail: `strong=${markdown.bold} code=${markdown.code} li=${markdown.items} raw=${markdown.rawMarkers}`,
+  })
+  record('card-body-renders-nested-lists', {
+    // The card carried `- 第一条` / `  - 嵌套子项` / `- 第二条`: two lists (outer +
+    // nested) with the nested one inside an <li>. Before the parser change the
+    // indentation was trimmed away, so this rendered as ONE flat list.
+    ok: markdown.nestedLists === 2 && markdown.nestedInsideLi === 1,
+    detail: `ul=${markdown.nestedLists} nestedInsideLi=${markdown.nestedInsideLi}`,
   })
 
   // 10. View modes: grid and list render the same note set, and the canvas

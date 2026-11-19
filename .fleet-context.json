@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "instructionContractVersion": 2,
+  "fleetOwner": "skillre",
+  "slug": "sticky-wall",
+  "package": "@skillre/dsh-plugin-sticky-wall",
+  "fleetRoot": "../.."
+}

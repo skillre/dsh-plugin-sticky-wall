@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-13T08:25:32.681Z",
+  "capturedAt": "2026-11-19T02:29:25.626Z",
   "viewport": "1440x900@2x",
   "locale": "zh",
   "screenshots": [
@@ -45,7 +45,7 @@
     {
       "check": "zh-copy",
       "ok": true,
-      "detail": "下午好，有什么想留下来的？ / 1 张便签 · 0 张已归档"
+      "detail": "早上好，今天想记点什么？ / 1 张便签 · 0 张已归档"
     },
     {
       "check": "composer-opens",
@@ -98,6 +98,21 @@
       "detail": "preview 438px of 680px sheet"
     },
     {
+      "check": "preview-renders-nested-lists",
+      "ok": true,
+      "detail": "ul=3 li=3 nestedInsideLi=2"
+    },
+    {
+      "check": "preview-toggle-keeps-the-editor-and-caret",
+      "ok": true,
+      "detail": "mounted=true display=none caret=3"
+    },
+    {
+      "check": "caret-survives-the-preview-round-trip",
+      "ok": true,
+      "detail": "caret=3"
+    },
+    {
       "check": "composer-sheet-fits-a-small-window",
       "ok": true,
       "detail": "852x652 in 900x700 saveVisible=true"
@@ -140,7 +155,7 @@
     {
       "check": "canvas-positions-cards-absolutely",
       "ok": true,
-      "detail": "left=83.2px top=-659.8px transform=rotate(-1.6deg) id=bd00a735-2c1d-4ef7-a2ff-c0e502db7edf"
+      "detail": "left=264.5px top=-61.7px transform=rotate(-2deg) id=efd37f48-585b-4655-9390-cb8f6ac3dc9d"
     },
     {
       "check": "canvas-tidy-repacks-the-wall",
@@ -155,42 +170,42 @@
     {
       "check": "canvas-camera-frames-the-wall-centre",
       "ok": true,
-      "detail": "offset=(-1,-33)px inside=true transform=translate3d(942.5px, 585.5px, 0px) scale(1)"
+      "detail": "offset=(0,-32)px inside=true transform=translate3d(133px, 516.5px, 0px) scale(1)"
     },
     {
       "check": "canvas-camera-is-a-transform-not-scroll",
       "ok": true,
-      "detail": "transform=translate3d(942.5px, 585.5px, 0px) scale(1) overflow=hidden scroll=0"
+      "detail": "transform=translate3d(133px, 516.5px, 0px) scale(1) overflow=hidden scroll=0"
     },
     {
       "check": "canvas-drag-persists-placement",
       "ok": true,
-      "detail": "-512.1px,-128.9px -> -416.1px,2.9px"
+      "detail": "335.6px,-338.4px -> 431.6px,-441.5px"
     },
     {
       "check": "canvas-drag-keeps-rotation",
       "ok": true,
-      "detail": "rotate(-1.6deg)"
+      "detail": "rotate(-2deg)"
     },
     {
       "check": "canvas-drag-on-paper-pans-the-camera",
       "ok": true,
-      "detail": "(942.5,585.5) -> (1062.5,525.5) cursor=grab"
+      "detail": "(133,516.5) -> (253,456.5) cursor=grab"
     },
     {
       "check": "canvas-wheel-zoom-keeps-the-pointer-anchored",
       "ok": true,
-      "detail": "zoom 1.000 -> 1.396, world point (-862.5,154.5) -> (-862.5,154.5)"
+      "detail": "zoom 1.000 -> 1.396, world point (-53.0,223.5) -> (-53.0,223.5)"
     },
     {
       "check": "canvas-reset-frames-the-whole-wall",
       "ok": true,
-      "detail": "zoom=100% offset=(0,-33) fits=true"
+      "detail": "zoom=100% offset=(0,-32) fits=true"
     },
     {
       "check": "canvas-large-wall-is-a-centred-cluster",
       "ok": true,
-      "detail": "14 cards (seeded 14), overlaps=0, offset=(-1,-33), ratio=1.68, zoom=72%, fits=true, behindDock=0, world=1476x872"
+      "detail": "14 cards (seeded 14), overlaps=0, offset=(-1,-33), ratio=1.61, zoom=73%, fits=true, behindDock=0, world=1468x911"
     },
     {
       "check": "canvas-centrepiece-is-at-the-middle",
@@ -215,7 +230,7 @@
     {
       "check": "centre-capture-lands-visible-and-clear-of-the-field",
       "ok": true,
-      "detail": "onScreen=true inReserve=false distance=590px cardsOverField=0/15 zoom=0.72"
+      "detail": "onScreen=true inReserve=false distance=648px cardsOverField=0/15 zoom=0.73"
     },
     {
       "check": "no-card-covers-the-centrepiece",
@@ -225,12 +240,12 @@
     {
       "check": "capture-on-a-panned-wall-stays-clear-of-the-field",
       "ok": true,
-      "detail": "overlap=0% onScreen=true behindDock=false zoom=0.72"
+      "detail": "overlap=0% onScreen=true behindDock=false zoom=0.73"
     },
     {
       "check": "capture-on-a-zoomed-wall-stays-clear-of-the-field",
       "ok": true,
-      "detail": "overlap=0% onScreen=true behindDock=false zoom=1.33"
+      "detail": "overlap=0% onScreen=true behindDock=false zoom=1.34"
     },
     {
       "check": "canvas-fills-the-page-with-a-floating-dock",
@@ -245,7 +260,12 @@
     {
       "check": "card-body-renders-markdown",
       "ok": true,
-      "detail": "strong=1 code=1 li=2 raw=false"
+      "detail": "strong=1 code=1 li=3 raw=false"
+    },
+    {
+      "check": "card-body-renders-nested-lists",
+      "ok": true,
+      "detail": "ul=2 nestedInsideLi=1"
     },
     {
       "check": "grid-view-renders-notes",
