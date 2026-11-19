@@ -1282,6 +1282,65 @@ try {
     detail: `(${beforePanCentre.x.toFixed(0)},${beforePanCentre.y.toFixed(0)}) -> (${afterPanCentre.x.toFixed(0)},${afterPanCentre.y.toFixed(0)})`,
   })
 
+  // 8d-bis. The centrepiece is a HUD, so the CAMERA must not resize it.
+  //
+  // The reported defect: zooming out to frame a large wall shrank the greeting and
+  // the capture field with it — at the 42% fit floor the input was 42% of its
+  // size, which reads as a broken control. The centrepiece used to be
+  // counter-scaled by `min(1, zoom)` so its WORLD footprint stayed constant; page
+  // chrome must not zoom, so it now keeps its natural size and the packer's
+  // reserve follows the painted box instead.
+  //
+  // Measured at three zoom levels in both directions, because a one-way check
+  // cannot tell "fixed size" from "clamped at 1".
+  const hudAt = async (label) => await page.evaluate(`(() => {
+    const block = document.querySelector('.skw-centre').getBoundingClientRect();
+    const capture = document.querySelector('.skw-capture').getBoundingClientRect();
+    const input = document.querySelector('.skw-capture-input').getBoundingClientRect();
+    const world = document.querySelector('.skw-world');
+    return {
+      zoom: document.querySelector('.skw-camera-value')?.textContent ?? null,
+      scale: world ? +new DOMMatrix(getComputedStyle(world).transform).a.toFixed(3) : 1,
+      blockW: Math.round(block.width), blockH: Math.round(block.height),
+      captureW: Math.round(capture.width), captureH: Math.round(capture.height),
+      inputW: Math.round(input.width), inputH: Math.round(input.height),
+      transform: document.querySelector('.skw-centre').style.transform,
+      label: ${JSON.stringify(label)},
+    };
+  })()`)
+  const hudBase = await hudAt('100%')
+  const zoomBtn = async (name) => await page.evaluate(`(() => {
+    const button = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(name)});
+    button?.click();
+    return !!button;
+  })()`)
+  // Three steps down: 100% -> 85% -> 70% -> 55%.
+  for (let step = 0; step < 3; step += 1) { await zoomBtn('缩小'); await page.wait(160) }
+  await page.wait(300)
+  const hudOut = await hudAt('zoomed out')
+  // And back up past 100%, so an upward clamp cannot pass as a fixed size.
+  for (let step = 0; step < 6; step += 1) { await zoomBtn('放大'); await page.wait(160) }
+  await page.wait(300)
+  const hudIn = await hudAt('zoomed in')
+  await page.evaluate(`(() => {
+    const reset = [...document.querySelectorAll('.skw-dock button')].find((b) => b.getAttribute('aria-label') === '重置视图');
+    reset?.click();
+    return !!reset;
+  })()`)
+  await page.wait(700)
+  const hudSizes = [hudBase, hudOut, hudIn]
+  const hudStable = hudSizes.every((state) =>
+    Math.abs(state.captureW - hudBase.captureW) <= 1 && Math.abs(state.captureH - hudBase.captureH) <= 1 &&
+    Math.abs(state.inputW - hudBase.inputW) <= 1 && Math.abs(state.inputH - hudBase.inputH) <= 1)
+  const hudZoomed = Math.abs(hudOut.scale - hudBase.scale) > 0.1 && Math.abs(hudIn.scale - hudBase.scale) > 0.1
+  record('canvas-centrepiece-keeps-its-size-while-zooming', {
+    // The camera must actually have moved, or "the HUD did not change" would pass
+    // on a build where zoom is broken outright.
+    ok: hudStable && hudZoomed && hudSizes.every((state) => !state.transform.includes('scale(')),
+    detail: hudSizes.map((state) =>
+      `${state.label}: zoom=${state.zoom} worldScale=${state.scale} capture=${state.captureW}x${state.captureH} input=${state.inputW}x${state.inputH}`).join(' | '),
+  })
+
   // Quick capture: type into the centre field and submit it.
   const captureBefore = await page.evaluate(`(() => document.querySelectorAll('.skw-note').length)()`)
   await page.evaluate(`(() => {

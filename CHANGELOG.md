@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.9.3
+
+### Patch Changes
+
+- Keep the wall's centrepiece at a fixed size while the canvas zooms.
+  
+  The greeting, the tally and the quick-capture field are page chrome pinned to the
+  viewport's middle, but they were counter-scaled by `min(1, zoom)` so their WORLD
+  footprint stayed constant. That made the packer's reserve a tidy invariant, and
+  it was the wrong trade: framing a large wall zooms out to the 42% legibility
+  floor, where the capture field was drawn at 42% of its size — an input box that
+  reads as broken rather than as a zoomed view.
+  
+  The centrepiece now keeps its natural size at every zoom and `applyCamera` writes
+  only the centring transform. Two knock-on changes keep the placement guarantees
+  honest:
+  
+  - The reserve still reports the documented constant half-extents. Deriving it from
+    the zoom would feed back: a bigger reserve packs a bigger wall, which frames at a
+    lower zoom, which reports a bigger reserve again. Placements are persisted, so a
+    size that moves with the camera also turns a card packed clear at 100% into an
+    offender at 50%.
+  - `revealBox` now measures the painted field box in screen space instead of
+    extrapolating it from the old counter-scale, so a revealed card stays clear of
+    whatever is actually drawn.
+  
+  Consequence worth knowing: at a deep zoom-out a card can pass beneath the fixed
+  overlay. That is normal behaviour for page chrome over a canvas, and the capture
+  field remains clickable because the overlay's wrapper ignores pointers.
+  
+  Tidy now packs against the documented reserve rather than the camera-derived one,
+  so a repack no longer depends on the zoom the user happened to be at.
+
 ## 0.9.2
 
 ### Patch Changes

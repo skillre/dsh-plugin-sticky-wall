@@ -7,7 +7,7 @@ import type { ClientLocaleLike } from '../src/client/contracts.js'
 import { en, textOf } from '../src/client/text.js'
 import type { Translate } from '../src/client/text.js'
 import { ConfirmDialog, WallPage } from '../src/client/view.jsx'
-import { WIDTH_PX, type Note, type WallSnapshot } from '../src/types.js'
+import { CENTRE_RESERVE, WIDTH_PX, type Note, type WallSnapshot } from '../src/types.js'
 import { WALL_CSS } from '../src/client/styles.js'
 import {
   SHEET_DEFAULT,
@@ -806,6 +806,67 @@ describe('view modes and the free canvas', () => {
     await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('200%'))
     fireEvent.click(screen.getByRole('button', { name: copy('zoomReset') }))
     await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('100%'))
+  })
+
+  it('keeps the centrepiece at its natural size instead of scaling it with the camera', async () => {
+    // The complaint this fixes: zooming out to frame a large wall shrank the
+    // greeting and the capture field with it. At the 42% fit floor the input was
+    // 42% of its size, which reads as a broken control rather than a zoomed view.
+    //
+    // The centrepiece used to be counter-scaled by `min(1, zoom)` so its WORLD
+    // footprint stayed constant and the packer's reserve could be an invariant.
+    // Page chrome must not zoom, so the transform is now pure centring and the
+    // reserve follows the painted box instead.
+    const api = makeApi({
+      list: async () => [makeNote({ id: 'a', body: 'x', layout: { x: 400, y: 300, rotate: 0, width: 'md' } })],
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-centre')).not.toBeNull())
+    const centre = document.querySelector('.skw-centre') as HTMLElement
+    const transformOf = (): string => centre.style.transform
+
+    // At 100% it is already centred and unscaled.
+    expect(transformOf()).toBe('translate(-50%, -50%)')
+
+    // Zoom out three steps: the world shrinks, the HUD must not.
+    const zoomOut = screen.getByRole('button', { name: copy('zoomOut') })
+    for (let step = 0; step < 3; step += 1) fireEvent.click(zoomOut)
+    await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('55%'))
+    // A scale() here is the defect: it is what made the field shrink with the wall.
+    expect(transformOf()).toBe('translate(-50%, -50%)')
+    expect(transformOf()).not.toContain('scale(')
+
+    // Zooming back in must not scale it up either: the HUD is size-stable in both
+    // directions, not merely clamped at 1.
+    const zoomIn = screen.getByRole('button', { name: copy('zoomIn') })
+    for (let step = 0; step < 6; step += 1) fireEvent.click(zoomIn)
+    await waitFor(() => expect(document.querySelector('.skw-camera-value')?.textContent).toBe('145%'))
+    expect(transformOf()).toBe('translate(-50%, -50%)')
+    expect(transformOf()).not.toContain('scale(')
+  })
+
+  it('anchors the reserve on the painted centrepiece at the current zoom', async () => {
+    // The reserve has two halves and they are decided differently: the SIZE is the
+    // documented constant (placements are persisted, so a camera-derived size would
+    // make a card packed clear at 100% an offender at 50%), while the POSITION must
+    // follow the field, which is pinned to the viewport middle.
+    //
+    // jsdom reports zero-sized boxes, so the measured path falls back to the
+    // documented constant. What this pins is the CONTRACT: the create call carries a
+    // reserve, and its half-extents are the constant rather than a zoom-derived
+    // number. The real-UI suite measures the painted rectangles.
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-capture-input')).not.toBeNull())
+    const field = document.querySelector('.skw-capture-input') as HTMLInputElement
+    fireEvent.change(field, { target: { value: '圆心' } })
+    act(() => { fireEvent.submit(document.querySelector('.skw-capture') as HTMLFormElement) })
+    await waitFor(() => expect(api.calls).toContain('create'))
+    const reserve = (api.arguments.find((entry) => entry.method === 'create')?.options as {
+      centreReserve?: { halfWidth: number; halfHeight: number }
+    }).centreReserve
+    expect(reserve?.halfWidth).toBe(CENTRE_RESERVE.halfWidth)
+    expect(reserve?.halfHeight).toBe(CENTRE_RESERVE.halfHeight)
   })
 })
 

@@ -988,9 +988,19 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
    * already in state. Waiting one frame then lets the browser lay them out before
    * `fitWall` measures them; a fit issued any earlier measured the pre-tidy wall,
    * which is why the tidied wall kept opening overflowing at 100%.
+   *
+   * Tidy packs against the DOCUMENTED reserve, not against `centreReserve()`.
+   * That call reports the painted HUD box at the CURRENT zoom, which is the right
+   * answer for "keep this one new card out of the way" but the wrong one for a
+   * repack: tidy then refits the camera, and a reserve derived from the zoom the
+   * user happened to be at would make the packed result depend on the camera
+   * state. Worse, it feeds back — a bigger reserve makes a bigger wall, which
+   * frames at a lower zoom, which reports an even bigger reserve. The constant is
+   * the stable choice, and `arrangeLayouts` anchors the contour at the origin
+   * anyway, so only the half-extents were ever used here.
    */
   async function tidyWall(): Promise<void> {
-    const ran = await mutate(async () => { await api.arrange(life.current.signal, { centreReserve: centreReserve() }) })
+    const ran = await mutate(async () => { await api.arrange(life.current.signal, { centreReserve: CENTRE_RESERVE }) })
     if (!ran) return
     await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()) })
     if (!alive.current) return
@@ -1143,16 +1153,19 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     const world = worldRef.current
     const viewport = viewportRefCurrent.current
     if (world !== null) world.style.transform = `translate3d(${current.panX}px, ${current.panY}px, 0) scale(${current.zoom})`
-    // The centrepiece is screen-space (it must stay at the viewport's middle), but
-    // its WORLD footprint has to stay constant or the reserve cannot be an
-    // invariant. Counter-scaling below 1 does exactly that: zoomed out, the block
-    // shrinks on screen while covering the same world rectangle. Above 1 it is
-    // capped, so a magnified wall simply gets extra margin around the field.
+    // The centrepiece is a HUD, not a card: it is pinned to the viewport's middle
+    // and keeps its NATURAL size at every zoom.
+    //
+    // It used to be counter-scaled by `min(1, zoom)` so that its world footprint
+    // stayed constant and the clear rectangle could be a fixed invariant. The cost
+    // was that zooming out to frame a large wall shrank the greeting and the
+    // capture field with it — at the 42% fit floor the input was 42% of its size,
+    // which read as a broken control rather than a zoomed view. A fixed screen
+    // size is the right contract for page chrome; the reserve follows the painted
+    // box instead (`centreReserve`), so the middle still stays clear where it
+    // matters.
     const centre = centreRef.current
-    if (centre !== null) {
-      const scale = Math.min(1, current.zoom)
-      centre.style.transform = `translate(-50%, -50%) scale(${scale})`
-    }
+    if (centre !== null) centre.style.transform = 'translate(-50%, -50%)'
     if (viewport !== null) {
       // The paper's dots belong to the world, so their pitch and offset follow
       // the camera instead of staying a fixed screen texture under the cards.
@@ -1376,20 +1389,32 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   /**
    * The clear rectangle the wall must leave for its centrepiece, in WORLD pixels.
    *
-   * The SIZE is fixed and zoom-independent, and that is deliberate. The first
-   * version derived it from the rendered overlay divided by the zoom, which made
-   * the reserve grow as the camera zoomed out — but placements are PERSISTED, so
-   * a card packed clear at 100% became an offender at 50%, and a single zoom-out
-   * put a card behind the capture field. A reserve that resizes when the camera
-   * moves cannot be an invariant.
+   * Two things live here and they are decided differently on purpose.
    *
-   * The POSITION, though, is the camera's business. The centrepiece is a
-   * screen-space overlay pinned to the middle of the viewport, so as the paper
-   * pans and zooms the patch of world it covers travels with it. Reporting only
-   * half-extents made the Host keep the world ORIGIN clear while the field sat
-   * somewhere else entirely: a capture on a panned or zoomed wall was placed —
-   * and then revealed — directly behind the field. Converting the field's own
-   * screen rectangle through the camera gives the world patch it really covers.
+   * The SIZE is the documented constant, independent of the camera. The
+   * centrepiece is now a HUD that keeps its natural screen size at every zoom
+   * (`applyCamera` writes only the centring transform), so its world footprint
+   * genuinely grows as the camera zooms out — but deriving this reserve from the
+   * zoom is the wrong fix, because placements are PERSISTED. A reserve that
+   * shrank and grew with the camera would make a card packed clear at 100% an
+   * offender at 50%, and re-deriving it at 42% would report half-extents near
+   * 670px: the Host would then push each new card most of a screen from the
+   * middle, growing the wall, which frames at a lower zoom, which reports an even
+   * bigger reserve. That feedback loop is why the size stays constant.
+   *
+   * Content passing under the HUD at low zoom is therefore expected, not a bug:
+   * it is page chrome over a canvas, the same contract as any map overlay. What
+   * must never happen is a card being created where the user cannot see it, and
+   * that is `revealBox`'s job — it measures the PAINTED box in screen space, so
+   * it is exact at whatever zoom is on screen right now.
+   *
+   * The POSITION is the camera's business. The centrepiece is pinned to the
+   * middle of the viewport, so as the paper pans the patch of world it covers
+   * travels with it. Reporting only half-extents made the Host keep the world
+   * ORIGIN clear while the field sat somewhere else entirely: a capture on a
+   * panned wall was placed — and then revealed — directly behind the field.
+   * Converting the field's painted centre back through the camera gives the world
+   * point it really sits over.
    */
   const centreReserve = useCallback((): CentreReserve => {
     const base = CENTRE_RESERVE
@@ -1400,9 +1425,6 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     const block = centre.getBoundingClientRect()
     if (view.width === 0 || view.height === 0 || block.width === 0 || block.height === 0) return base
     const zoomNow = camera.current.zoom
-    // The overlay is counter-scaled by `min(1, zoom)` (see `applyCamera`), so its
-    // painted box already spans the fixed world rectangle. Convert its screen
-    // centre back through the camera to find WHERE that rectangle sits.
     const screenX = block.left + block.width / 2 - view.left
     const screenY = block.top + block.height / 2 - view.top
     return {
@@ -1454,16 +1476,19 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     const blockRect = centre === null ? null : centre.getBoundingClientRect()
     const fieldX = blockRect === null ? width / 2 : blockRect.left + blockRect.width / 2 - view.left
     const fieldY = blockRect === null ? height / 2 : blockRect.top + blockRect.height / 2 - view.top
-    const reserve = CENTRE_RESERVE
 
-    /** The field's screen half-extents at a given zoom. */
-    const blockHalf = (zoom: number): { halfW: number; halfH: number } => ({
-      // The painted overlay is counter-scaled by `min(1, zoom)`, while its world
-      // footprint stays fixed; taking the larger of the two keeps the card clear
-      // of whichever is actually on screen.
-      halfW: reserve.halfWidth * Math.max(1, zoom),
-      halfH: reserve.halfHeight * Math.max(1, zoom),
-    })
+    /**
+     * The field's SCREEN half-extents.
+     *
+     * The painted box is the truth: the centrepiece is a HUD with a fixed screen
+     * size, so what it covers on screen does not depend on the zoom at all. When
+     * there is no layout to measure (jsdom, a hidden panel, the first frame) the
+     * documented reserve is converted to screen space instead — world pixels times
+     * the camera scale — so the fallback still describes the same rectangle.
+     */
+    const measured = blockRect !== null && blockRect.width > 0 && blockRect.height > 0
+    const halfW = measured ? blockRect.width / 2 : CENTRE_RESERVE.halfWidth * camera.current.zoom
+    const halfH = measured ? blockRect.height / 2 : CENTRE_RESERVE.halfHeight * camera.current.zoom
 
     const cardX = box.x + box.width / 2
     const cardY = box.y + box.height / 2
@@ -1478,13 +1503,11 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       y + (box.height * zoom) / 2 <= usableBottom
 
     /** Whether the card, centred at a screen point, would be drawn behind the field. */
-    const hiddenAt = (x: number, y: number, zoom: number): boolean => {
-      const { halfW, halfH } = blockHalf(zoom)
-      return x - (box.width * zoom) / 2 < fieldX + halfW &&
-        x + (box.width * zoom) / 2 > fieldX - halfW &&
-        y - (box.height * zoom) / 2 < fieldY + halfH &&
-        y + (box.height * zoom) / 2 > fieldY - halfH
-    }
+    const hiddenAt = (x: number, y: number, zoom: number): boolean =>
+      x - (box.width * zoom) / 2 < fieldX + halfW &&
+      x + (box.width * zoom) / 2 > fieldX - halfW &&
+      y - (box.height * zoom) / 2 < fieldY + halfH &&
+      y + (box.height * zoom) / 2 > fieldY - halfH
 
     // Already visible and clear of the field: move nothing. Stealing the view
     // from someone who is reading is worse than the card being off-centre.
@@ -1505,7 +1528,6 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       const zoom = step === 0
         ? camera.current.zoom
         : Math.max(ZOOM_MIN, camera.current.zoom * 0.88 ** step)
-      const { halfW, halfH } = blockHalf(zoom)
       const halfCardW = (box.width * zoom) / 2
       const halfCardH = (box.height * zoom) / 2
       const candidates = [
@@ -1536,7 +1558,6 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       (width - margin * 2) / Math.max(1, box.width),
       (usableBottom - margin) / Math.max(1, box.height),
     ))
-    const { halfH } = blockHalf(targetZoom)
     const y = fieldY + halfH + gap + (box.height * targetZoom) / 2
     glideCameraTo(targetZoom, width / 2 - cardX * targetZoom, y - cardY * targetZoom)
   }, [glideCameraTo])

@@ -73,6 +73,7 @@
         "browser-canvas-centrepiece-is-at-the-middle",
         "browser-canvas-tidy-keeps-the-centre-clear",
         "browser-canvas-centrepiece-stays-put-while-panning",
+        "browser-canvas-centrepiece-keeps-its-size-while-zooming",
         "browser-centre-capture-creates-a-note",
         "browser-centre-capture-lands-visible-and-clear-of-the-field",
         "browser-no-card-covers-the-centrepiece",
@@ -88,11 +89,11 @@
         "browser-no-uncaught-errors"
       ],
       "evidence": {
-        "isolatedMount": "docs/evidence/isolated-mount-0.9.2.json",
+        "isolatedMount": "docs/evidence/isolated-mount-0.9.3.json",
         "uiVerification": "docs/evidence/ui-verification.json",
-        "tarballSha256": "7d216c20130ab09d52803ec6d481192c555c173953499a512090437e180c2047"
+        "tarballSha256": "0a686ef456ef624e67e8454c8013b14b44340eb54b1128817d0cca639e6d2d30"
       },
-      "notes": "Verified for the 0.9.2 Markdown editing/preview release against DSH 0.2.2-rc.5. The mount run installs the packed tarball into an owned disposable profile, composes it, boots a bounded startup and exercises the Connection API; the UI run drives the real DSH Web app over CDP (55/55). Release-specific checks: nested lists render with real DOM nesting on both the card and the composer preview, and toggling the preview keeps the editor mounted with its caret intact."
+      "notes": "Verified for the 0.9.3 fixed-centrepiece release against DSH 0.2.2-rc.5. The mount run installs the packed tarball into an owned disposable profile, composes it, boots a bounded startup and exercises the Connection API; the UI run drives the real DSH Web app over CDP (56/56). Release-specific check: the centrepiece keeps its painted size at 35%, 75% and 125% camera zoom while the world transform actually changes, so page chrome no longer shrinks with the canvas."
     },
     {
       "dsh": "0.2.2-rc.3",

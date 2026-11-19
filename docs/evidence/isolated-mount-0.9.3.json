@@ -1,0 +1,61 @@
+{
+  "package": "@skillre/dsh-plugin-sticky-wall",
+  "version": "0.9.3",
+  "dsh": "0.2.2-rc.5",
+  "tarball": {
+    "path": "/Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.9.3.tgz",
+    "sha256": "0a686ef456ef624e67e8454c8013b14b44340eb54b1128817d0cca639e6d2d30"
+  },
+  "profile": "sticky-wall-test-6960d6a2",
+  "checks": [
+    "command: dsh --version -> exit 0",
+    "dsh-version",
+    "command: dsh --profile sticky-wall-test-6960d6a2 --from-default-profile web --dump-config -> exit 0",
+    "profile-template-created",
+    "command: dsh plugin --profile sticky-wall-test-6960d6a2 add /Users/skillre/dsh-plugins/repos/dsh-plugin-sticky-wall/skillre-dsh-plugin-sticky-wall-0.9.3.tgz --ignore-scripts --store-dir /private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-6vkmYn/pnpm-store -> exit 0",
+    "profile-tarball-install",
+    "packed-dependency-and-selection",
+    "command: dsh --profile sticky-wall-test-6960d6a2 --dump-config -> exit 0",
+    "dump-config",
+    "packed-payload-present",
+    "legacy-domain-seeded",
+    "bounded-startup",
+    "api-list",
+    "legacy-migration-carries-every-note",
+    "legacy-migration-writes-markdown",
+    "api-create",
+    "api-update",
+    "api-move",
+    "api-move-clamped",
+    "api-move-bounds",
+    "api-arrange",
+    "api-archive",
+    "api-archive-hides-note",
+    "storage-persistence-across-restart",
+    "storage-persistence-layout",
+    "api-delete",
+    "api-delete-verified",
+    "api-auth-fence"
+  ],
+  "endpoint": {
+    "list": {
+      "notes": 2
+    },
+    "create": {
+      "id": "a8f40d08-f73c-43d6-a532-b804d5544a5c"
+    },
+    "move": {
+      "x": 168,
+      "y": 112,
+      "rotate": -3,
+      "width": "lg"
+    }
+  },
+  "cleanup": {
+    "ownedRoot": "/private/var/folders/k5/plnkf7qs5992_9713c_b34nc0000gn/T/dsh-sticky-wall-mount-6vkmYn",
+    "profile": "sticky-wall-test-6960d6a2",
+    "processesStopped": true,
+    "rootRemoved": true,
+    "verified": true
+  }
+}
