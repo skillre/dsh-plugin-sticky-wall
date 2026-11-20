@@ -610,6 +610,27 @@ describe('sticky-wall store', () => {
     expect(await mdFiles(store.notesDir)).toEqual([fileNameOf(note.id)])
   })
 
+  it('counts the whole wall independently of the list projection', async () => {
+    // `list()` defaults to live notes only, so counting archived notes out of a
+    // `list()` result always reads zero. `counts()` is the honest source, and it
+    // must agree with the archive operation that just ran.
+    const store = await makeStore()
+    const live = await store.create({ body: 'stays' })
+    const archivedA = await store.create({ body: 'archived a' })
+    const archivedB = await store.create({ body: 'archived b' })
+    await store.setArchived([archivedA.id, archivedB.id], true)
+    expect(store.list().length).toBe(1)
+    expect(store.list(true).length).toBe(3)
+    expect(store.counts()).toEqual({ total: 3, live: 1, archived: 2 })
+    // Restoring moves one back across the line without changing the total.
+    await store.setArchived([archivedB.id], false)
+    expect(store.counts()).toEqual({ total: 3, live: 2, archived: 1 })
+    // Deleting an archived note lowers both the total and the archive count.
+    await store.remove([archivedA.id])
+    expect(store.counts()).toEqual({ total: 2, live: 2, archived: 0 })
+    expect(live.id).toBeDefined()
+  })
+
   it('reports the wall summary and caps the requested limit', async () => {
     const store = await makeStore()
     await store.create({ body: 'a' })

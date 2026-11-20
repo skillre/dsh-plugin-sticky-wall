@@ -302,7 +302,16 @@ try {
 
     const hidden = await rpc(origin, cookie, { action: 'list' })
     assert.ok(!hidden.notes.some((candidate) => candidate.id === note.id), 'archived notes must hide from the default list')
+    // The archived count must survive that filtering. Deriving it from the
+    // returned notes reported zero on every default wall, so the real UI showed
+    // "0 archived" on a wall that had one.
+    assert.ok(hidden.counts !== undefined && typeof hidden.counts.archived === 'number', 'list must report whole-wall counts')
+    assert.ok(hidden.counts.archived >= 1, `a filtered list must still report the archive (got ${JSON.stringify(hidden.counts)})`)
+    assert.equal(hidden.counts.archived, hidden.counts.total - hidden.counts.live, 'counts must be internally consistent')
+    assert.ok(hidden.counts.total > hidden.counts.live, 'the seeded archived note must be counted as archived')
+    report.endpoint.counts = hidden.counts
     checks.push('api-archive-hides-note')
+    checks.push('api-counts-survive-filtering')
 
     // Persistence across a real restart: stop the app, start it again, and the
     // note must still be there because it went through the storage domain.

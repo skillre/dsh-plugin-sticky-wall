@@ -30,6 +30,18 @@ export interface HostConnection {
 /** The store operations the route dispatches onto. */
 export interface WallActions {
     list(includeArchived?: boolean, sort?: NoteSort): Note[];
+    /**
+     * The wall's real composition, counted over every stored note.
+     *
+     * Separate from {@link WallActions.list} on purpose: `list` returns only what
+     * the caller asked for, so a count derived from it describes the request
+     * rather than the wall.
+     */
+    counts(): {
+        total: number;
+        live: number;
+        archived: number;
+    };
     /** The Host's current change counter, for the Client's cheap poll. */
     revisionOf(): number;
     /** Absolute directory the notes live in. */

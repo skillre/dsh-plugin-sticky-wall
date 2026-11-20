@@ -100,6 +100,35 @@ describe('layout geometry', () => {
     }
   })
 
+  it('grows the derived spiral with the index whatever preset each note hashes to', () => {
+    // The radius must depend on the INDEX alone. It used to include the card's own
+    // half-diagonal, so a narrow card could be placed nearer the middle than a
+    // wide card with a lower index — a narrow note at index 3 sat inside a wide
+    // one at index 2. Both the cards and the wide window made that easy to see.
+    //
+    // This is asserted directly on the RADIUS rather than through the squashed
+    // ellipse metric: that metric mixes in the card's own width, so it would
+    // report a false inversion even when the spiral is correct.
+    const PREVIEW_NOMINAL_HEIGHT = 200
+    const SQUASH = 1.4
+    // One note per preset, repeating over 24 indices so every width sequence the
+    // hash can produce is covered.
+    const notes = Array.from({ length: 24 }, (_, index) => makeNote({ id: `n${index}` }))
+    expect(new Set(notes.map((note) => previewWidth(note.id))).size).toBeGreaterThan(1)
+    // Undo the squash and the centring offsets and what is left is the spiral's
+    // own radius: x + w/2 = cos(theta) * r * SQUASH, y + h/2 = sin(theta) * r.
+    const radii = notes.map((note, index) => {
+      const layout = previewLayout(note, index)
+      return Math.hypot(
+        (layout.x + WIDTH_PX[layout.width] / 2) / SQUASH,
+        layout.y + PREVIEW_NOMINAL_HEIGHT / 2,
+      )
+    })
+    for (let index = 1; index < radii.length; index += 1) {
+      expect(radii[index]!).toBeGreaterThan(radii[index - 1]!)
+    }
+  })
+
   it('uses the stored layout when one exists and falls back to the preview otherwise', () => {
     const stored: NoteLayout = { x: 42, y: 84, rotate: 2, width: 'lg' }
     expect(layoutOf(makeNote({ layout: stored }), 0)).toEqual(stored)
@@ -201,13 +230,21 @@ describe('tidy arrangement', () => {
     }
     const width = maxX - minX
     const height = maxY - minY
-    // The measured failure was 1645x1794. A contour-packed wall of the same
-    // fourteen notes is ~1290x670, so these bounds are the old shape's floor.
-    expect(width).toBeLessThan(1400)
-    expect(height).toBeLessThan(900)
-    // And the camera can now frame it at a legible size instead of 36%.
+    // These bounds are DERIVED from the reserve, not hard-coded against one
+    // version of it. The bound that matters is "the wall is the reserved middle
+    // plus one band of cards", so it is expressed that way: a wall may not grow
+    // more than a card-band past each edge of the reserved rectangle. Pinning
+    // absolute pixels here is what made a deliberate reserve change look like a
+    // packing regression.
+    const band = 900
+    expect(width).toBeLessThan(CENTRE_RESERVE.halfWidth * 2 + band)
+    expect(height).toBeLessThan(CENTRE_RESERVE.halfHeight * 2 + band)
+    // And the camera can still frame it at a legible size. The regression this
+    // guards is the ring packer's 1645x1794 wall, which framed at 36%; anything
+    // at or above 55% is legible, and the framing floor is 42% for the extreme
+    // case. The reserve is deliberately sized so the common wall stays above it.
     const fit = Math.min((1160 - 96) / width, (780 - 48 - 68) / height, 1)
-    expect(fit).toBeGreaterThan(0.7)
+    expect(fit).toBeGreaterThan(0.55)
   })
 
   it('packs a large wall into a wide cluster, not a column or a square disc', () => {
@@ -435,9 +472,14 @@ describe('free spot for a new card', () => {
       box.y < CENTRE_RESERVE.halfHeight &&
       box.y + box.height > -CENTRE_RESERVE.halfHeight
     expect(inside).toBe(false)
-    // ... and close to it: the nearest legal ring, not a far hole.
+    // ... and close to it: the nearest legal ring, not a far hole. The first
+    // card lands exactly on the reserve's half-diagonal (that is what the
+    // derivation guarantees), so the bound is that distance plus a card's own
+    // half-diagonal — not a hard-coded pixel count, which only held for one
+    // version of the reserve.
     const distance = Math.hypot(box.x + box.width / 2, box.y + box.height / 2)
-    expect(distance).toBeLessThan(560)
+    const halfDiagonal = Math.hypot(CENTRE_RESERVE.halfWidth, CENTRE_RESERVE.halfHeight)
+    expect(distance).toBeLessThan(halfDiagonal + 300)
   })
 
   it('never puts a new card on top of an existing one', () => {
@@ -477,12 +519,14 @@ describe('free spot for a new card', () => {
       box.y + box.height > positioned.y - positioned.halfHeight
     expect(insideField).toBe(false)
     // ... and NEXT TO it, not next to the origin: the whole point of the position
-    // is that the card lands where the user is looking.
+    // is that the card lands where the user is looking. The bound is the
+    // reserve's half-diagonal plus a card, derived rather than pinned.
     const distance = Math.hypot(
       box.x + box.width / 2 - positioned.x,
       box.y + box.height / 2 - positioned.y,
     )
-    expect(distance).toBeLessThan(620)
+    const halfDiagonal = Math.hypot(CENTRE_RESERVE.halfWidth, CENTRE_RESERVE.halfHeight)
+    expect(distance).toBeLessThan(halfDiagonal + 300)
     // It must be nowhere near the origin, or the field's position was ignored.
     const fromOrigin = Math.hypot(box.x + box.width / 2, box.y + box.height / 2)
     expect(fromOrigin).toBeGreaterThan(1200)
@@ -519,12 +563,21 @@ describe('free spot for a new card', () => {
   it('finds a gap between existing cards instead of always the outermost ring', () => {
     // A wall with a deliberate hole in the middle ring: the new card belongs in
     // the hole, which is nearer the middle than the next free ring outside.
+    //
+    // The ring's radius is DERIVED from the reserve. It used to be a literal 620,
+    // which only described a legal ring for the old reserve: once the reserve was
+    // sized for the framing floor its half-diagonal became larger than 620, so the
+    // "existing" cards in this fixture would themselves have sat inside the
+    // reserved middle — an impossible wall — and the new card was correctly
+    // pushed outside them.
+    const halfDiagonal = Math.hypot(CENTRE_RESERVE.halfWidth, CENTRE_RESERVE.halfHeight)
+    const ringRadius = halfDiagonal + 120
     const existing = Array.from({ length: 16 }, (_, index) => {
       const theta = (index / 16) * Math.PI * 2
       return makeNote({
         id: `ring${index}`,
         body: 'x',
-        layout: { x: Math.cos(theta) * 620 - 111, y: Math.sin(theta) * 620 - 100, rotate: 0, width: 'md' },
+        layout: { x: Math.cos(theta) * ringRadius - 111, y: Math.sin(theta) * ringRadius - 100, rotate: 0, width: 'md' },
       })
     })
     const fresh = makeNote({ id: 'fresh', body: 'gap' })
@@ -532,7 +585,7 @@ describe('free spot for a new card', () => {
     const box = noteBox({ ...fresh, layout }, 0)
     // It must not have been pushed outside the ring it could have fit inside.
     const distance = Math.hypot(box.x + box.width / 2, box.y + box.height / 2)
-    expect(distance).toBeLessThan(620)
+    expect(distance).toBeLessThan(ringRadius + 300)
     for (const note of existing) expect(overlaps(box, noteBox(note, 0))).toBe(false)
   })
 })

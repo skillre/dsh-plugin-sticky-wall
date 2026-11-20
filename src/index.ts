@@ -410,6 +410,7 @@ export function apply(ctx: Context, rawConfig: Partial<WallConfig> = {}): void {
           const store = await ready
           return {
             list: (includeArchived, sort) => store.list(includeArchived, sort),
+            counts: () => store.counts(),
             revisionOf: () => store.revision,
             notesDir: store.notesDir,
             create: (input, id, options) => store.create(input, id, options),

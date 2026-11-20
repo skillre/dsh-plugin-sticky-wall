@@ -315,11 +315,22 @@ export function previewLayout(note: Note, index: number): NoteLayout {
   // lands outside the rectangle at any reserve size.
   const reserve = CENTRE_RESERVE
   // The reserve's half-diagonal is how far the RECTANGLE's corner is from the
-  // middle; the card's own half-diagonal is how far the CARD reaches back inward
-  // from its centre. Adding both is what guarantees the derived box cannot clip
-  // a corner of the reserved band.
+  // middle; a card's half-diagonal is how far it reaches back inward from its
+  // centre. Adding both is what guarantees the derived box cannot clip a corner
+  // of the reserved band.
+  //
+  // The card half-diagonal is the WIDEST preset's, not this card's. Using the
+  // card's own width made the start radius — and therefore the whole spiral —
+  // depend on which preset the id happened to hash to, so a narrow card at index
+  // `i+1` could land INSIDE a wide card at index `i` and the radii stopped
+  // increasing with the index. The old reserve's numbers happened to keep that
+  // inversion invisible; sizing the reserve for the framing floor exposed it.
+  // Reserving for the widest preset costs a few pixels of paper and makes the
+  // radius a function of the index alone, which is what "the spiral grows
+  // outward" actually requires.
+  const widest = Math.max(...Object.values(WIDTH_PX))
   const startRadius = Math.hypot(reserve.halfWidth, reserve.halfHeight) +
-    Math.hypot(WIDTH_PX[width], PREVIEW_NOMINAL_HEIGHT) / 2
+    Math.hypot(widest, PREVIEW_NOMINAL_HEIGHT) / 2
   const radius = PREVIEW_STEP * Math.sqrt(Math.max(0, index) + (startRadius / PREVIEW_STEP) ** 2)
   const theta = index * GOLDEN_ANGLE + (unit(`${note.id}:pa`) - 0.5) * 0.55
   return clampLayout({

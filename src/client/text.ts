@@ -16,6 +16,9 @@ export const zh: Record<string, string> = {
   'title': '便签墙',
   'empty': '还没有便签。点「新建」写下第一条。',
   'emptyArchived': '归档区是空的。',
+  // Shown when the wall HAS notes but every one of them is archived. Saying
+  // "no notes yet" there was false and hid the way back to them.
+  'emptyAllArchived': '便签都收进归档了。用下方菜单里的「显示归档」查看。',
   'new': '新建',
   'save': '保存',
   'cancel': '取消',
@@ -127,6 +130,9 @@ export const en: Record<string, string> = {
   'title': 'Sticky wall',
   'empty': 'No notes yet. Hit "New" to write the first one.',
   'emptyArchived': 'Nothing archived yet.',
+  // Shown when the wall HAS notes but every one of them is archived. Saying
+  // "no notes yet" there was false and hid the way back to them.
+  'emptyAllArchived': 'Every note is in the archive. Use "Show archived" in the menu below to see them.',
   'new': 'New',
   'save': 'Save',
   'cancel': 'Cancel',

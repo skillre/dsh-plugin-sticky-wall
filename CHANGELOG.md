@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.9.4
+
+### Patch Changes
+
+- Fix the centre tally reporting `0 archived` on any wall that had an archive.
+  
+  The archived number was derived from the rendered note list. That list is a
+  projection of the last request, and the default request excludes archived notes,
+  so the expression `notes.filter(n => n.archived).length` was structurally zero
+  on every normal wall — a wall holding eight archived notes read "14 notes ·
+  0 archived". The same defect hid the clear-archive action, which is gated on that
+  count and was therefore unreachable in the only place a user would look for it.
+  
+  The Host now reports the wall's real composition (`total`/`live`/`archived`)
+  counted over every stored note, and the Client renders that instead of counting
+  its own filtered list. The tally describes the wall while the dock's count label
+  continues to describe the current view, so searching no longer produces nonsense
+  like "1 note · 8 archived".
+  
+  Also fixed in the same area: a wall whose notes are all archived said "no notes
+  yet", which was false and hid the way back to them. It now says the notes are in
+  the archive and names the "Show archived" toggle.
+
+- Size the centrepiece reserve for the framing floor, so a tidied card can no longer
+  graze the capture field at low zoom.
+
+  0.9.3 made the centrepiece keep its natural **screen** size at every zoom, but its
+  reserve stayed a constant sized for zoom 1. Those two only agree at 100%: a
+  screen-fixed 508px field covers `508 / zoom` world pixels, so below about 77% it
+  needed more clearance than the reserve granted. The real-UI harness measured the
+  result — one or two tidied cards clipping the field by roughly 9x17px — and it
+  reproduced intermittently, because a 14-card wall frames at 74–78%, right on the
+  boundary.
+
+  `CENTRE_RESERVE` is now `605x200`, the smallest rectangle that still contains the
+  painted HUD at the 42% framing floor (`280 / 0.42 ≈ 667` is the strict bound; 605
+  is the measured point where a 100-card wall still frames with a 508x168 screen
+  hole). It stays a constant, because deriving it from the live zoom would let the
+  reserve, the wall's size and the framing zoom chase each other and would turn a
+  persisted placement packed clear at 100% into an offender at 50%. The cost is
+  accepted and visible: the wall frames slightly lower than before.
+
+- Make the derived preview spiral grow with the note index regardless of card width.
+
+  `previewLayout` computed its start radius from the CARD's own half-diagonal, so a
+  narrow note could be placed nearer the middle than a wide note with a lower index
+  — radii stopped increasing with the index. The old reserve's numbers happened to
+  keep that inversion invisible; resizing the reserve for the framing floor exposed
+  it (index 2 landed at 819px inside index 1's 831px). The radius now reserves for
+  the widest preset, so it depends on the index alone.
+
 ## 0.9.3
 
 ### Patch Changes

@@ -36,7 +36,7 @@
  */
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { CENTRE_RESERVE, LIMITS, WIDTH_PX, type CentreReserve, type Note, type NoteColor, type NoteLayout, type NotePatch, type NoteWidth } from '../types.js'
+import { CENTRE_RESERVE, LIMITS, WIDTH_PX, type CentreReserve, type Note, type NoteColor, type NoteLayout, type NotePatch, type NoteWidth, type WallCounts } from '../types.js'
 import type { ClientApi } from './api.js'
 import { ActionError } from './api.js'
 import type { ClientLocaleLike } from './contracts.js'
@@ -641,6 +641,15 @@ function NoteRow({ note, t, locale, onEdit }: { note: Note; t: Translate; locale
 /** The wall page mounted into the `main` slot. */
 export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
   const [notes, setNotes] = useState<Note[]>([])
+  /**
+   * The wall's real composition, as counted by the Host.
+   *
+   * Kept as its own state rather than derived from `notes`: `notes` holds what
+   * the last request returned, and the default request EXCLUDES archived notes.
+   * Deriving the archived count from it reported zero on every normal wall, so
+   * the tally read "14 notes · 0 archived" on a wall holding eight.
+   */
+  const [counts, setCounts] = useState<WallCounts>({ total: 0, live: 0, archived: 0 })
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<Sort>('pinned')
   const [view, setView] = useState<ViewMode>('canvas')
@@ -857,6 +866,10 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
       const snapshot = await api.list(options.includeArchived, options.sort, life.current.signal)
       if (alive.current && seq === sequence.current) {
         setNotes((previous) => reconcileNotes(previous, snapshot.notes))
+        // The Host's counts are authoritative and are stored even when they
+        // arrive alongside a filtered page of notes, which is the whole point:
+        // the archived number must be right while the archive is HIDDEN.
+        setCounts(snapshot.counts)
         // Remember what the Host said, so the background poll can tell "nothing
         // changed" from "something changed" without refetching the whole wall.
         if (snapshot.revision > 0) revision.current = snapshot.revision
@@ -1062,7 +1075,16 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     })
   }, [notes, filter, query, showArchived])
 
-  const archivedCount = notes.filter((note) => note.archived).length
+  /**
+   * How many notes are archived, across the WHOLE wall.
+   *
+   * Read from the Host's counts, never from `notes`. `notes` is a projection of
+   * the last request, and the default request asks for live notes only — so
+   * `notes.filter(n => n.archived).length` is structurally 0 on a normal wall.
+   * That was the defect: a wall with an archive reported "0 archived", and the
+   * clear-archive action, gated on this number, never appeared at all.
+   */
+  const archivedCount = counts.archived
 
   /**
    * The greeting above the capture field.
@@ -1085,7 +1107,12 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     ? t('emptyArchived')
     : query.trim() !== ''
       ? t('noResults')
-      : t('empty')
+      // The wall may be empty because every note is archived. That is not "no
+      // notes yet": the notes exist and there is a way back to them, so saying
+      // otherwise hid both facts. `counts.total` is the Host's whole-wall count.
+      : counts.total > 0 && counts.archived === counts.total
+        ? t('emptyAllArchived')
+        : t('empty')
 
   /**
    * The centre of the visible wall, in world coordinates.
@@ -1392,21 +1419,24 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
    * Two things live here and they are decided differently on purpose.
    *
    * The SIZE is the documented constant, independent of the camera. The
-   * centrepiece is now a HUD that keeps its natural screen size at every zoom
+   * centrepiece is a HUD that keeps its natural screen size at every zoom
    * (`applyCamera` writes only the centring transform), so its world footprint
-   * genuinely grows as the camera zooms out — but deriving this reserve from the
-   * zoom is the wrong fix, because placements are PERSISTED. A reserve that
-   * shrank and grew with the camera would make a card packed clear at 100% an
-   * offender at 50%, and re-deriving it at 42% would report half-extents near
-   * 670px: the Host would then push each new card most of a screen from the
-   * middle, growing the wall, which frames at a lower zoom, which reports an even
-   * bigger reserve. That feedback loop is why the size stays constant.
+   * grows as the camera zooms out — but deriving this reserve from the LIVE zoom
+   * is the wrong fix, because placements are PERSISTED. A reserve that shrank and
+   * grew with the camera would make a card packed clear at 100% an offender at
+   * 50%, and re-deriving it per frame from the zoom would let the reserve, the
+   * wall's size and the framing zoom chase each other. That feedback loop is why
+   * the size is a constant.
    *
-   * Content passing under the HUD at low zoom is therefore expected, not a bug:
-   * it is page chrome over a canvas, the same contract as any map overlay. What
-   * must never happen is a card being created where the user cannot see it, and
-   * that is `revealBox`'s job — it measures the PAINTED box in screen space, so
-   * it is exact at whatever zoom is on screen right now.
+   * The CONSTANT is nevertheless sized for the framing floor rather than for
+   * 100%, and that distinction was a real defect: with a zoom-1-sized reserve the
+   * painted field needed more world clearance than the reserve granted at any
+   * zoom below ~77%, so a tidied card could graze the field's edge. See
+   * `CENTRE_RESERVE` for the derivation. Content can still pass under the HUD at
+   * a deep zoom-out, which is expected for page chrome over a canvas — what must
+   * never happen is a card being created where the user cannot see it, and that
+   * is `revealBox`'s job: it measures the PAINTED box in screen space, so it is
+   * exact at whatever zoom is on screen right now.
    *
    * The POSITION is the camera's business. The centrepiece is pinned to the
    * middle of the viewport, so as the paper pans the patch of world it covers
@@ -1952,12 +1982,21 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
             <div className="skw-centre" ref={centreRef} aria-hidden={false}>
               <p className="skw-centre-hello">{greeting}</p>
               <p className="skw-centre-tally" data-empty={visible.length === 0}>
-                {/* An empty wall still explains itself: the reason (no notes, no
+                {/* An empty view still explains itself: the reason (no notes, no
                     matches, empty archive) is more useful here than a bare zero,
-                    and the capture field stays available either way. */}
+                    and the capture field stays available either way.
+
+                    Otherwise the tally describes the WALL, not the current
+                    filter: both numbers come from the Host's counts, so they
+                    form a real breakdown ("14 notes · 8 archived"). Mixing a
+                    filtered count with a wall-wide one produced nonsense like
+                    "1 note · 8 archived" while searching, and taking the
+                    archived number from the visible notes reported 0 on every
+                    default wall, because that request excludes archived notes.
+                    The dock's `count` label already reports the current view. */}
                 {visible.length === 0
                   ? emptyCopy
-                  : t('centreTally', { count: visible.length, archived: archivedCount })}
+                  : t('centreTally', { count: counts.live, archived: counts.archived })}
               </p>
               <form
                 className="skw-capture"

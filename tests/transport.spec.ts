@@ -19,6 +19,17 @@ const store = {
   revision: 7,
   revisionOf: () => store.revision,
   list: (includeArchived = false) => [...store.notes.values()].filter((note) => includeArchived || !note.archived),
+  /**
+   * Counted over the WHOLE map, not over `list`'s projection.
+   *
+   * This mirrors the store: the double must not be more convenient than the real
+   * thing, or a bug in "count what the caller asked for" would pass here.
+   */
+  counts: () => {
+    const all = [...store.notes.values()]
+    const archived = all.filter((note) => note.archived).length
+    return { total: all.length, live: all.length - archived, archived }
+  },
   async create(input: { body: string }, _id?: string, options?: { centreReserve?: { halfWidth: number; halfHeight: number } }) {
     store.lastCreateOptions = options
     const note = {
@@ -96,6 +107,30 @@ describe('sticky-wall transport', () => {
     expect(document.type).toBe('server-response')
     expect(document.rpcId).toBe('rpc-1')
     expect(document.result).toMatchObject({ ok: true })
+  })
+
+  it('reports the whole-wall counts even when the list excludes archived notes', async () => {
+    // The defect this guards: the archived count was derived from the returned
+    // notes, which the default request filters — so it was always zero. The
+    // route now states the counts itself, counted over every stored note.
+    store.notes.clear()
+    store.notes.set('live', {
+      id: 'live', title: '', body: 'x', tags: [], color: 'yellow', pinned: false, archived: false,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', layout: null,
+    })
+    store.notes.set('gone', {
+      id: 'gone', title: '', body: 'y', tags: [], color: 'yellow', pinned: false, archived: true,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', layout: null,
+    })
+    const route = createExecuteRoute(actions)
+    const document = await body(await route.fetch(request({ action: 'list' })))
+    const result = document.result as { ok: boolean; value: { notes: Note[]; counts: { total: number; live: number; archived: number } } }
+    expect(result.ok).toBe(true)
+    // The projection really did drop the archived note...
+    expect(result.value.notes.map((note) => note.id)).toEqual(['live'])
+    // ...while the counts still describe the wall.
+    expect(result.value.counts).toEqual({ total: 2, live: 1, archived: 1 })
+    store.notes.clear()
   })
 
   it('creates a note through the endpoint', async () => {

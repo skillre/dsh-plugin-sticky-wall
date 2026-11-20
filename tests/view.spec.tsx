@@ -109,7 +109,14 @@ function makeNote(overrides: Partial<Note> = {}): Note {
 
 /** Wrap notes in the snapshot shape the Client consumes. */
 function snapshot(notes: Note[]): WallSnapshot {
-  return { notes, revision: 0, notesDir: '/tmp/notes', domain: { name: 'sticky-wall', version: 2 } }
+  const archived = notes.filter((note) => note.archived).length
+  return {
+    notes,
+    counts: { total: notes.length, live: notes.length - archived, archived },
+    revision: 0,
+    notesDir: '/tmp/notes',
+    domain: { name: 'sticky-wall', version: 2 },
+  }
 }
 
 /** One recorded call: the method name, the payload it carried and its options. */
@@ -759,6 +766,67 @@ describe('view modes and the free canvas', () => {
     expect(getComputedStyle(document.querySelector('.skw-capture') as HTMLElement).pointerEvents).toBe('auto')
     // The tally counts what the wall shows, and mentions the archive separately.
     expect(document.querySelector('.skw-centre-tally')?.textContent).toBe(t('centreTally', { count: 1, archived: 1 }))
+  })
+
+  it('reports the real archived count while the archive is hidden', async () => {
+    // The reported defect: the tally read "14 notes · 0 archived" on a wall
+    // holding eight archived notes. The count was derived from `notes`, which is
+    // the FILTERED list — and the default request excludes archived notes, so
+    // that expression is structurally zero. This test keeps the list filtered
+    // (exactly what the Host returns for `includeArchived: false`) and states the
+    // real counts separately, the way the Host does. Reverting to the derived
+    // count fails here with `0` instead of `8`.
+    const api = makeApi({
+      list: async () => ({
+        notes: [makeNote({ id: 'live-1', body: 'visible' })],
+        counts: { total: 9, live: 1, archived: 8 },
+        revision: 1,
+        notesDir: '/tmp/notes',
+        domain: { name: 'sticky-wall', version: 2 },
+      }),
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-centre-tally')).not.toBeNull())
+    expect(document.querySelector('.skw-centre-tally')?.textContent).toBe(t('centreTally', { count: 1, archived: 8 }))
+    // The archived note is genuinely not in the rendered list.
+    expect(document.querySelectorAll('.skw-canvas .skw-note').length).toBe(1)
+  })
+
+  it('offers the archive sweep even though no archived note is on screen', async () => {
+    // Same root cause, second victim: the clear-archive item was gated on the
+    // derived count, so it was unreachable on a default wall — the only place a
+    // user would ever look for it.
+    const api = makeApi({
+      list: async () => ({
+        notes: [makeNote({ id: 'live-1', body: 'visible' })],
+        counts: { total: 9, live: 1, archived: 8 },
+        revision: 1,
+        notesDir: '/tmp/notes',
+        domain: { name: 'sticky-wall', version: 2 },
+      }),
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-dock')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: copy('more') }))
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: copy('clearArchived') })).toBeTruthy())
+  })
+
+  it('does not claim the wall is empty when every note is archived', async () => {
+    // A wall whose notes are all archived returned an empty list, and the centre
+    // said "no notes yet" — false, and it hid the way back to them.
+    const api = makeApi({
+      list: async () => ({
+        notes: [],
+        counts: { total: 3, live: 0, archived: 3 },
+        revision: 1,
+        notesDir: '/tmp/notes',
+        domain: { name: 'sticky-wall', version: 2 },
+      }),
+    })
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-centre-tally')).not.toBeNull())
+    expect(document.querySelector('.skw-centre-tally')?.textContent).toBe(copy('emptyAllArchived'))
+    expect(document.querySelector('.skw-centre-tally')?.textContent).not.toBe(copy('empty'))
   })
 
   it('creates a note from the centre capture field and clears it', async () => {

@@ -487,6 +487,23 @@ export class StickyWallStore {
   }
 
   /**
+   * The wall's real composition: how many notes exist, live and archived.
+   *
+   * This is the ONLY honest source for those numbers. `list` returns a
+   * projection — the default call omits archived notes entirely — so a caller
+   * counting `archived` out of a `list` result is counting its own filter and
+   * will read zero on a wall that has an archive. Every note in the map is
+   * counted here, archived or not.
+   */
+  counts(): { total: number; live: number; archived: number } {
+    this.assertOpen()
+    let archived = 0
+    for (const note of this.notes.values()) if (note.archived) archived += 1
+    const total = this.notes.size
+    return { total, live: total - archived, archived }
+  }
+
+  /**
    * The snapshot the store's own mutations work from.
    *
    * Deliberately does NOT check `closed`: {@link close} drains queued writes

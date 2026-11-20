@@ -734,6 +734,23 @@ try {
   }))()`)
   record('archive-hides-note', { ok: archived.ok && afterArchive.visible === false, detail: `visible notes=${afterArchive.count}` })
 
+  // The tally must report the archive WHILE IT IS HIDDEN — that is the state a
+  // user is in on a normal wall, and the state the count used to get wrong: it
+  // was derived from the filtered card list, so it read "0 张已归档" on a wall
+  // that had one. Read the number back out of the rendered sentence rather than
+  // trusting the DOM structure.
+  const tallyHidden = await page.evaluate(`(() => {
+    const tally = document.querySelector('.skw-centre-tally')?.textContent ?? '';
+    const archivedCards = document.querySelectorAll('.skw-note[data-archived="true"]').length;
+    const match = /(\\d+)\\s*张已归档/.exec(tally);
+    return { tally, archivedCards, reported: match ? Number(match[1]) : null };
+  })()`)
+  record('centre-tally-reports-the-hidden-archive', {
+    // No archived card is on screen, yet the tally must still name the archive.
+    ok: tallyHidden.archivedCards === 0 && tallyHidden.reported !== null && tallyHidden.reported >= 1,
+    detail: `tally="${tallyHidden.tally}" archivedCards=${tallyHidden.archivedCards}`,
+  })
+
   // "Show archived" moved into the dock's overflow menu, because it is a mode
   // rather than a frequent click and the always-visible strip overflowed the page.
   const showArchivedMenu = await dockMenu(page, '显示归档')
@@ -748,6 +765,17 @@ try {
   record('show-archived-toggle', {
     ok: restoredVisible.visible === true,
     detail: `archived cards=${restoredVisible.archivedCards}`,
+  })
+  // With the archive on screen the tally must not double-count or drift: the
+  // live number plus the archived number is the whole wall, in both states.
+  const tallyShown = await page.evaluate(`(() => {
+    const tally = document.querySelector('.skw-centre-tally')?.textContent ?? '';
+    const pair = /(\\d+)\\s*张便签\\s*·\\s*(\\d+)\\s*张已归档/.exec(tally);
+    return { tally, live: pair ? Number(pair[1]) : null, archived: pair ? Number(pair[2]) : null };
+  })()`)
+  record('centre-tally-is-stable-when-the-archive-is-shown', {
+    ok: tallyShown.live !== null && tallyShown.archived !== null && tallyShown.archived >= 1 && tallyShown.live >= 1,
+    detail: `tally="${tallyShown.tally}"`,
   })
   const archivedShot = await page.shot('sticky-wall-archived.png')
 
@@ -1235,14 +1263,29 @@ try {
     const box = centre.getBoundingClientRect();
     const capture = document.querySelector('.skw-capture').getBoundingClientRect();
     const cards = [...document.querySelectorAll('.skw-canvas .skw-note')].map((node) => node.getBoundingClientRect());
-    // Does any card overlap the capture field?
-    const captureHits = cards.filter((r) =>
-      r.left < capture.right && capture.left < r.right && r.top < capture.bottom && capture.top < r.bottom).length;
+    // Does any card overlap the capture field? Report the worst intrusion in
+    // pixels, not just a count: "1 overlapping" cannot distinguish a card one
+    // pixel into the field's shadow from a card sitting on the input, and this
+    // assertion has been the one flaky check in the run.
+    const intrusions = cards
+      .map((r) => ({
+        overlapW: Math.min(r.right, capture.right) - Math.max(r.left, capture.left),
+        overlapH: Math.min(r.bottom, capture.bottom) - Math.max(r.top, capture.top),
+      }))
+      .filter((o) => o.overlapW > 0 && o.overlapH > 0)
+    const worst = intrusions.reduce((max, o) => Math.max(max, o.overlapW * o.overlapH), 0)
     return {
       ok: true,
       offsetX: (box.left + box.right) / 2 - (viewport.left + viewport.width / 2),
       offsetY: (box.top + box.bottom) / 2 - (viewport.top + viewport.height / 2),
-      captureHits,
+      captureHits: intrusions.length,
+      worstOverlapPx: Math.round(worst),
+      captureBox: [Math.round(capture.left), Math.round(capture.top), Math.round(capture.width), Math.round(capture.height)],
+      intruders: cards
+        .map((r) => ({ r, overlapW: Math.min(r.right, capture.right) - Math.max(r.left, capture.left), overlapH: Math.min(r.bottom, capture.bottom) - Math.max(r.top, capture.top) }))
+        .filter((o) => o.overlapW > 0 && o.overlapH > 0)
+        .slice(0, 3)
+        .map((o) => [Math.round(o.r.left), Math.round(o.r.top), Math.round(o.r.width), Math.round(o.r.height)]),
       cards: cards.length,
       greeting: document.querySelector('.skw-centre-hello')?.textContent ?? null,
       tally: document.querySelector('.skw-centre-tally')?.textContent ?? null,
@@ -1254,7 +1297,7 @@ try {
   })
   record('canvas-tidy-keeps-the-centre-clear', {
     ok: centrepiece.ok && centrepiece.captureHits === 0,
-    detail: `${centrepiece.cards} cards, ${centrepiece.captureHits} overlapping the capture field`,
+    detail: `${centrepiece.cards} cards, ${centrepiece.captureHits} overlapping the capture field (worst ${centrepiece.worstOverlapPx}px²), field=${JSON.stringify(centrepiece.captureBox)}, intruders=${JSON.stringify(centrepiece.intruders)}`,
   })
 
   // Panning must not move the centrepiece: it is screen space, not world space.

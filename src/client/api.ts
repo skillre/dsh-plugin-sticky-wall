@@ -10,7 +10,7 @@
 
 import type { ClientConnectionLike, RpcResult } from './contracts.js'
 import { ENDPOINT } from '../types.js'
-import type { CentreReserve, MutationResult, Note, NoteInput, NoteLayout, NotePatch, WallRequest, WallSnapshot } from '../types.js'
+import type { CentreReserve, MutationResult, Note, NoteInput, NoteLayout, NotePatch, WallCounts, WallRequest, WallSnapshot } from '../types.js'
 
 /** Failure raised by the Host; `code` is stable enough to switch on. */
 export class ActionError extends Error {
@@ -52,6 +52,27 @@ function unwrap<T>(result: RpcResult<T>): T {
   return result.value
 }
 
+/**
+ * Coerce the Host's counts into the typed shape, falling back to the returned
+ * notes only when the Host said nothing.
+ *
+ * The fallback is a LAST resort, not an equivalent: the notes array is a
+ * filtered projection, so counting it under-reports archived notes whenever the
+ * request excluded them. It exists so an older or malformed Host still yields
+ * usable numbers instead of `NaN` in the tally; the real counts come from the
+ * Host, which is the only side that sees every note.
+ */
+function normalizeCounts(raw: WallCounts | undefined, notes: Note[]): WallCounts {
+  if (raw !== undefined && raw !== null && typeof raw === 'object') {
+    const total = typeof raw.total === 'number' && Number.isFinite(raw.total) ? raw.total : notes.length
+    const archived = typeof raw.archived === 'number' && Number.isFinite(raw.archived) ? raw.archived : 0
+    const live = typeof raw.live === 'number' && Number.isFinite(raw.live) ? raw.live : Math.max(0, total - archived)
+    return { total, live, archived }
+  }
+  const archived = notes.filter((note) => note.archived).length
+  return { total: notes.length, live: notes.length - archived, archived }
+}
+
 /** Create the API bound to this plugin's Fiber lifetime. */
 export function createApi(connection: ClientConnectionLike, lifetime: AbortSignal): ClientApi {
   const call = async <T>(request: WallRequest, signal?: AbortSignal): Promise<T> => {
@@ -64,8 +85,10 @@ export function createApi(connection: ClientConnectionLike, lifetime: AbortSigna
       // The Host always answers with the full snapshot shape. A malformed reply
       // is normalised into an empty-but-typed snapshot rather than left as
       // `undefined`, so a caller can never crash on `snapshot.notes`.
+      const notes = Array.isArray(value?.notes) ? value.notes : []
       return {
-        notes: Array.isArray(value?.notes) ? value.notes : [],
+        notes,
+        counts: normalizeCounts(value?.counts, notes),
         revision: typeof value?.revision === 'number' ? value.revision : 0,
         notesDir: typeof value?.notesDir === 'string' ? value.notesDir : '',
         domain: value?.domain ?? { name: '', version: 0 },

@@ -113,13 +113,29 @@ export const WIDTH_PX: Readonly<Record<NoteWidth, number>> = Object.freeze({
  * wasted a tall column of paper above and below the field while still letting a
  * wide card reach in from the side.
  *
- * The numbers are the shipped centrepiece at zoom 1 (560px wide, ~140px tall)
- * plus a margin, in world pixels. The Client re-derives a zoom-corrected version
- * of this rectangle from the rendered DOM before it asks the Host to tidy, so a
- * zoomed-out wall reserves proportionally more world space — see
- * `WallPage.centreReserve`.
+ * **These numbers are derived from the framing floor, not from zoom 1.** The
+ * centrepiece is a screen-space HUD: it keeps its painted size (a measured
+ * 560x167 block, so half-extents 280x84) at every camera zoom, which means the
+ * patch of WORLD it covers is `painted / zoom` and grows as the wall zooms out.
+ * A reserve sized for zoom 1 was therefore too small for every framed wall: at
+ * 75% the painted field alone needs 339 world px per side against a 330 reserve,
+ * so a tidied card grazed the field's edge — measured in the real UI as 1-2
+ * cards clipping the field by ~9x17px. That is why this is 605x200 and not
+ * 330x136.
+ *
+ * The value is the smallest one that still contains the HUD at the camera's
+ * framing floor (0.42, the lowest zoom `fitWall` will ever frame a wall at):
+ * `280 / 0.42 ≈ 667` is the strict bound, and 605 is the measured point at which
+ * a 100-card wall still frames with a hole of 508x168 screen px — exactly the
+ * painted field. Enlarging it further only buys empty paper in the middle and
+ * costs framing zoom (667 frames a 14-card wall at 56% instead of 60%), so the
+ * reserve is deliberately the tight bound rather than a comfortable one.
+ *
+ * The number cannot be derived per-wall from the live zoom without creating the
+ * feedback loop documented on `WallPage.centreReserve`, so it is a constant and
+ * the cost is accepted: a wall frames slightly lower than it otherwise would.
  */
-export const CENTRE_RESERVE = Object.freeze({ halfWidth: 330, halfHeight: 136 })
+export const CENTRE_RESERVE = Object.freeze({ halfWidth: 605, halfHeight: 200 })
 
 /**
  * A clear rectangle around the wall's centrepiece, in WORLD pixels.
@@ -229,9 +245,34 @@ export interface Note {
   extra?: Readonly<Record<string, string>> | undefined
 }
 
+/**
+ * How many notes the wall holds, independent of what the Client asked for.
+ *
+ * This exists because the Client cannot derive it. `list` only returns what the
+ * caller requested, and the default request excludes archived notes — so
+ * counting archived notes out of the returned array always yields zero on a
+ * normal wall. The Host is the only side that knows the real composition, so it
+ * states it explicitly instead of letting every caller guess.
+ */
+export interface WallCounts {
+  /** Every stored note, archived ones included. */
+  total: number
+  /** Notes that are not archived; the documented `maxNotes` cap applies here. */
+  live: number
+  /** Notes the user archived, whether or not they are in `notes`. */
+  archived: number
+}
+
 /** The complete wall state a Client renders. */
 export interface WallSnapshot {
   notes: Note[]
+  /**
+   * The wall's real composition, counted by the Host over EVERY stored note.
+   *
+   * Deliberately not derived from `notes`: that array is a filtered projection,
+   * so a count taken from it describes the request, not the wall.
+   */
+  counts: WallCounts
   /**
    * Monotonic change counter.
    *
