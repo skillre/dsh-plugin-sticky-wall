@@ -894,27 +894,30 @@ describe('indentation contract', () => {
     expect(editor().value).toBe('a\n   \nb')
   })
 
-  it('outdents a 3-space line all the way to column 0', () => {
-    // Blocker 2: Shift+Tab removed exactly two spaces, so "   - item" (level 1,
-    // because 3 spaces floors to 1) came back as " - item" — a level-0 line with
-    // a stray space. It must land on the PREVIOUS whole level: 3 -> 0.
+  it('snaps a 3-space line down to the level below it', () => {
+    // Shift+Tab must never leave a stray offset. 3 columns sit BETWEEN level 1 (2)
+    // and level 2 (4), so one press takes the line to the whole level below it:
+    // 3 -> 2. A second press then reaches 0. Both directions are exact inverses,
+    // which is the property the editor guarantees (see `indentSelection`).
     render(<Host initial={'   - item'} autoFocus={false} />)
     select(10, 10)
 
     fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    expect(editor().value).toBe('  - item')
 
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
     expect(editor().value).toBe('- item')
   })
 
   it('outdents one whole level at a time from a deeper line', () => {
-    // 6 spaces is off every grid, so the first outdent SNAPS it onto the nearest
-    // grid line (4). From there the document is a clean 4-space note, so the next
-    // outdent lands on 0. Snapping is what keeps the result on a level the parser
-    // reads as nesting instead of leaving a stray 1- or 3-space offset.
+    // 6 columns are level 3 on the 2-space grid, so outdenting walks 6 -> 4 -> 2
+    // -> 0: every stop is a whole level, never a leftover space.
     render(<Host initial={'      deep'} autoFocus={false} />)
     select(10, 10)
     fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
     expect(editor().value).toBe('    deep')
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    expect(editor().value).toBe('  deep')
     fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
     expect(editor().value).toBe('deep')
   })
@@ -922,6 +925,9 @@ describe('indentation contract', () => {
   it('never leaves a stray space when outdenting an odd indent', () => {
     render(<Host initial={'   text'} autoFocus={false} />)
     select(7, 7)
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    // 3 columns snap down to the level below (2), never to a stray 1 or 0.
+    expect(editor().value).toBe('  text')
     fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
     expect(editor().value).toBe('text')
     // Already flush: another outdent is a no-op, not a negative indent.
@@ -943,37 +949,85 @@ describe('indentation contract', () => {
     expect(editor().selectionStart).toBe(9)
   })
 
-  it('follows the document\'s own 4-space grid instead of forcing 2', () => {
-    // A pasted or hand-written note commonly nests with 4 spaces. Tab used to add
-    // 2, landing a child on 6 — between the document's levels — and Shift+Tab
-    // walked 4 -> 2 -> 0, through an indent no other line used.
-    render(<Host initial={'- parent\n    - child'} autoFocus={false} />)
-    select(21, 21)
-    fireEvent.keyDown(editor(), { key: 'Tab' })
-    expect(editor().value).toBe('- parent\n        - child')
-    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
-    expect(editor().value).toBe('- parent\n    - child')
-    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
-    expect(editor().value).toBe('- parent\n- child')
+  it('steps by the same amount on every press, whatever the document holds', () => {
+    // The step is a CONSTANT. Deriving it from the document was self-referential:
+    // Tab changes the document, so the next Tab measured a different document and
+    // stepped differently. Measured steps for six consecutive Tabs used to be
+    // `[2, 2, 4, 4, 4, 4]`.
+    render(<Host initial={'- a'} autoFocus={false} />)
+    const node = select(2, 2)
+    const seen: number[] = [0]
+    for (let press = 0; press < 5; press += 1) {
+      fireEvent.keyDown(node, { key: 'Tab' })
+      seen.push((node.value.match(/^ */) ?? [''])[0].length)
+    }
+    expect(seen).toEqual([0, 2, 4, 6, 8, 10])
   })
 
-  it('keeps the 2-space step when the document declares no wider grid', () => {
-    // One indented line is not a grid, so the documented default still applies.
-    render(<Host initial={'- a\n  - b'} autoFocus={false} />)
-    select(9, 9)
-    fireEvent.keyDown(editor(), { key: 'Tab' })
-    expect(editor().value).toBe('- a\n    - b')
+  it('returns to the starting indent when Tab and Shift+Tab are balanced', () => {
+    // The property a writer relies on: the two directions are exact inverses.
+    render(<Host initial={'- a'} autoFocus={false} />)
+    const node = select(2, 2)
+    for (let press = 0; press < 5; press += 1) fireEvent.keyDown(node, { key: 'Tab' })
+    expect(node.value).toBe('          - a')
+    for (let press = 0; press < 5; press += 1) fireEvent.keyDown(node, { key: 'Tab', shiftKey: true })
+    expect(node.value).toBe('- a')
+  })
+
+  it('keeps Enter and Tab on the same unit for both list kinds', () => {
+    // The reported defect: after Enter the new item sat one unit deeper than the
+    // line above, and Tab's step disagreed with Shift+Tab's. Both came from
+    // measuring the unit from the document on every press.
+    for (const marker of ['- ', '1. ']) {
+      render(<Host initial={`${marker}parent`} autoFocus={false} />)
+      const node = select(editor().value.length, editor().value.length)
+
+      // Enter continues the list at the SAME indent as the line above.
+      fireEvent.keyDown(node, { key: 'Enter' })
+      const lines = node.value.split('\n')
+      expect((lines[1] ?? '').match(/^ */)?.[0].length).toBe(0)
+
+      // Tab then nests by exactly the step Enter used, and Shift+Tab undoes it.
+      fireEvent.keyDown(node, { key: 'Tab' })
+      expect((node.value.split('\n')[1] ?? '').match(/^ */)?.[0].length).toBe(2)
+      fireEvent.keyDown(node, { key: 'Tab', shiftKey: true })
+      expect((node.value.split('\n')[1] ?? '').match(/^ */)?.[0].length).toBe(0)
+      cleanup()
+    }
+  })
+
+  it('never lets Tab and Shift+Tab disagree on the step size', () => {
+    // Measured before the fix: Tab produced [2, 2, 4, 4, 4, 4] and the two
+    // directions did not retrace (`[0,2,4,8,12]` up versus `[12,8,4,0,0]` down).
+    render(<Host initial={'- a'} autoFocus={false} />)
+    const node = select(2, 2)
+    const columnOf = (): number => (node.value.match(/^ */) ?? [''])[0].length
+    const up: number[] = [columnOf()]
+    for (let press = 0; press < 4; press += 1) {
+      fireEvent.keyDown(node, { key: 'Tab' })
+      up.push(columnOf())
+    }
+    const down: number[] = [columnOf()]
+    for (let press = 0; press < 4; press += 1) {
+      fireEvent.keyDown(node, { key: 'Tab', shiftKey: true })
+      down.push(columnOf())
+    }
+    // Every step up is the same size, and the way down retraces it exactly.
+    const stepsUp = up.slice(1).map((value, index) => value - (up[index] ?? 0))
+    expect(new Set(stepsUp).size).toBe(1)
+    expect(down).toEqual([...up].reverse())
   })
 
   it('nests one level per press, whatever the line started at', () => {
-    // Appending a unit to any prefix raises floor(columns/2) by exactly one, so
-    // Tab from a 3-space line reaches level 2 (5 spaces -> floor 2), not level 1.
+    // A line BETWEEN levels is snapped onto the grid rather than gaining an
+    // offset: 3 columns is not a level, so one press takes it to the next whole
+    // level (4), and the press after that to 6.
     render(<Host initial={'   - a'} autoFocus={false} />)
     select(5, 5)
     fireEvent.keyDown(editor(), { key: 'Tab' })
-    expect(editor().value).toBe('     - a')
+    expect(editor().value).toBe('    - a')
     fireEvent.keyDown(editor(), { key: 'Tab' })
-    expect(editor().value).toBe('       - a')
+    expect(editor().value).toBe('      - a')
   })
 })
 

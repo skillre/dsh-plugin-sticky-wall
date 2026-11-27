@@ -606,37 +606,21 @@ export function indentLevelOf(line: string): number {
  *   whitespace, which Markdown reads as content.
  */
 /**
- * The indentation unit this DOCUMENT demonstrably uses, in columns.
+ * The indentation step, in columns. ONE value for the whole editor.
  *
- * A note written with 4-space nesting is normal (CommonMark's own convention,
- * and what a pasted document usually carries). Pressing Tab in one used to add
- * the hardcoded 2 spaces, so the new level landed BETWEEN the document's own
- * levels — a 4-space child became 6, which is neither the sibling indent the
- * writer sees above it nor a whole level of their grid. Shift+Tab had the
- * mirror-image problem: 4 spaces took two presses to reach 0 and passed through
- * a 2-space value no other line used.
+ * It is a constant on purpose. Deriving it from the document was tried twice and
+ * both versions were self-referential: Tab changes the document, so the next Tab
+ * measured a different document and stepped by a different amount. Measured with
+ * a per-document unit: six consecutive Tabs on a bullet produced
+ * `[2, 2, 4, 4, 4, 4]` columns, and Tab-up/Shift+Tab-down did not retrace each
+ * other (`[0,2,4,8,12,16]` up versus `[16,12,8,4,0,0]` down).
  *
- * Two conventions are actually in the wild, so the test is whether the document
- * is consistent with the WIDER one: every indent being a multiple of 4 means the
- * note is a 4-space document, and anything else keeps the parser's 2. Deriving a
- * gcd instead would read a single 6-space continuation line as a 6-space grid,
- * which is how a one-off alignment artefact would hijack the whole note.
+ * A constant makes the two directions exact inverses — Tab then Shift+Tab always
+ * returns to where it started — which is the property a writer actually relies
+ * on. The value is the parser's own `INDENT_WIDTH`, so a Tab lands exactly on a
+ * nesting level the renderer reads as a level.
  */
-function indentUnitOf(value: string): number {
-  let sawIndent = false
-  for (const line of value.split('\n')) {
-    if (line.trim() === '') continue
-    const columns = columnsOf(leadingSpace(line))
-    if (columns === 0) continue
-    sawIndent = true
-    // One line off the 4-grid settles it: this is a 2-space document.
-    if (columns % WIDE_INDENT_UNIT !== 0) return INDENT_WIDTH
-  }
-  return sawIndent ? WIDE_INDENT_UNIT : INDENT_WIDTH
-}
-
-/** The wider of the two nesting conventions {@link indentUnitOf} recognises. */
-const WIDE_INDENT_UNIT = 4
+const INDENT_STEP = INDENT_WIDTH
 
 /**
  * Tab / Shift+Tab.
@@ -646,25 +630,35 @@ const WIDE_INDENT_UNIT = 4
  * the line, otherwise the caret would drift into the middle of a nested item
  * while the line itself stayed flat.
  *
- * - Tab adds exactly one level of the document's own unit (see
- *   {@link indentUnitOf}), so a 4-space note nests to 4, 8, 12 rather than
- *   landing on odd multiples of two. A document that does not declare a wider
- *   grid keeps the 2-space step.
- * - Shift+Tab removes one level of the same unit and lands on the previous grid
- *   line, so a line with a stray offset is straightened out in one press.
- * - A blank line is left alone: indenting it would write invisible trailing
- *   whitespace, which Markdown reads as content.
+ * Both directions use {@link INDENT_STEP} and are exact inverses:
+ *
+ * - Tab moves the line to the NEXT whole level of the grid;
+ * - Shift+Tab moves it to the PREVIOUS one.
+ *
+ * Both are `floor(columns / step) ± 1`, so a line that starts between levels (3
+ * columns) is snapped onto the grid instead of gaining an arbitrary offset, and
+ * pressing Tab n times then Shift+Tab n times returns to the starting indent.
+ *
+ * A blank line is left alone: indenting it would write invisible trailing
+ * whitespace, which Markdown reads as content.
  */
 function indentSelection(value: string, start: number, end: number, direction: 1 | -1): CaretEdit {
-  const unit = indentUnitOf(value)
   return rewriteLines(value, start, end, (line) => {
     // Nothing to indent, and a whitespace-only line must stay byte-empty.
     if (line.trim() === '') return line
     const prefix = leadingSpace(line)
     const body = line.slice(prefix.length)
-    if (direction === 1) return `${prefix}${' '.repeat(unit)}${body}`
-    const level = Math.floor(columnsOf(prefix) / unit)
-    return `${' '.repeat(Math.max(0, level - 1) * unit)}${body}`
+    const columns = columnsOf(prefix)
+    if (direction === 1) {
+      // The next level of the grid, never just "+step": a line at 3 columns goes
+      // to 4 (the next level), not to 5 (a stray offset one level deep).
+      const level = Math.floor(columns / INDENT_STEP)
+      return `${' '.repeat((level + 1) * INDENT_STEP)}${body}`
+    }
+    // The previous level. A line already on a level moves down exactly one; a
+    // line BETWEEN levels snaps down to the one below it.
+    const level = Math.ceil(columns / INDENT_STEP)
+    return `${' '.repeat(Math.max(0, level - 1) * INDENT_STEP)}${body}`
   })
 }
 

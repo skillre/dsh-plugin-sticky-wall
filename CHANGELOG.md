@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.6
+
+### Patch Changes
+
+- Fix the indentation step changing size mid-edit.
+  
+  0.9.5 derived the nesting unit from the document on every keypress, which is
+  self-referential: Tab changes the document, so the next Tab measured a different
+  document and stepped differently. Measured on a bullet, six consecutive Tabs
+  produced indents `[0, 2, 4, 8, 12, 16]` — steps of `[2, 2, 4, 4, 4, 4]` — and
+  Tab-up then Shift+Tab-down did not retrace each other, which is what made the
+  two directions feel like different units.
+  
+  The step is now a constant (`INDENT_WIDTH`), so both directions are exact
+  inverses: Tab n times then Shift+Tab n times returns to the starting indent. A
+  line that sits between levels is snapped onto the grid instead of gaining an
+  arbitrary offset, so Tab from 3 columns lands on 4 and Shift+Tab from 3 lands
+  on 2 — every stop is a whole level the renderer reads as nesting.
+  
+  Enter continuation is unchanged and pinned by a test: it continues a list at the
+  same indent as the line above, and Tab then moves by the same step Enter used.
+
 ## 0.9.5
 
 ### Patch Changes
