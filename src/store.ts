@@ -278,6 +278,17 @@ export class StickyWallStore {
    */
   static async open(options: StoreOptions): Promise<StickyWallStore> {
     const store = new StickyWallStore(options)
+    /**
+     * Whether the one-time migration failed and must be retried.
+     *
+     * A failed migration leaves the legacy wall untouched, and the contract is
+     * that the NEXT start tries again. That retry only works if this start leaves
+     * no note file behind: `isAlreadyPresent` treats any `.md` in the directory as
+     * "already migrated", so seeding the welcome note after a failure would make
+     * the legacy wall permanently invisible — one transient read error would cost
+     * the user their whole 0.7.x wall, silently, forever.
+     */
+    let migrationFailed = false
     if (options.readLegacy !== undefined) {
       const result = await migrateNotes({
         notesDir: store.notesDir,
@@ -286,6 +297,7 @@ export class StickyWallStore {
         ...(options.now === undefined ? {} : { now: options.now }),
       })
       if (!result.migrated && result.reason === 'failed') {
+        migrationFailed = true
         // The legacy wall is untouched and the next start retries, so the plugin
         // still opens — empty rather than broken. Say so loudly enough that the
         // Host log explains why the user's notes are missing.
@@ -294,7 +306,8 @@ export class StickyWallStore {
     }
     await mkdir(store.notesDir, { recursive: true })
     await store.load()
-    if (options.seedWelcomeNote) await store.seedWelcomeNote()
+    // Never seed after a failure: the seed is what would cancel the retry.
+    if (options.seedWelcomeNote && !migrationFailed) await store.seedWelcomeNote()
     return store
   }
 

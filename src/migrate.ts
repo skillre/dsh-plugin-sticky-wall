@@ -96,6 +96,22 @@ async function isAlreadyPresent(notesDir: string): Promise<boolean> {
  */
 const SEEDED_WELCOME_BODY = '随手记下一闪而过的灵感，或一件临时的工作。'
 
+/**
+ * Whether one path holds 0.8.0's auto-seeded welcome note.
+ *
+ * The test is the seeded BODY, not the file name: the name `welcome` is a legal
+ * id a 0.7.x wall could genuinely own, and the whole point of the recovery is to
+ * bring that note back. Only a file whose text carries the seed's own copy is
+ * safe to replace or delete.
+ */
+async function isSeededWelcome(path: string): Promise<boolean> {
+  try {
+    return (await readFile(path, 'utf8')).includes(SEEDED_WELCOME_BODY)
+  } catch {
+    return false
+  }
+}
+
 /** True when the directory holds nothing but 0.8.0's auto-seeded welcome note. */
 async function isBuggyEmptyWall(notesDir: string): Promise<boolean> {
   let entries: string[]
@@ -110,12 +126,7 @@ async function isBuggyEmptyWall(notesDir: string): Promise<boolean> {
   if (files.length !== 1) return false
   const only = files[0] ?? ''
   if (idOfFile(only) !== 'welcome') return false
-  try {
-    const text = await readFile(join(notesDir, only), 'utf8')
-    return text.includes(SEEDED_WELCOME_BODY)
-  } catch {
-    return false
-  }
+  return isSeededWelcome(join(notesDir, only))
 }
 
 /**
@@ -158,17 +169,26 @@ async function recoverFromBuggyWall(notesDir: string, options: MigrateOptions): 
   if (newest.size === 0) return { migrated: false, reason: 'already-present' }
 
   let written = 0
+  /** Ids whose quarantined record was written back as a real note. */
+  const restored = new Set<string>()
   for (const [id, { file }] of newest) {
     const target = join(notesDir, fileNameOf(id))
-    // Never overwrite a note the user already has on the wall.
-    const exists = await stat(target).then(() => true, () => false)
-    if (exists) continue
+    // Never overwrite a note the user already has on the wall — with ONE
+    // exception: 0.8.0's own auto-seeded welcome note. It is not user data, and
+    // `isBuggyEmptyWall` only lets this function run when the directory holds
+    // nothing else. Skipping it is what destroyed the user's real `welcome`
+    // note: the record was never written, and the cleanup below then deleted the
+    // seed, so the note vanished from both sides.
+    if (await stat(target).then(() => true, () => false)) {
+      if (!(await isSeededWelcome(target))) continue
+    }
     try {
       const envelope = JSON.parse(await readFile(join(legacyDir, file), 'utf8')) as { record?: unknown }
       const record = envelope.record
       if (record === null || typeof record !== 'object') continue
       const note = normalizeLegacyRecord(record as Record<string, unknown>, id)
       await writeFile(target, serializeNoteFile(note), 'utf8')
+      restored.add(id)
       written += 1
     } catch {
       // A record that cannot be read stays quarantined on disk; one bad file
@@ -176,9 +196,12 @@ async function recoverFromBuggyWall(notesDir: string, options: MigrateOptions): 
     }
   }
 
-  // The seeded welcome note is only removed when the user's own notes came back,
-  // so a failed recovery cannot leave them looking at an empty wall.
-  if (written > 0) await rm(join(notesDir, fileNameOf('welcome')), { force: true })
+  // Remove the seed only when the user's own `welcome` note did NOT come back.
+  // When it did, the file at that path is now the user's note and must survive.
+  if (written > 0 && !restored.has('welcome')) {
+    const seeded = join(notesDir, fileNameOf('welcome'))
+    if (await isSeededWelcome(seeded)) await rm(seeded, { force: true })
+  }
 
   return written === 0
     ? { migrated: false, reason: 'already-present' }
@@ -250,6 +273,58 @@ function sameNote(expected: Note, actual: Note): boolean {
   )
 }
 
+/**
+ * The read-back comparison, allowing for the format's DOCUMENTED normalizations.
+ *
+ * Four fields are normalized by the writer and passed through unchanged by the
+ * legacy reader, so comparing them raw made the migration fail for ordinary
+ * walls — an uppercase tag, a ninth tag, an over-long title, a `\r\n` body — and
+ * because the failure is deterministic the retry never converged:
+ *
+ * - `tags` are lowercased, inner whitespace collapsed, each truncated to
+ *   `LIMITS.tag` and capped at `LIMITS.tags`;
+ * - `title` is whitespace-collapsed and truncated to `LIMITS.title`;
+ * - `body` has its line endings folded to `\n`;
+ * - `createdAt` / `updatedAt` are re-serialized through a date.
+ *
+ * Everything else — the id, the colour, the flags, the placement, the body's
+ * TEXT — must survive exactly. A `NaN` coordinate, for instance, serializes as
+ * `x: NaN` and parses back as `0`, which is real corruption and still fails.
+ */
+function sameNoteIgnoringNormalization(expected: Note, actual: Note): boolean {
+  return (
+    expected.id === actual.id &&
+    normalizeTitleForCompare(expected.title) === actual.title &&
+    expected.body.replace(/\r\n?/g, '\n') === actual.body &&
+    expected.color === actual.color &&
+    expected.pinned === actual.pinned &&
+    expected.archived === actual.archived &&
+    sameTagsForCompare(expected.tags, actual.tags) &&
+    sameLayout(expected.layout, actual.layout) &&
+    sameInstant(expected.createdAt, actual.createdAt) &&
+    sameInstant(expected.updatedAt, actual.updatedAt)
+  )
+}
+
+/** The title as the writer will store it. */
+function normalizeTitleForCompare(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim().slice(0, LIMITS.title)
+}
+
+/** Whether the legacy tag list and the stored one are the same list, normalized. */
+function sameTagsForCompare(expected: readonly string[], actual: readonly string[]): boolean {
+  const normalized: string[] = []
+  const seen = new Set<string>()
+  for (const entry of expected) {
+    const tag = entry.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, LIMITS.tag)
+    if (tag === '' || seen.has(tag)) continue
+    seen.add(tag)
+    normalized.push(tag)
+    if (normalized.length >= LIMITS.tags) break
+  }
+  return normalized.length === actual.length && normalized.every((tag, index) => tag === actual[index])
+}
+
 /** Compare two placements, treating two `null`s as equal. */
 function sameLayout(left: Note['layout'], right: Note['layout']): boolean {
   if (left === null || right === null) return left === right
@@ -316,6 +391,15 @@ export async function migrateNotes(options: MigrateOptions): Promise<MigrateResu
     // the one just written, but only a parse proves the bytes survived the
     // round-trip, and a silently mangled note is the one failure a user would
     // never notice until the text was already wrong.
+    //
+    // The comparison tolerates the format's DOCUMENTED normalizations and
+    // nothing else. Comparing the raw legacy note against the parsed file failed
+    // for any note with an uppercase tag, a ninth tag, a 200-character title or a
+    // `\r\n` body — the writer normalizes all four while the legacy reader passes
+    // them through — so such a wall aborted DETERMINISTICALLY, could never
+    // converge, and (with the retry cancelled) left the notes stranded. A
+    // normalization delta is not corruption; a lost id, body, colour, placement
+    // or timestamp is, and still fails here.
     const files = (await readdir(notesDir)).filter((name) => idOfFile(name) !== null)
     if (files.length !== legacy.length) {
       throw new Error(`migrated ${String(files.length)} files from ${String(legacy.length)} legacy notes`)
@@ -328,7 +412,9 @@ export async function migrateNotes(options: MigrateOptions): Promise<MigrateResu
         fallbackId: note.id,
         fallbackTime: info.mtime.toISOString(),
       })
-      if (!sameNote(note, parsed.note)) throw new Error(`migrated file for ${note.id} does not round-trip`)
+      if (!sameNoteIgnoringNormalization(note, parsed.note)) {
+        throw new Error(`migrated file for ${note.id} does not round-trip`)
+      }
     }
 
     const at = (options.now ?? (() => new Date()))().toISOString()

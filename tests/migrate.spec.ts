@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { migrateNotes } from '../src/migrate.js'
 import { parseNoteFile } from '../src/frontmatter.js'
-import { MIGRATION_MARKER, type Note } from '../src/types.js'
+import { StickyWallStore } from '../src/store.js'
+import { LIMITS, MIGRATION_MARKER, type Note } from '../src/types.js'
 
 /**
  * Migration tests work on real directories.
@@ -407,5 +408,95 @@ ${SEED_BODY}`,
     await migrateNotes({ notesDir, readLegacy: async () => [], legacyNotesDir })
     const note = parseNoteFile(await readFile(join(notesDir, 'dup.md'), 'utf8'), { fallbackId: 'dup', fallbackTime: '2026-01-01T00:00:00.000Z' }).note
     expect(note.body).toBe('new body')
+  })
+})
+
+/**
+ * The three defects that made the 0.8.0 recovery path either destroy data or
+ * never run at all. Each one is silent: nothing throws, nothing logs, and the
+ * user simply finds notes missing.
+ */
+describe('recovery cannot destroy or strand a wall', () => {
+  const SEED = '随手记下一闪而过的灵感，或一件临时的工作。点右下角的 + 新建一张便签；按 ⌘/Ctrl + Enter 保存。'
+
+  async function seeded(notesDir: string): Promise<void> {
+    await mkdir(notesDir, { recursive: true })
+    await writeFile(
+      join(notesDir, 'welcome.md'),
+      `---\nid: welcome\nschema: 1\ntitle: "便签墙"\ncolor: yellow\ntags: ["开始"]\npinned: true\nwidth: md\n---\n\n${SEED}`,
+      'utf8',
+    )
+  }
+
+  it('keeps the user\'s own `welcome` note instead of deleting it', async () => {
+    // The loop used to skip any id whose file already existed, and the seed
+    // occupied `welcome.md` — so the user's real note was never written, and the
+    // unconditional cleanup then deleted the file that WAS there. The note was
+    // destroyed by the function whose job is to rescue it.
+    const root = await mkdtemp(join(tmpdir(), 'sw-welcome-'))
+    const notesDir = join(root, 'sticky-notes')
+    await seeded(notesDir)
+    const legacyNotesDir = join(root, 'storages', 'skillre_sticky_wall', 'notes')
+    await mkdir(legacyNotesDir, { recursive: true })
+    await writeFile(
+      join(legacyNotesDir, 'welcome.json.bak.202611131136'),
+      JSON.stringify({ version: 1, record: { id: 'welcome', title: 'Real', body: 'USER REAL WELCOME TEXT', tags: [], color: 'pink', pinned: false, archived: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', layout: null } }),
+      'utf8',
+    )
+
+    const result = await migrateNotes({ notesDir, readLegacy: async () => [], legacyNotesDir })
+    expect(result.migrated).toBe(true)
+    const note = parseNoteFile(await readFile(join(notesDir, 'welcome.md'), 'utf8'), { fallbackId: 'welcome', fallbackTime: '2026-01-01T00:00:00.000Z' }).note
+    expect(note.body).toBe('USER REAL WELCOME TEXT')
+  })
+
+  it('leaves the directory empty after a failure so the next start retries', async () => {
+    // Seeding the welcome note after a failed migration wrote a `.md` into the
+    // directory, and `isAlreadyPresent` reads any `.md` as "already migrated" —
+    // so one transient read error hid the user's whole 0.7.x wall forever.
+    const root = await mkdtemp(join(tmpdir(), 'sw-retry-'))
+    const notesDir = join(root, 'sticky-notes')
+    let calls = 0
+    const readLegacy = async (): Promise<Note[]> => {
+      calls += 1
+      if (calls === 1) throw new Error('transient storage fault')
+      return [legacyNote(0, { body: 'recovered' })]
+    }
+
+    const first = await StickyWallStore.open({ notesDir, maxNotes: LIMITS.notes, seedWelcomeNote: true, readLegacy })
+    expect(first.list(true, 'pinned')).toHaveLength(0)
+    first.close()
+    expect((await readdir(notesDir)).filter((name) => name.endsWith('.md'))).toHaveLength(0)
+
+    const second = await StickyWallStore.open({ notesDir, maxNotes: LIMITS.notes, seedWelcomeNote: true, readLegacy })
+    expect(calls).toBe(2)
+    expect(second.list(true, 'pinned').map((note) => note.body)).toContain('recovered')
+    second.close()
+  })
+
+  it('migrates a wall whose attributes the file format normalizes', async () => {
+    // Tags are lowercased/truncated, titles sliced, CRLF folded on write while the
+    // legacy reader passes them through — so comparing raw legacy against the
+    // parsed file failed deterministically for ordinary walls, and the retry never
+    // converged.
+    const dir = await sandbox()
+    const notesDir = join(dir, 'sticky-notes')
+    const legacy = [
+      legacyNote(0, { title: 'x'.repeat(200), body: 'line one\r\nline two', tags: ['Work'] }),
+      legacyNote(1, { tags: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] }),
+    ]
+    const result = await migrateNotes({ notesDir, readLegacy: async () => legacy, now: clock })
+    expect(result).toMatchObject({ migrated: true, count: 2 })
+    expect(await mdFiles(notesDir)).toEqual(['note-0.md', 'note-1.md'])
+  })
+
+  it('still rejects a note whose placement is corrupted by the round-trip', async () => {
+    // A `NaN` coordinate serializes as `x: NaN` and parses back as 0 — real
+    // corruption. Tolerating the documented normalizations must not blunt this.
+    const dir = await sandbox()
+    const notesDir = join(dir, 'sticky-notes')
+    const legacy = [legacyNote(0, { layout: { x: Number.NaN, y: 0, rotate: 0, width: 'md' } })]
+    const result = await migrateNotes({ notesDir, readLegacy: async () => legacy, now: clock })
+    expect(result).toMatchObject({ migrated: false, reason: 'failed' })
   })
 })
