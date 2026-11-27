@@ -690,6 +690,106 @@ describe('sticky-wall store', () => {
   })
 })
 
+describe('sticky-wall store frontmatter safety', () => {
+  it('keeps a document that only looks like it has frontmatter', async () => {
+    // A note starting with a rule and holding another one further down is
+    // ordinary Markdown. It used to be read as a frontmatter block, discarding
+    // everything up to the second rule — and the next write made that permanent.
+    const dir = await notesDir()
+    const prose = '---\n# My notes\n\nShopping list\n\n---\n\nmilk'
+    await writeFile(join(dir, 'notes.md'), prose, 'utf8')
+    const store = await makeStore({ dir })
+    const note = store.read('notes')
+    expect(note?.body).toBe(prose)
+    expect(note?.body).toContain('Shopping list')
+    // And a write must not eat it either.
+    await store.update('notes', { title: 'kept' })
+    expect(await readFile(join(dir, 'notes.md'), 'utf8')).toContain('Shopping list')
+  })
+
+  it('does not re-quote an unknown key on every save', async () => {
+    // `extra` used to keep the raw quoted text and re-quote it on write, so the
+    // file grew 39 -> 110 -> 358 bytes over six saves and eventually crossed the
+    // 4 MB cap, at which point the note vanished from the wall.
+    const dir = await notesDir()
+    const source = '---\nid: n1\ndue: "2026-05-01"\n---\n\nbody text\n'
+    await writeFile(join(dir, 'n1.md'), source, 'utf8')
+    let store = await makeStore({ dir })
+    expect(store.read('n1')?.extra).toEqual({ due: '2026-05-01' })
+    // The first save adds the metadata the hand-written file did not carry, so the
+    // stability check starts from the second cycle.
+    let previous = 0
+    for (let cycle = 0; cycle < 6; cycle += 1) {
+      await store.update('n1', { title: `t${String(cycle)}` })
+      const next = await readFile(join(dir, 'n1.md'), 'utf8')
+      // The value is stable, not compounding. It stays quoted because it starts
+      // with a digit (YAML would read it as a number), but exactly ONE pair of
+      // quotes — the old defect added a fresh pair per save.
+      expect(next).toContain('due: "2026-05-01"')
+      expect(next).not.toContain('\\"')
+      if (previous > 0) expect(next.length).toBe(previous)
+      previous = next.length
+      store = await makeStore({ dir })
+    }
+    expect(store.read('n1')?.extra).toEqual({ due: '2026-05-01' })
+  })
+
+  it('quotes an unknown value that contains a newline', async () => {
+    // Written bare it becomes several physical lines, and the next read keeps
+    // only the first as this key's value.
+    const dir = await notesDir()
+    const store = await makeStore({ dir })
+    const note = await store.create({ body: 'x' })
+    const file = join(dir, fileNameOf(note.id))
+    await writeFile(file, '---\nid: ' + note.id + '\nnote: "line one\\nline two"\n---\n\nbody\n', 'utf8')
+    const reloaded = await makeStore({ dir })
+    const parsed = reloaded.read(note.id)
+    expect(parsed?.extra?.note).toBe('line one\nline two')
+    await reloaded.update(note.id, { title: 'renamed' })
+    const after = await readFile(file, 'utf8')
+    // Still one logical key, still quoted.
+    expect(after).toContain('note: "line one\\nline two"')
+  })
+})
+
+describe('sticky-wall store body limit', () => {
+  it('flags an over-limit hand-written body instead of making it unsavable', async () => {
+    // A file under the 4 MB byte cap can still hold a body past LIMITS.body. It
+    // used to load fine and then reject every update carrying it back, trapping
+    // the note in the editor with the old text on disk.
+    const dir = await notesDir()
+    const body = 'x'.repeat(LIMITS.body + 10)
+    const file = `---\nid: "big"\nschema: 1\n---\n\n${body}\n`
+    await writeFile(join(dir, 'big.md'), file, 'utf8')
+    const store = await makeStore({ dir })
+    const note = store.list(true, 'pinned').find((entry) => entry.id === 'big')
+    expect(note).toBeDefined()
+    // Loaded, and flagged so the card can say something is off.
+    // The parsed body keeps the file's trailing newline, so the length is the
+    // stored body's, not the literal above.
+    expect(note!.metaError).toMatch(/^body-too-long:\d+$/)
+  })
+
+  it('lets an over-limit body be shortened but not grown', async () => {
+    const dir = await notesDir()
+    const body = 'x'.repeat(LIMITS.body + 10)
+    await writeFile(join(dir, 'big.md'), `---\nid: "big"\nschema: 1\n---\n\n${body}\n`, 'utf8')
+    const store = await makeStore({ dir })
+    // Growing is still refused.
+    await expect(store.update('big', { body: body + 'y' })).rejects.toBeInstanceOf(WallError)
+    // Shortening is the only way back under the cap, so it must be allowed.
+    const shorter = 'x'.repeat(LIMITS.body - 1)
+    const updated = await store.update('big', { body: shorter })
+    expect(updated.body).toBe(shorter)
+    expect(updated.metaError).toBeUndefined()
+  })
+
+  it('keeps refusing an over-limit create', async () => {
+    const store = await makeStore()
+    await expect(store.create({ body: 'x'.repeat(LIMITS.body + 1) })).rejects.toBeInstanceOf(WallError)
+  })
+})
+
 describe('sticky-wall store note type', () => {
   it('never invents attributes the frontmatter did not carry', async () => {
     const store = await makeStore()

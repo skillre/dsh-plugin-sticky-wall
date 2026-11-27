@@ -159,6 +159,9 @@ function makeApi(overrides: ApiOverrides = {}): ClientApi & { calls: string[]; a
     },
     async update(id, patch) {
       calls.push('update')
+      // Recorded so a test can assert the EXACT payload the Client sent — the
+      // save path's trim/tag/width defects were all payload defects.
+      recorded.push({ method: 'update', args: patch, options: { id } })
       if (overrides.update) return overrides.update(id, patch)
       return makeNote({ id, ...(patch as Partial<Note>) })
     },
@@ -236,6 +239,89 @@ describe('wall page', () => {
     fireEvent.click(card.querySelector('button[aria-label="' + copy('pin') + '"]')!)
     await waitFor(() => expect(api.calls.filter((call) => call.startsWith('list:')).length).toBeGreaterThan(before))
     await waitFor(() => expect(document.querySelector('.skw-error')).not.toBeNull())
+  })
+
+  it('saves the body byte-for-byte, without trimming it', async () => {
+    // Trailing blank lines are paragraph breaks and a leading 4-space indent is
+    // a code block, so trimming rewrote what the note renders as. The store's
+    // contract is explicit that a body is never trimmed.
+    const api = makeApi()
+    const rec = api as unknown as { arguments: RecordedCall[] }
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    fireEvent.click(document.querySelector('.skw-note')!.querySelector('button[aria-label="' + copy('edit') + '"]')!)
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    const body = '    indented code\nline two\n\n'
+    fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: body } })
+    fireEvent.click(screen.getByRole('button', { name: copy('save') }))
+    await waitFor(() => expect(rec.arguments.some((call) => call.method === 'update')).toBe(true))
+    const sent = rec.arguments.find((call) => call.method === 'update')!.args as { body: string }
+    expect(sent.body).toBe(body)
+  })
+
+  it('lets an existing note be saved with an empty body', async () => {
+    // The store allows clearing a card back to a title-only note; the Client used
+    // to refuse it, leaving the editor unable to save at all.
+    const api = makeApi()
+    const rec = api as unknown as { arguments: RecordedCall[] }
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    fireEvent.click(document.querySelector('.skw-note')!.querySelector('button[aria-label="' + copy('edit') + '"]')!)
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: copy('save') }))
+    await waitFor(() => expect(rec.arguments.some((call) => call.method === 'update')).toBe(true))
+    expect((rec.arguments.find((call) => call.method === 'update')!.args as { body: string }).body).toBe('')
+    expect(document.querySelector('.skw-sheet')).toBeNull()
+  })
+
+  it('still refuses to create a note with an empty body', async () => {
+    const api = makeApi()
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-dock')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: copy('save') }))
+    await new Promise((resolve) => { setTimeout(resolve, 40) })
+    expect(api.calls).not.toContain('create')
+    expect(document.querySelector('.skw-error')).not.toBeNull()
+  })
+
+  it('round-trips a tag that contains a space', async () => {
+    // The field used to be split on whitespace, so `hello world` was torn into
+    // two tags by the next save — even when only the title was edited.
+    const api = makeApi({ list: async () => [makeNote({ id: 'n1', body: 'x', tags: ['hello world', 'ok'] })] })
+    const rec = api as unknown as { arguments: RecordedCall[] }
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelectorAll('.skw-note').length).toBe(1))
+    fireEvent.click(document.querySelector('.skw-note')!.querySelector('button[aria-label="' + copy('edit') + '"]')!)
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    // change ONLY the title
+    fireEvent.change(document.querySelector('.skw-sheet-body > .skw-input')!, { target: { value: 'new title' } })
+    fireEvent.click(screen.getByRole('button', { name: copy('save') }))
+    await waitFor(() => expect(rec.arguments.some((call) => call.method === 'update')).toBe(true))
+    const sent = rec.arguments.find((call) => call.method === 'update')!.args as { tags: string[] }
+    expect(sent.tags).toEqual(['hello world', 'ok'])
+  })
+
+  it('applies the width chosen while creating a note', async () => {
+    // The composer's S/M/L buttons were ignored on create: `NoteInput` carries no
+    // width, so the Host placed the note at its id-derived preset.
+    const api = makeApi()
+    const rec = api as unknown as { arguments: RecordedCall[] }
+    render(<WallPage api={api} locale={locale} t={t} />)
+    await waitFor(() => expect(document.querySelector('.skw-dock')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: copy('new') }))
+    await waitFor(() => expect(document.querySelector('.skw-ed-input')).not.toBeNull())
+    fireEvent.change(document.querySelector('.skw-ed-input')!, { target: { value: 'brand new' } })
+    // The default preset is `md`; choose `lg` (the third button).
+    const sizes = document.querySelectorAll('.skw-size')
+    fireEvent.click(sizes[2]!)
+    fireEvent.click(screen.getByRole('button', { name: copy('save') }))
+    await waitFor(() => expect(rec.arguments.some((call) => call.method === 'move')).toBe(true))
+    const moved = rec.arguments.find((call) => call.method === 'move')!.args as { layout: { width: string } }
+    expect(moved.layout.width).toBe('lg')
   })
 
   it('submits a note once even when the save shortcut fires twice', async () => {

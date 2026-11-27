@@ -129,7 +129,7 @@ describe('IME safety', () => {
     expect(node.value).toBe('- item')
   })
 
-  it('stays guarded between compositionend and the closing keyup, then recovers', () => {
+  it('stays guarded for the ONE keydown that trails compositionend, then recovers', () => {
     const onSave = vi.fn()
     const onEscape = vi.fn()
     render(<Host initial={'- item'} onSave={onSave} onEscape={onEscape} autoFocus={false} />)
@@ -140,13 +140,104 @@ describe('IME safety', () => {
     // One keydown still arrives after compositionend on some IMEs; without the
     // justEnded latch that Enter would also continue the list.
     fireEvent.keyDown(node, { key: 'Escape' })
-    fireEvent.keyDown(node, { key: 'Enter' })
     expect(onEscape).not.toHaveBeenCalled()
     expect(node.value).toBe('- item')
 
-    fireEvent.keyUp(node, { key: 'Process' })
-    fireEvent.keyDown(node, { key: 'Escape' })
-    expect(onEscape).toHaveBeenCalledTimes(1)
+    // The NEXT keydown is the user's own and must be honoured. This is the
+    // regression: the latch used to wait for a `keyup` that a mouse-committed
+    // candidate never produces, so every later Enter/Tab/Cmd+S was discarded and
+    // the browser inserted a bare newline instead of continuing the list.
+    fireEvent.keyDown(node, { key: 'Enter' })
+    expect(node.value).toBe('- item\n- ')
+  })
+
+  it('does not let a mouse-committed composition swallow the following Enters', () => {
+    // Committing a candidate with the mouse fires compositionend and NO keyup.
+    // Every later Enter must still continue the list; the old latch discarded
+    // all of them and the browser inserted a bare newline instead.
+    render(<Host initial={'- 第一项'} autoFocus={false} />)
+    const node = select(5, 5)
+
+    fireEvent.compositionStart(node)
+    fireEvent.compositionEnd(node)
+    // The commit's own trailing keydown (if any) is the one inert key.
+    fireEvent.keyDown(node, { key: 'Enter' })
+
+    // First real Enter: continues the list with a fresh marker.
+    fireEvent.keyDown(node, { key: 'Enter' })
+    expect(node.value).toBe('- 第一项\n- ')
+    // Type the second item, then Enter again: still a sibling, not a paragraph.
+    fireEvent.change(node, { target: { value: '- 第一项\n- 第二项' } })
+    node.setSelectionRange(node.value.length, node.value.length)
+    fireEvent.keyDown(node, { key: 'Enter' })
+    expect(node.value).toBe('- 第一项\n- 第二项\n- ')
+  })
+
+  it('lets Tab indent immediately after a composition with no keyup', () => {
+    render(<Host initial={'- 父项'} autoFocus={false} />)
+    const node = select(4, 4)
+
+    fireEvent.compositionStart(node)
+    fireEvent.compositionEnd(node)
+    fireEvent.keyDown(node, { key: 'Enter' }) // the trailing inert keydown
+    fireEvent.keyDown(node, { key: 'Tab' })
+    expect(node.value).toBe('  - 父项')
+  })
+
+  it('lets Cmd+S save immediately after a composition with no keyup', () => {
+    const onSave = vi.fn()
+    render(<Host initial={'正文'} onSave={onSave} autoFocus={false} />)
+    const node = select(2, 2)
+
+    fireEvent.compositionStart(node)
+    fireEvent.compositionEnd(node)
+    fireEvent.keyDown(node, { key: 'Enter' }) // the trailing inert keydown
+    fireEvent.keyDown(node, { key: 's', metaKey: true })
+    expect(onSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds a nested Chinese list across real task boundaries (the reported bug)', async () => {
+    // The user flow that failed: insert a bullet, type Chinese through the IME,
+    // press Enter for the next item, type again, then Tab to nest. Every step
+    // happens in its own task, which is what a real keyboard produces.
+    render(<Host initial={''} autoFocus={false} />)
+    const node = select(0, 0)
+    press('无序列表')
+    expect(node.value).toBe('- ')
+
+    fireEvent.compositionStart(node)
+    fireEvent.change(node, { target: { value: '- 第一项' } })
+    fireEvent.compositionEnd(node)
+    await new Promise((resolve) => { setTimeout(resolve, 3) })
+
+    node.focus()
+    node.setSelectionRange(node.value.length, node.value.length)
+    fireEvent.keyDown(node, { key: 'Enter' })
+    // The marker AND its indent survive; the browser's bare newline does not.
+    expect(node.value).toBe('- 第一项\n- ')
+
+    fireEvent.compositionStart(node)
+    fireEvent.change(node, { target: { value: '- 第一项\n- 第二项' } })
+    fireEvent.compositionEnd(node)
+    await new Promise((resolve) => { setTimeout(resolve, 3) })
+
+    node.focus()
+    node.setSelectionRange(node.value.length, node.value.length)
+    fireEvent.keyDown(node, { key: 'Tab' })
+    expect(node.value).toBe('- 第一项\n  - 第二项')
+  })
+
+  it('expires a latch that no keydown ever consumes', async () => {
+    // An IME can end a composition without delivering any further key event.
+    // The scheduled expiry must disarm the guard, or the editor stays dead.
+    render(<Host initial={'- item'} autoFocus={false} />)
+    const node = select(6, 6)
+
+    fireEvent.compositionStart(node)
+    fireEvent.compositionEnd(node)
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    fireEvent.keyDown(node, { key: 'Enter' })
+    expect(node.value).toBe('- item\n- ')
   })
 
   it('clears a stuck composition on a window blur', () => {
@@ -309,11 +400,56 @@ describe('toolbar insertion', () => {
     expect(editor().selectionStart).toBe(editor().value.length)
   })
 
+  it('italicises a word that sits inside a sentence', () => {
+    // The reported inconsistency: bold worked on a word mid-sentence but italic
+    // produced literal text, because `_` next to a word character is refused.
+    render(<Host initial={'abcd'} autoFocus={false} />)
+    select(1, 3)
+    press('斜体')
+    expect(editor().value).toBe('a*bc*d')
+    cleanup()
+
+    // An empty selection must not become a STRONG run (`__`).
+    render(<Host initial={''} autoFocus={false} />)
+    select(0, 0)
+    press('斜体')
+    expect(editor().value).toBe('**')
+    cleanup()
+  })
+
+  it('replaces an H5 marker instead of stacking a second one', () => {
+    // The parser accepts #{1,6}; the editor only stripped #{1,4}.
+    render(<Host initial={'##### five'} autoFocus={false} />)
+    select(0, 0)
+    press('一级标题')
+    expect(editor().value).toBe('# five')
+    cleanup()
+  })
+
+  it('replaces a 4-digit ordered marker instead of stacking', () => {
+    // The parser accepts \d{1,9}; the editor only stripped \d{1,3}.
+    render(<Host initial={'1234. item'} autoFocus={false} />)
+    select(0, 0)
+    press('无序列表')
+    expect(editor().value).toBe('- item')
+    cleanup()
+  })
+
+  it('does not turn a divider into a bullet whose text is a divider', () => {
+    // `- ---` is a RULE with the bullet lost, not a bullet containing a rule.
+    render(<Host initial={'---'} autoFocus={false} />)
+    select(0, 0)
+    press('无序列表')
+    expect(editor().value).toBe('- ')
+  })
+
   it('wraps italic, strike, inline code and a link', () => {
+    // Italic emits `*`, not `_`: the parser's intraword-underscore rule would
+    // leave `ab_cd_` as literal text and read a bare `__` as STRONG.
     render(<Host initial={'word'} autoFocus={false} />)
     select(0, 4)
     press('斜体')
-    expect(editor().value).toBe('_word_')
+    expect(editor().value).toBe('*word*')
     cleanup()
 
     render(<Host initial={'word'} autoFocus={false} />)
@@ -771,14 +907,16 @@ describe('indentation contract', () => {
   })
 
   it('outdents one whole level at a time from a deeper line', () => {
+    // 6 spaces is off every grid, so the first outdent SNAPS it onto the nearest
+    // grid line (4). From there the document is a clean 4-space note, so the next
+    // outdent lands on 0. Snapping is what keeps the result on a level the parser
+    // reads as nesting instead of leaving a stray 1- or 3-space offset.
     render(<Host initial={'      deep'} autoFocus={false} />)
     select(10, 10)
     fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
-    // 6 spaces is level 3; one outdent is level 2, i.e. 4 spaces — never 4 -> 2
-    // by accident of arithmetic, and never a leftover space.
     expect(editor().value).toBe('    deep')
     fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
-    expect(editor().value).toBe('  deep')
+    expect(editor().value).toBe('deep')
   })
 
   it('never leaves a stray space when outdenting an odd indent', () => {
@@ -803,6 +941,28 @@ describe('indentation contract', () => {
     expect(editor().value).toBe('- a\n  - b')
     // The caret follows the two inserted characters into the indented line.
     expect(editor().selectionStart).toBe(9)
+  })
+
+  it('follows the document\'s own 4-space grid instead of forcing 2', () => {
+    // A pasted or hand-written note commonly nests with 4 spaces. Tab used to add
+    // 2, landing a child on 6 — between the document's levels — and Shift+Tab
+    // walked 4 -> 2 -> 0, through an indent no other line used.
+    render(<Host initial={'- parent\n    - child'} autoFocus={false} />)
+    select(21, 21)
+    fireEvent.keyDown(editor(), { key: 'Tab' })
+    expect(editor().value).toBe('- parent\n        - child')
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    expect(editor().value).toBe('- parent\n    - child')
+    fireEvent.keyDown(editor(), { key: 'Tab', shiftKey: true })
+    expect(editor().value).toBe('- parent\n- child')
+  })
+
+  it('keeps the 2-space step when the document declares no wider grid', () => {
+    // One indented line is not a grid, so the documented default still applies.
+    render(<Host initial={'- a\n  - b'} autoFocus={false} />)
+    select(9, 9)
+    fireEvent.keyDown(editor(), { key: 'Tab' })
+    expect(editor().value).toBe('- a\n    - b')
   })
 
   it('nests one level per press, whatever the line started at', () => {

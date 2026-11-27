@@ -34,6 +34,18 @@ const TASK = /^\[([ xX])\][ \t]+([\s\S]*)$/
 /** Characters a backslash may escape, per CommonMark's ASCII punctuation set. */
 const ESCAPABLE = new Set(['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '#', '+', '-', '.', '!', '>', '~', '|'])
 
+/**
+ * The link pattern, matched STICKY at the scanner's own index.
+ *
+ * Sticky (`y`) with an explicit `lastIndex` replaces `regex.exec(text.slice(index))`,
+ * which copied the whole remaining string for every `[` it saw — an O(n) copy per
+ * candidate, i.e. quadratic on a body full of unmatched brackets.
+ */
+const LINK = /\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/y
+
+/** The bare-URL pattern, sticky for the same reason as {@link LINK}. */
+const AUTOLINK = /(?:https?:\/\/|www\.)[^\s<>()]+/y
+
 /** Length of the run of `char` starting at `from`. */
 function runLength(text: string, from: number, char: string): number {
   let length = 0
@@ -54,14 +66,25 @@ function isWordChar(text: string, at: number): boolean {
  * For `_`, a closing delimiter is only valid when it is not followed by a word
  * character, which is what keeps `snake_case_name` literal. An escaped
  * delimiter never closes.
+ *
+ * `failed` memoises the positions that produced NO closer, which is what keeps
+ * this linear. Without it, a run of unmatched openers (`'['.repeat(200_000)`, a
+ * legal note body at the documented limit) re-scanned the whole remaining string
+ * once per opener: measured 57 SECONDS in jsdom for one card. A position known to
+ * have no closer is never re-scanned, and because the search only ever moves
+ * forward, the first failure means every later position fails too.
  */
-function findClosing(text: string, from: number, delimiter: string): number {
+function findClosing(text: string, from: number, delimiter: string, failed?: Set<number>): number {
+  if (failed !== undefined && failed.has(from)) return -1
   const char = delimiter.charAt(0)
   const underscore = char === '_'
   let index = from
   while (index < text.length) {
     const found = text.indexOf(delimiter, index)
-    if (found === -1) return -1
+    if (found === -1) {
+      failed?.add(from)
+      return -1
+    }
     // An escaped delimiter is literal content.
     let backslashes = 0
     for (let probe = found - 1; probe >= 0 && text.charAt(probe) === '\\'; probe -= 1) backslashes += 1
@@ -80,6 +103,7 @@ function findClosing(text: string, from: number, delimiter: string): number {
     }
     return found
   }
+  failed?.add(from)
   return -1
 }
 
@@ -88,12 +112,30 @@ function findClosing(text: string, from: number, delimiter: string): number {
  *
  * Exported because the block renderer and the tests both need it; `keyPrefix`
  * only has to be unique within one parent, which is what React requires.
+ *
+ * Every scan here is bounded so the cost stays linear in the text length:
+ * - a failed closer is remembered per delimiter ({@link findClosing}), so a run
+ *   of unmatched openers costs one scan instead of one scan each;
+ * - the link and autolink patterns run STICKY against the whole string instead of
+ *   `slice(index)`-ing the remainder, which allocated an O(n) copy per candidate
+ *   and was the other half of the quadratic behaviour.
  */
-export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
+export function renderInline(text: string, keyPrefix = 'i', inLink = false): ReactNode[] {
   const nodes: ReactNode[] = []
   let buffer = ''
   let counter = 0
   let index = 0
+  /** Positions already known to have no closer, per delimiter. */
+  const failedClosers = new Map<string, Set<number>>()
+  /** The memo for one delimiter. */
+  const failedFor = (delimiter: string): Set<number> => {
+    let set = failedClosers.get(delimiter)
+    if (set === undefined) {
+      set = new Set<number>()
+      failedClosers.set(delimiter, set)
+    }
+    return set
+  }
 
   const nextKey = (): string => `${keyPrefix}-${counter++}`
   /** Push the pending literal text, splitting newlines into real breaks. */
@@ -123,7 +165,7 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
     // ---- Code span -------------------------------------------------------
     if (char === '`') {
       const open = runLength(text, index, '`')
-      const closing = findClosing(text, index + open, '`'.repeat(open))
+      const closing = findClosing(text, index + open, '`'.repeat(open), failedFor('`'.repeat(open)))
       if (closing !== -1) {
         flush()
         const inner = text.slice(index + open, closing)
@@ -155,7 +197,7 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
 
       if (opens && run >= 3) {
         const delimiter = char.repeat(3)
-        const closing = findClosing(text, index + 3, delimiter)
+        const closing = findClosing(text, index + 3, delimiter, failedFor(delimiter))
         if (closing > index + 3) {
           flush()
           nodes.push(
@@ -170,7 +212,7 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
 
       if (opens && run >= 2) {
         const delimiter = char + char
-        const closing = findClosing(text, index + 2, delimiter)
+        const closing = findClosing(text, index + 2, delimiter, failedFor(delimiter))
         // `closing > index + 2` refuses an EMPTY span. `**` alone is not empty
         // emphasis; it is two literal asterisks the user is still typing.
         if (closing > index + 2) {
@@ -184,7 +226,7 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
       }
 
       if (opens && run === 1) {
-        const closing = findClosing(text, index + 1, char)
+        const closing = findClosing(text, index + 1, char, failedFor(char))
         if (closing > index + 1) {
           flush()
           nodes.push(<em key={nextKey()}>{renderInline(text.slice(index + 1, closing), `${keyPrefix}-e`)}</em>)
@@ -202,7 +244,7 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
 
     // ---- Strikethrough ---------------------------------------------------
     if (char === '~' && text.startsWith('~~', index)) {
-      const closing = findClosing(text, index + 2, '~~')
+      const closing = findClosing(text, index + 2, '~~', failedFor('~~'))
       if (closing > index + 2) {
         flush()
         nodes.push(<s key={nextKey()}>{renderInline(text.slice(index + 2, closing), `${keyPrefix}-d`)}</s>)
@@ -212,11 +254,24 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
     }
 
     // ---- Link ------------------------------------------------------------
-    if (char === '[') {
+    // A link label is rendered inline, but a link inside a link is invalid HTML
+    // (`<a>` cannot nest): React warns and the browser un-nests it, so
+    // `[https://a.com](https://b.com)` produced broken markup. Inside a label the
+    // autolink and link branches are therefore skipped.
+    if (char === '[' && !inLink) {
       // The target may contain one level of balanced parentheses, which is what
       // a Wikipedia-style URL needs; without it `[x](a(b)c)` leaked a trailing
       // `)` into the visible text.
-      const match = /^\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/.exec(text.slice(index))
+      //
+      // The `]` is located with `indexOf` FIRST. Running the pattern directly is
+      // quadratic on a body full of unmatched brackets: `[^\]]*` has to scan to
+      // the end of the string before it can fail, once per `[` — 57 seconds for
+      // 200k brackets, which is a legal note body. A single `indexOf` is a plain
+      // memory scan, and the pattern only runs where a `](` actually exists.
+      const close = text.indexOf(']', index + 1)
+      const match = close === -1 || text.charAt(close + 1) !== '('
+        ? null
+        : (LINK.lastIndex = index, LINK.exec(text))
       if (match !== null) {
         flush()
         const label = match[1] ?? ''
@@ -226,7 +281,7 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
             <span key={nextKey()}>{label}</span>
           ) : (
             <a key={nextKey()} className="skw-md-link" href={href} target="_blank" rel="noreferrer noopener">
-              {renderInline(label, `${keyPrefix}-l`)}
+              {renderInline(label, `${keyPrefix}-l`, true)}
             </a>
           ),
         )
@@ -236,8 +291,9 @@ export function renderInline(text: string, keyPrefix = 'i'): ReactNode[] {
     }
 
     // ---- Bare autolink ---------------------------------------------------
-    if (char === 'h' || char === 'w') {
-      const match = /^(?:https?:\/\/|www\.)[^\s<>()]+/.exec(text.slice(index))
+    if (!inLink && (char === 'h' || char === 'w')) {
+      AUTOLINK.lastIndex = index
+      const match = AUTOLINK.exec(text)
       if (match !== null) {
         // Trailing punctuation belongs to the sentence, not to the URL.
         const raw = match[0]

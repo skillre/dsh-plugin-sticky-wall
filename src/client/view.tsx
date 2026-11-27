@@ -139,12 +139,26 @@ function formatTime(iso: string, locale: string): string {
   return stamp.toLocaleDateString(zh ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' })
 }
 
-/** Split a comma/space separated tag field into the list the Host accepts. */
+/**
+ * Split the tag field into the list the Host accepts.
+ *
+ * The separator is a COMMA only, never whitespace. The field used to be split on
+ * `/[,，\s]+/` and joined with a single space when opened, so a legitimate tag
+ * containing a space (`hello world` is accepted by the store, which only
+ * collapses runs of whitespace) was torn in two by the next save — and because
+ * every save resends the whole tag list, editing just the title did it too.
+ * A comma cannot appear in a tag, so this round-trip is lossless.
+ */
 function parseTags(raw: string): string[] {
   return raw
-    .split(/[,，\s]+/)
+    .split(/[,，]/)
     .map((tag) => tag.trim())
     .filter((tag) => tag !== '')
+}
+
+/** Render a note's tag list back into the field, losslessly. */
+function formatTags(tags: readonly string[]): string {
+  return tags.join(', ')
 }
 
 /** Clamp one zoom value into the declared camera range. */
@@ -1025,14 +1039,33 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
     setDraftError('')
     setDraftStatus('idle')
     setDraft(note
-      ? { id: note.id, title: note.title, body: note.body, tags: note.tags.join(' '), color: note.color, width: layoutOf(note, 0).width }
+      ? { id: note.id, title: note.title, body: note.body, tags: formatTags(note.tags), color: note.color, width: layoutOf(note, 0).width }
       : { id: null, title: '', body: '', tags: '', color: 'yellow', width: 'md' })
   }
 
   async function saveDraft(): Promise<void> {
     if (!draft || inFlight.current) return
-    const body = draft.body.trim()
-    if (body === '') {
+    /**
+     * The body is sent VERBATIM.
+     *
+     * It used to be `.trim()`ed here, which silently rewrote the user's text:
+     * trailing blank lines are paragraph breaks, and a leading 4-space indent is
+     * a code block, so trimming changed what the note RENDERS as — and because
+     * every save resends the whole body, editing only the title rewrote it too.
+     * The store's own contract is explicit that a body is never trimmed
+     * (`normalizeBody` / `normalizeBodyForUpdate` in src/store.ts), so the
+     * Client must not pre-trim either.
+     */
+    const body = draft.body
+    /**
+     * Only a NEW note needs content.
+     *
+     * `create` refuses an empty body, but `update` deliberately allows one: the
+     * store documents clearing a card back to a title-only note as a legitimate
+     * edit. Rejecting it here left the editor unable to save at all, with the old
+     * text still on disk — the exact failure the store was changed to avoid.
+     */
+    if (draft.id === null && body.trim() === '') {
       setDraftError(t('emptyBody'))
       setDraftStatus('failed')
       return
@@ -1047,6 +1080,24 @@ export function WallPage({ api, locale, t }: WallPageProps): JSX.Element {
           life.current.signal,
           { centreReserve: centreReserve() },
         )
+        /**
+         * Honour the width the user picked while composing.
+         *
+         * `NoteInput` carries no width, so the Host places a new note at the
+         * preset its id hashes to. The composer's S/M/L buttons were therefore
+         * silently ignored on create — the user chose a size and nothing
+         * happened. Width lives in the placement, so it is applied through
+         * `move`, exactly like an edit does.
+         *
+         * A Host that answers with no placement is still handled: the position is
+         * derived from the note's index, so `layoutOf` is the same value the card
+         * renders at, and moving to it with the chosen width is a no-op for the
+         * position and a real change for the size.
+         */
+        const placed = note.layout ?? layoutOf(note, notes.length)
+        if (placed.width !== draft.width) {
+          await api.move(note.id, { ...placed, width: draft.width }, life.current.signal)
+        }
         arrival.current = { id: note.id, token: Date.now() }
         setArrivedId(note.id)
       } else {

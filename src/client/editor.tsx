@@ -287,13 +287,31 @@ function leadingSpace(line: string): string {
 // The marker families the toolbar replaces rather than stacks. A line may only
 // carry one of them: pressing "todo" on a bullet converts the bullet instead of
 // producing "- - [ ] "-style nonsense.
-const HEADING_MARKER = /^([ \t]*)(#{1,4})[ \t]+/
+//
+// Every pattern below must accept AT LEAST what `src/markdown-parse.ts` accepts,
+// or the toolbar cannot strip a marker the renderer honours and stacks a second
+// one in front of it. The parser takes `#{1,6}` and `\d{1,9}`; the editor used to
+// take `#{1,4}` and `\d{1,3}`, so pressing H1 on a `#####` line produced
+// "# ##### five" and pressing bullet on `1234. item` produced "- 1234. item".
+const HEADING_MARKER = /^([ \t]*)(#{1,6})[ \t]+/
 const TODO_MARKER = /^([ \t]*)([-*+])[ \t]+\[[ xX]\][ \t]+/
-const ORDERED_MARKER = /^([ \t]*)(\d{1,3})([.)])[ \t]+/
+const ORDERED_MARKER = /^([ \t]*)(\d{1,9})([.)])[ \t]+/
 const BULLET_MARKER = /^([ \t]*)([-*+])[ \t]+/
 const QUOTE_MARKER = /^([ \t]*)>[ \t]?/
+/**
+ * A thematic break, as the parser reads one: three or more `-`, `*` or `_`.
+ *
+ * It has to be stripped like any other marker, because `- ---` is NOT a bullet
+ * whose text is a rule — the parser reads it as a rule and the bullet is lost.
+ */
+const RULE_MARKER = /^([ \t]*)(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/
 
-/** The line content with its heading, list or quote marker removed. */
+/**
+ * The line content with its heading, list, quote or rule marker removed.
+ *
+ * Order matters: the compound markers (todo, ordered, bullet) are tried before
+ * the bare rule so a `- [ ]` item is not mistaken for a three-character break.
+ */
 function stripBlockMarker(line: string): string {
   for (const marker of [HEADING_MARKER, TODO_MARKER, ORDERED_MARKER, BULLET_MARKER, QUOTE_MARKER]) {
     const match = marker.exec(line)
@@ -301,6 +319,10 @@ function stripBlockMarker(line: string): string {
     // at the marker end and the content keeps no duplicated whitespace.
     if (match !== null) return line.slice(match[0].length)
   }
+  // A rule carries no text: converting it leaves the bare content after it, so
+  // `---` becomes an empty bullet rather than `- ---` (a rule with a bullet lost).
+  const rule = RULE_MARKER.exec(line)
+  if (rule !== null) return ''
   return line.slice(leadingSpace(line).length)
 }
 
@@ -504,7 +526,12 @@ const TOOLBAR: readonly ToolbarGroup[] = [
     en: 'Inline',
     actions: [
       { id: 'bold', key: 'mdBold', zh: '粗体', en: 'Bold', glyph: 'B', style: 'bold', run: (ctx) => wrapSelection(ctx, '**', '**') },
-      { id: 'italic', key: 'mdItalic', zh: '斜体', en: 'Italic', glyph: 'I', style: 'italic', run: (ctx) => wrapSelection(ctx, '_', '_') },
+      // `*` rather than `_`: the parser refuses an underscore pair that touches a
+      // word character (`snake_case_name` is an identifier), so italicising a
+      // word inside a sentence produced `ab_cd_` — literal text, no <em>. An
+      // empty selection produced `__`, which is a STRONG run and rendered bold.
+      // The asterisk has no such word-boundary rule, so it always works.
+      { id: 'italic', key: 'mdItalic', zh: '斜体', en: 'Italic', glyph: 'I', style: 'italic', run: (ctx) => wrapSelection(ctx, '*', '*') },
       { id: 'strike', key: 'mdStrike', zh: '删除线', en: 'Strikethrough', glyph: 'S', style: 'strike', run: (ctx) => wrapSelection(ctx, '~~', '~~') },
       { id: 'code', key: 'mdCode', zh: '行内代码', en: 'Inline code', glyph: '<>', run: (ctx) => wrapSelection(ctx, '`', '`') },
       { id: 'link', key: 'mdLink', zh: '链接', en: 'Link', glyph: '⛓', run: (ctx) => wrapSelection(ctx, '[', '](https://)') },
@@ -578,15 +605,66 @@ export function indentLevelOf(line: string): number {
  * - A blank line is left alone: indenting it would write invisible trailing
  *   whitespace, which Markdown reads as content.
  */
+/**
+ * The indentation unit this DOCUMENT demonstrably uses, in columns.
+ *
+ * A note written with 4-space nesting is normal (CommonMark's own convention,
+ * and what a pasted document usually carries). Pressing Tab in one used to add
+ * the hardcoded 2 spaces, so the new level landed BETWEEN the document's own
+ * levels — a 4-space child became 6, which is neither the sibling indent the
+ * writer sees above it nor a whole level of their grid. Shift+Tab had the
+ * mirror-image problem: 4 spaces took two presses to reach 0 and passed through
+ * a 2-space value no other line used.
+ *
+ * Two conventions are actually in the wild, so the test is whether the document
+ * is consistent with the WIDER one: every indent being a multiple of 4 means the
+ * note is a 4-space document, and anything else keeps the parser's 2. Deriving a
+ * gcd instead would read a single 6-space continuation line as a 6-space grid,
+ * which is how a one-off alignment artefact would hijack the whole note.
+ */
+function indentUnitOf(value: string): number {
+  let sawIndent = false
+  for (const line of value.split('\n')) {
+    if (line.trim() === '') continue
+    const columns = columnsOf(leadingSpace(line))
+    if (columns === 0) continue
+    sawIndent = true
+    // One line off the 4-grid settles it: this is a 2-space document.
+    if (columns % WIDE_INDENT_UNIT !== 0) return INDENT_WIDTH
+  }
+  return sawIndent ? WIDE_INDENT_UNIT : INDENT_WIDTH
+}
+
+/** The wider of the two nesting conventions {@link indentUnitOf} recognises. */
+const WIDE_INDENT_UNIT = 4
+
+/**
+ * Tab / Shift+Tab.
+ *
+ * A bare caret indents its own LINE rather than inserting whitespace at the
+ * caret: a Markdown line's structure lives in its prefix, so "indent" has to mean
+ * the line, otherwise the caret would drift into the middle of a nested item
+ * while the line itself stayed flat.
+ *
+ * - Tab adds exactly one level of the document's own unit (see
+ *   {@link indentUnitOf}), so a 4-space note nests to 4, 8, 12 rather than
+ *   landing on odd multiples of two. A document that does not declare a wider
+ *   grid keeps the 2-space step.
+ * - Shift+Tab removes one level of the same unit and lands on the previous grid
+ *   line, so a line with a stray offset is straightened out in one press.
+ * - A blank line is left alone: indenting it would write invisible trailing
+ *   whitespace, which Markdown reads as content.
+ */
 function indentSelection(value: string, start: number, end: number, direction: 1 | -1): CaretEdit {
+  const unit = indentUnitOf(value)
   return rewriteLines(value, start, end, (line) => {
     // Nothing to indent, and a whitespace-only line must stay byte-empty.
     if (line.trim() === '') return line
     const prefix = leadingSpace(line)
     const body = line.slice(prefix.length)
-    if (direction === 1) return `${prefix}${INDENT}${body}`
-    const level = Math.floor(columnsOf(prefix) / INDENT_WIDTH)
-    return `${' '.repeat(Math.max(0, level - 1) * INDENT_WIDTH)}${body}`
+    if (direction === 1) return `${prefix}${' '.repeat(unit)}${body}`
+    const level = Math.floor(columnsOf(prefix) / unit)
+    return `${' '.repeat(Math.max(0, level - 1) * unit)}${body}`
   })
 }
 
@@ -854,16 +932,34 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
   const pending = useRef<{ expected: string; start: number; end: number; focus: boolean } | null>(null)
 
   /**
-   * The IME guard, mirrored from DSH's shipped `observeComposition` primitive.
+   * The IME guard.
    *
    * `keyCode === 229` is the legacy signal older IMEs send instead of
-   * `isComposing`, and `justEnded` covers the keydown some browsers emit after
+   * `isComposing`, and `justEnded` covers the keydown some browsers emit AFTER
    * `compositionend` — without it, pressing Enter to commit pinyin would also
    * continue a list.
+   *
+   * The latch is deliberately ONE-SHOT and task-scoped. It used to be cleared
+   * only by a `keyup` on the textarea, which is not a signal every commit
+   * produces: committing a candidate with the MOUSE fires `compositionend` and
+   * no `keyup` at all, so the latch stayed armed and swallowed every following
+   * shortcut. Measured: three consecutive Enters were all discarded and the
+   * browser's own bare newline landed instead, which is why a Chinese note's
+   * second bullet lost its `- ` marker and its indent. Consuming the latch on
+   * the first keydown, plus the expiry scheduled in {@link useEffect}, bounds
+   * the guard to the one keydown it was written for.
    */
   const guarded = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
     const native = event.nativeEvent
-    return composing.current || justEnded.current || native.isComposing || native.keyCode === 229
+    // Truly mid-composition: the IME owns this key, and the caret must not move.
+    if (composing.current || native.isComposing || native.keyCode === 229) return true
+    // The single keydown that may still trail `compositionend`. Consuming it here
+    // is what stops a missing `keyup` from disarming every later shortcut.
+    if (justEnded.current) {
+      justEnded.current = false
+      return true
+    }
+    return false
   }, [])
 
   // Native listeners, not React props: `keyup` and `blur` never reach a React
@@ -872,28 +968,56 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
   useEffect(() => {
     const node = areaRef.current
     if (node === null) return
+    /**
+     * Timer that expires the `justEnded` latch.
+     *
+     * The latch exists for ONE keydown that may arrive just after
+     * `compositionend`. A mouse-committed candidate produces no `keyup` at all,
+     * so without an expiry the latch could outlive the keystroke it guards. A
+     * task-boundary timeout is enough: the trailing keydown, when it exists, is
+     * dispatched in the same task as `compositionend`.
+     */
+    let expiry: ReturnType<typeof setTimeout> | null = null
+    const clearExpiry = (): void => {
+      if (expiry !== null) {
+        clearTimeout(expiry)
+        expiry = null
+      }
+    }
     const open = (): void => {
       composing.current = true
       justEnded.current = false
+      clearExpiry()
     }
     const close = (): void => {
       composing.current = false
       justEnded.current = true
       tabEscape.current = false
+      // Backstop for the missing-keyup case. `guarded` normally consumes the
+      // latch first; this only has to catch the IME that ends a composition
+      // without delivering any key event to us afterwards.
+      clearExpiry()
+      expiry = setTimeout(() => {
+        justEnded.current = false
+        expiry = null
+      }, 0)
     }
     const settle = (): void => {
       justEnded.current = false
+      clearExpiry()
     }
     const reset = (): void => {
       composing.current = false
       justEnded.current = false
       tabEscape.current = false
+      clearExpiry()
     }
     node.addEventListener('compositionstart', open)
     node.addEventListener('compositionend', close)
     node.addEventListener('keyup', settle)
     window.addEventListener('blur', reset)
     return () => {
+      clearExpiry()
       node.removeEventListener('compositionstart', open)
       node.removeEventListener('compositionend', close)
       node.removeEventListener('keyup', settle)

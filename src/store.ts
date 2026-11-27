@@ -165,10 +165,19 @@ function normalizeBody(raw: unknown): string {
  * a legitimate edit — the user is clearing the card to retype it, or keeping a
  * card as a title only — and refusing it left the editor unable to save at all,
  * with the old text still on disk. Length is still capped.
+ *
+ * `previousLength` lets a note that is ALREADY over the cap be shortened. Such a
+ * note can exist: `load()` reads a hand-written file by its byte size, and a body
+ * under that limit can still exceed {@link LIMITS.body}. Rejecting every edit to
+ * it left the note permanently stuck, since the only way back under the cap is to
+ * delete characters — which is an update carrying an over-limit body until the
+ * writer gets there. Growth is still refused.
  */
-function normalizeBodyForUpdate(raw: unknown): string {
+function normalizeBodyForUpdate(raw: unknown, previousLength = 0): string {
   const value = readBody(raw)
-  assertBodyLength(value)
+  if (value.length > LIMITS.body && value.length >= previousLength) {
+    assertBodyLength(value)
+  }
   return value
 }
 
@@ -371,11 +380,32 @@ export class StickyWallStore {
           // note has; a note WITH frontmatter keeps its authored `created`.
           fallbackTime: info.mtime.toISOString(),
         })
+        /**
+         * Enforce the body limit on the way IN as well as on the way out.
+         *
+         * `LIMITS.fileBytes` (4 MB) is a different guard: a file can be well
+         * under it and still carry a body twenty times the documented maximum.
+         * That body used to load happily and then be impossible to save — every
+         * `update` carrying it back was rejected with `body-too-long`, so the
+         * note was trapped in the editor. It is also what the renderer would have
+         * to lay out, and the client-side cost is linear in its length.
+         *
+         * The note is kept, not dropped: a hand-written file is the user's text,
+         * so it loads with a `metaError` the card can flag, and the editor can
+         * still shorten it.
+         */
+        const tooLong = parsed.note.body.length > LIMITS.body
+          ? `body-too-long:${String(parsed.note.body.length)}`
+          : undefined
         // The file name is the identity on disk. A frontmatter `id` that
         // disagrees (a hand-copied file, a rename) must not become a second
         // address for the same note: the next write would then land in a
         // different file and leave the loaded one behind.
-        this.notes.set(id, { ...parsed.note, id })
+        this.notes.set(id, {
+          ...parsed.note,
+          id,
+          ...(tooLong === undefined ? {} : { metaError: parsed.note.metaError ?? tooLong }),
+        })
       } catch (error) {
         this.log(`sticky-wall: skipping unreadable note file ${entry.name}: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -594,7 +624,19 @@ export class StickyWallStore {
     // frontmatter keys the user or a newer build owns) and `metaError` (why this
     // file's frontmatter is suspect) ride through untouched.
     const next: Note = { ...current }
-    if (patch?.body !== undefined) next.body = normalizeBodyForUpdate(patch.body)
+    if (patch?.body !== undefined) next.body = normalizeBodyForUpdate(patch.body, current.body.length)
+    /**
+     * Clear the over-limit flag once the body fits again.
+     *
+     * `load()` marks a hand-written note whose body exceeded the cap so the card
+     * can say why it is unsaveable. Shortening the body is the fix, so the mark
+     * has to come off — otherwise the card keeps warning about a problem that no
+     * longer exists. Any OTHER `metaError` (a malformed or newer frontmatter) is
+     * left alone: it describes the file, not the length.
+     */
+    if (current.metaError?.startsWith('body-too-long') === true && next.body.length <= LIMITS.body) {
+      next.metaError = undefined
+    }
     if (patch?.title !== undefined) next.title = normalizeTitle(patch.title)
     if (patch?.tags !== undefined) next.tags = normalizeTags(patch.tags)
     if (patch?.color !== undefined) next.color = normalizeColor(patch.color)

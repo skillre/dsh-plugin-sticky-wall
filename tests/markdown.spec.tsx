@@ -521,3 +521,33 @@ describe('nesting bound', () => {
     expect(serialised).toContain('x')
   })
 })
+
+/**
+ * The inline scanner must stay linear.
+ *
+ * A body of unmatched openers is legal input at the documented limit
+ * (`LIMITS.body`, 200k characters) and used to take 57 seconds to render one
+ * card — a frozen sidebar with no error and no timeout. The budget here is
+ * deliberately loose (jsdom on a loaded CI box is slow) because the point is the
+ * SHAPE of the curve: quadratic behaviour was four orders of magnitude over it.
+ */
+describe('inline scanner cost', () => {
+  it('renders a body of unmatched openers in linear time', () => {
+    for (const char of ['[', '*', '_', '~', '`']) {
+      const source = char.repeat(50_000)
+      const started = performance.now()
+      render(<Markdown source={source} />)
+      const elapsed = performance.now() - started
+      cleanup()
+      expect(elapsed, `${JSON.stringify(char)} x50000 took ${Math.round(elapsed)}ms`).toBeLessThan(5_000)
+    }
+  })
+
+  it('does not nest a link inside a link label', () => {
+    const { container } = render(<Markdown source={'[https://a.com](https://b.com)'} />)
+    // One anchor only: `<a>` cannot nest, and React warns about it.
+    expect(container.querySelectorAll('a')).toHaveLength(1)
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://b.com')
+    cleanup()
+  })
+})
